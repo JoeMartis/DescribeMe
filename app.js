@@ -47,55 +47,66 @@ Constraints
 
 OUTPUT: Return the HTML only — no code fences, no commentary — ready to embed, using semantic screen-reader-friendly markup.`;
 
+// ---------- Tunables ----------
+
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
+const MAX_BATCH_SIZE = 25;
 const ACCEPTED_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
 const ANTHROPIC_VERSION = "2023-06-01";
+
+// This app is wired specifically to MIT Parley, which proxies the Anthropic
+// Messages API. All requests go to this host — there is no user-configurable
+// base URL.
+const API_BASE_URL = "https://parley.api.mit.edu";
+
+// Claude doesn't benefit from image dimensions beyond roughly this on the long
+// edge — it downsamples internally. Resizing client-side before upload cuts
+// the base64 payload (and the image tokens billed) substantially on typical
+// slide screenshots/exports without any loss of legibility.
+const MAX_IMAGE_EDGE = 1568;
+const RESIZE_JPEG_QUALITY = 0.85;
+
+const MAX_ATTEMPTS = 4; // 1 initial try + 3 retries
+const RETRY_BASE_DELAY_MS = 1000;
+const RETRY_MAX_DELAY_MS = 15000;
 
 const els = {
   settingsToggle: document.getElementById("settingsToggle"),
   settingsBody: document.getElementById("settingsBody"),
   apiKey: document.getElementById("apiKey"),
   toggleKeyVisibility: document.getElementById("toggleKeyVisibility"),
-  baseUrl: document.getElementById("baseUrl"),
   model: document.getElementById("model"),
+  concurrency: document.getElementById("concurrency"),
   clearStoredKey: document.getElementById("clearStoredKey"),
   dropZone: document.getElementById("dropZone"),
   fileInput: document.getElementById("fileInput"),
-  previewWrap: document.getElementById("previewWrap"),
-  previewImg: document.getElementById("previewImg"),
-  removeImage: document.getElementById("removeImage"),
+  imageList: document.getElementById("imageList"),
   describeBtn: document.getElementById("describeBtn"),
+  stopBtn: document.getElementById("stopBtn"),
+  clearAllBtn: document.getElementById("clearAllBtn"),
   statusMessage: document.getElementById("statusMessage"),
   errorMessage: document.getElementById("errorMessage"),
-  resultSection: document.getElementById("resultSection"),
-  tabPreview: document.getElementById("tabPreview"),
-  tabSource: document.getElementById("tabSource"),
-  tabText: document.getElementById("tabText"),
-  viewPreview: document.getElementById("viewPreview"),
-  viewSource: document.getElementById("viewSource"),
-  viewText: document.getElementById("viewText"),
-  sourceCode: document.getElementById("sourceCode"),
-  plainTextCode: document.getElementById("plainTextCode"),
-  copyHtmlBtn: document.getElementById("copyHtmlBtn"),
-  copyTextBtn: document.getElementById("copyTextBtn"),
+  imageCardTemplate: document.getElementById("imageCardTemplate"),
 };
 
-let currentImage = null; // { base64, mediaType, name }
-let lastHtml = "";
-let lastText = "";
+/** @type {Map<string, object>} jobId -> job */
+const jobs = new Map();
+let jobSeq = 0;
+let batchRunning = false;
+let cancelRequested = false;
+const inFlightControllers = new Set();
 
 // ---------- Settings persistence ----------
 
 const STORAGE_KEYS = {
   key: "describeme.apiKey",
-  baseUrl: "describeme.baseUrl",
   model: "describeme.model",
+  concurrency: "describeme.concurrency",
   persistence: "describeme.keyPersistence",
 };
 
 function loadSettings() {
-  const persistence =
-    localStorage.getItem(STORAGE_KEYS.persistence) || "none";
+  const persistence = localStorage.getItem(STORAGE_KEYS.persistence) || "none";
   const radio = document.querySelector(
     `input[name="keyPersistence"][value="${persistence}"]`
   );
@@ -107,45 +118,37 @@ function loadSettings() {
     els.apiKey.value = sessionStorage.getItem(STORAGE_KEYS.key) || "";
   }
 
-  const savedBaseUrl =
-    localStorage.getItem(STORAGE_KEYS.baseUrl) ||
-    sessionStorage.getItem(STORAGE_KEYS.baseUrl);
-  if (savedBaseUrl) els.baseUrl.value = savedBaseUrl;
-
   const savedModel =
     localStorage.getItem(STORAGE_KEYS.model) ||
     sessionStorage.getItem(STORAGE_KEYS.model);
   if (savedModel) els.model.value = savedModel;
+
+  const savedConcurrency =
+    localStorage.getItem(STORAGE_KEYS.concurrency) ||
+    sessionStorage.getItem(STORAGE_KEYS.concurrency);
+  if (savedConcurrency) els.concurrency.value = savedConcurrency;
 }
 
 function currentPersistenceMode() {
-  const checked = document.querySelector(
-    'input[name="keyPersistence"]:checked'
-  );
+  const checked = document.querySelector('input[name="keyPersistence"]:checked');
   return checked ? checked.value : "none";
 }
 
 function persistSettings() {
   const mode = currentPersistenceMode();
 
-  // Always clear both stores first, then write to the selected one.
-  localStorage.removeItem(STORAGE_KEYS.key);
-  sessionStorage.removeItem(STORAGE_KEYS.key);
-  localStorage.removeItem(STORAGE_KEYS.baseUrl);
-  sessionStorage.removeItem(STORAGE_KEYS.baseUrl);
-  localStorage.removeItem(STORAGE_KEYS.model);
-  sessionStorage.removeItem(STORAGE_KEYS.model);
+  [STORAGE_KEYS.key, STORAGE_KEYS.model, STORAGE_KEYS.concurrency].forEach((k) => {
+    localStorage.removeItem(k);
+    sessionStorage.removeItem(k);
+  });
 
   localStorage.setItem(STORAGE_KEYS.persistence, mode);
 
-  if (mode === "local") {
-    localStorage.setItem(STORAGE_KEYS.key, els.apiKey.value);
-    localStorage.setItem(STORAGE_KEYS.baseUrl, els.baseUrl.value);
-    localStorage.setItem(STORAGE_KEYS.model, els.model.value);
-  } else if (mode === "session") {
-    sessionStorage.setItem(STORAGE_KEYS.key, els.apiKey.value);
-    sessionStorage.setItem(STORAGE_KEYS.baseUrl, els.baseUrl.value);
-    sessionStorage.setItem(STORAGE_KEYS.model, els.model.value);
+  if (mode === "local" || mode === "session") {
+    const store = mode === "local" ? localStorage : sessionStorage;
+    store.setItem(STORAGE_KEYS.key, els.apiKey.value);
+    store.setItem(STORAGE_KEYS.model, els.model.value);
+    store.setItem(STORAGE_KEYS.concurrency, els.concurrency.value);
   }
 }
 
@@ -153,17 +156,15 @@ document
   .querySelectorAll('input[name="keyPersistence"]')
   .forEach((radio) => radio.addEventListener("change", persistSettings));
 els.apiKey.addEventListener("input", persistSettings);
-els.baseUrl.addEventListener("input", persistSettings);
 els.model.addEventListener("input", persistSettings);
+els.concurrency.addEventListener("input", persistSettings);
 
 els.clearStoredKey.addEventListener("click", () => {
   localStorage.removeItem(STORAGE_KEYS.key);
   sessionStorage.removeItem(STORAGE_KEYS.key);
   localStorage.removeItem(STORAGE_KEYS.persistence);
   els.apiKey.value = "";
-  document.querySelector(
-    'input[name="keyPersistence"][value="none"]'
-  ).checked = true;
+  document.querySelector('input[name="keyPersistence"][value="none"]').checked = true;
   setStatus("Stored API key cleared.");
 });
 
@@ -182,7 +183,7 @@ els.toggleKeyVisibility.addEventListener("click", () => {
   els.toggleKeyVisibility.textContent = isPassword ? "Hide" : "Show";
 });
 
-// ---------- File handling ----------
+// ---------- Status / error helpers ----------
 
 function setStatus(message) {
   els.statusMessage.textContent = message;
@@ -198,44 +199,292 @@ function setError(message) {
   }
 }
 
-function handleFile(file) {
-  setError("");
+// ---------- Image loading & client-side optimization ----------
 
-  if (!file) return;
-
-  if (!ACCEPTED_TYPES.includes(file.type)) {
-    setError(
-      `Unsupported file type "${file.type || "unknown"}". Please use PNG, JPEG, WebP, or GIF.`
-    );
-    return;
-  }
-
-  if (file.size > MAX_FILE_BYTES) {
-    setError(
-      `That image is ${(file.size / (1024 * 1024)).toFixed(1)} MB, which is over the 5 MB limit.`
-    );
-    return;
-  }
-
-  const reader = new FileReader();
-  reader.onload = () => {
-    const dataUrl = reader.result;
-    const base64 = dataUrl.slice(dataUrl.indexOf(",") + 1);
-    currentImage = { base64, mediaType: file.type, name: file.name };
-    els.previewImg.src = dataUrl;
-    els.previewImg.alt = `Preview of uploaded slide: ${file.name}`;
-    els.previewWrap.hidden = false;
-    updateDescribeButtonState();
-    setStatus(`Loaded "${file.name}". Ready to describe.`);
-  };
-  reader.onerror = () => {
-    setError("Could not read that file. Please try again.");
-  };
-  reader.readAsDataURL(file);
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error("Could not read the file."));
+    reader.readAsDataURL(file);
+  });
 }
 
+function loadImageElement(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("Could not decode that image."));
+    img.src = src;
+  });
+}
+
+/**
+ * Load a file and, if it's larger than what the model can usefully see,
+ * downscale + recompress it in-browser. This is the main lever for making
+ * each API call cheaper and faster: fewer pixels means fewer image tokens
+ * billed and a smaller request body, with no loss of legibility for slide
+ * content since Claude downsamples large images internally anyway.
+ */
+async function prepareImageForUpload(file) {
+  const dataUrl = await readFileAsDataUrl(file);
+  const img = await loadImageElement(dataUrl);
+  const longestEdge = Math.max(img.naturalWidth, img.naturalHeight);
+
+  const needsResize = longestEdge > MAX_IMAGE_EDGE;
+
+  if (!needsResize) {
+    return {
+      dataUrl,
+      base64: dataUrl.slice(dataUrl.indexOf(",") + 1),
+      mediaType: file.type,
+      width: img.naturalWidth,
+      height: img.naturalHeight,
+      resized: false,
+    };
+  }
+
+  const scale = MAX_IMAGE_EDGE / longestEdge;
+  const targetW = Math.max(1, Math.round(img.naturalWidth * scale));
+  const targetH = Math.max(1, Math.round(img.naturalHeight * scale));
+
+  const canvas = document.createElement("canvas");
+  canvas.width = targetW;
+  canvas.height = targetH;
+  const ctx = canvas.getContext("2d");
+  // Flatten onto white first: JPEG has no alpha channel, and slide exports
+  // with transparent backgrounds would otherwise turn black.
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, targetW, targetH);
+  ctx.drawImage(img, 0, 0, targetW, targetH);
+
+  const mediaType = "image/jpeg";
+  const resizedDataUrl = canvas.toDataURL(mediaType, RESIZE_JPEG_QUALITY);
+
+  return {
+    dataUrl: resizedDataUrl,
+    base64: resizedDataUrl.slice(resizedDataUrl.indexOf(",") + 1),
+    mediaType,
+    width: targetW,
+    height: targetH,
+    resized: true,
+    originalWidth: img.naturalWidth,
+    originalHeight: img.naturalHeight,
+  };
+}
+
+// ---------- Queue management ----------
+
+function makeJobId() {
+  jobSeq += 1;
+  return `job-${jobSeq}`;
+}
+
+function createJobCard(job) {
+  const fragment = els.imageCardTemplate.content.cloneNode(true);
+  const li = fragment.querySelector(".image-card");
+  li.dataset.jobId = job.id;
+
+  const thumb = li.querySelector(".thumb");
+  thumb.src = job.previewDataUrl;
+  thumb.alt = "";
+
+  li.querySelector(".image-card-name").textContent = job.name;
+
+  li.querySelector(".retry-btn").addEventListener("click", () => retryJob(job.id));
+  li.querySelector(".remove-btn").addEventListener("click", () => removeJob(job.id));
+  li.querySelector(".copy-html-btn").addEventListener("click", (e) => {
+    copyToClipboard(job.resultHtml, e.currentTarget, "HTML");
+  });
+  li.querySelector(".copy-text-btn").addEventListener("click", (e) => {
+    copyToClipboard(job.resultText, e.currentTarget, "text");
+  });
+
+  els.imageList.appendChild(fragment);
+  job.el = els.imageList.querySelector(`[data-job-id="${job.id}"]`);
+  renderJobState(job);
+}
+
+function renderJobState(job) {
+  const el = job.el;
+  if (!el) return;
+  el.dataset.state = job.state;
+
+  const statusEl = el.querySelector(".image-card-status");
+  const retryBtn = el.querySelector(".retry-btn");
+  const resultArea = el.querySelector(".result-area");
+
+  switch (job.state) {
+    case "pending":
+      statusEl.textContent = job.resized
+        ? `Ready (resized ${job.originalWidth}×${job.originalHeight} → ${job.width}×${job.height} for a smaller, faster request)`
+        : "Ready";
+      retryBtn.hidden = true;
+      resultArea.hidden = true;
+      break;
+    case "describing":
+      statusEl.textContent =
+        job.attempt > 1 ? `Describing… (retry ${job.attempt - 1})` : "Describing…";
+      retryBtn.hidden = true;
+      resultArea.hidden = true;
+      break;
+    case "done":
+      statusEl.textContent = "Done";
+      retryBtn.hidden = true;
+      resultArea.hidden = false;
+      break;
+    case "error":
+      statusEl.textContent = `Failed: ${job.error || "unknown error"}`;
+      retryBtn.hidden = false;
+      resultArea.hidden = true;
+      break;
+    case "canceled":
+      statusEl.textContent = "Canceled";
+      retryBtn.hidden = false;
+      resultArea.hidden = true;
+      break;
+    case "invalid":
+      statusEl.textContent = `Couldn't load this image: ${job.error || "unknown error"}`;
+      retryBtn.hidden = true;
+      resultArea.hidden = true;
+      break;
+  }
+
+  updateDescribeButtonState();
+  updateOverallStatus();
+}
+
+async function addFiles(fileList) {
+  setError("");
+  const files = Array.from(fileList);
+  if (files.length === 0) return;
+
+  const room = MAX_BATCH_SIZE - jobs.size;
+  if (room <= 0) {
+    setError(`You already have the maximum of ${MAX_BATCH_SIZE} images queued.`);
+    return;
+  }
+  const toAdd = files.slice(0, room);
+  if (files.length > toAdd.length) {
+    setError(
+      `Only added ${toAdd.length} of ${files.length} files — batches are capped at ${MAX_BATCH_SIZE} images.`
+    );
+  }
+
+  for (const file of toAdd) {
+    if (!ACCEPTED_TYPES.includes(file.type)) {
+      setError(`Skipped "${file.name}": unsupported type "${file.type || "unknown"}".`);
+      continue;
+    }
+    if (file.size > MAX_FILE_BYTES) {
+      setError(
+        `Skipped "${file.name}": ${(file.size / (1024 * 1024)).toFixed(1)} MB is over the 5 MB limit.`
+      );
+      continue;
+    }
+
+    const job = {
+      id: makeJobId(),
+      name: file.name,
+      state: "pending",
+      attempt: 0,
+      error: null,
+      resultHtml: "",
+      resultText: "",
+      el: null,
+    };
+    jobs.set(job.id, job);
+
+    try {
+      const prepared = await prepareImageForUpload(file);
+      Object.assign(job, prepared, { previewDataUrl: prepared.dataUrl });
+      createJobCard(job);
+    } catch (err) {
+      // The file itself couldn't be decoded (corrupt/unsupported) — this is
+      // permanent, not something retrying the API call would fix, so it gets
+      // its own terminal state and is excluded from the runnable batch.
+      job.state = "invalid";
+      job.error = err.message || String(err);
+      job.previewDataUrl =
+        "data:image/svg+xml;utf8," +
+        encodeURIComponent(
+          '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"></svg>'
+        );
+      createJobCard(job);
+    }
+  }
+
+  updateDescribeButtonState();
+  updateOverallStatus();
+}
+
+function removeJob(jobId) {
+  const job = jobs.get(jobId);
+  if (!job) return;
+  if (job.state === "describing") return; // don't remove mid-flight
+  job.el?.remove();
+  jobs.delete(jobId);
+  updateDescribeButtonState();
+  updateOverallStatus();
+}
+
+function retryJob(jobId) {
+  const job = jobs.get(jobId);
+  if (!job) return;
+  job.state = "pending";
+  job.error = null;
+  job.attempt = 0;
+  renderJobState(job);
+  updateDescribeButtonState();
+}
+
+els.clearAllBtn.addEventListener("click", () => {
+  if (batchRunning) return;
+  jobs.clear();
+  els.imageList.innerHTML = "";
+  updateDescribeButtonState();
+  updateOverallStatus();
+  setError("");
+});
+
+function updateDescribeButtonState() {
+  const hasApiKey = !!els.apiKey.value.trim();
+  const hasRunnable = [...jobs.values()].some(
+    (j) => j.state === "pending" || j.state === "error" || j.state === "canceled"
+  );
+  els.describeBtn.disabled = batchRunning || !hasApiKey || !hasRunnable;
+  els.clearAllBtn.hidden = jobs.size === 0 || batchRunning;
+}
+
+els.apiKey.addEventListener("input", updateDescribeButtonState);
+
+function updateOverallStatus() {
+  if (jobs.size === 0) {
+    if (!batchRunning) setStatus("");
+    return;
+  }
+  const counts = { pending: 0, describing: 0, done: 0, error: 0, canceled: 0 };
+  jobs.forEach((j) => (counts[j.state] = (counts[j.state] || 0) + 1));
+
+  if (batchRunning) {
+    setStatus(
+      `Describing… ${counts.done} done, ${counts.describing} in progress, ` +
+        `${counts.pending} queued${counts.error ? `, ${counts.error} failed` : ""}.`
+    );
+  } else if (counts.done > 0 || counts.error > 0 || counts.invalid > 0) {
+    const parts = [`${counts.done} of ${jobs.size} described`];
+    if (counts.error) parts.push(`${counts.error} failed`);
+    if (counts.canceled) parts.push(`${counts.canceled} canceled`);
+    if (counts.invalid) parts.push(`${counts.invalid} couldn't be loaded`);
+    setStatus(parts.join(", ") + ".");
+  }
+}
+
+// ---------- File input / drag & drop ----------
+
 els.fileInput.addEventListener("change", (e) => {
-  handleFile(e.target.files[0]);
+  addFiles(e.target.files);
+  els.fileInput.value = "";
 });
 
 els.dropZone.addEventListener("keydown", (e) => {
@@ -260,126 +509,234 @@ els.dropZone.addEventListener("keydown", (e) => {
 });
 
 els.dropZone.addEventListener("drop", (e) => {
-  const file = e.dataTransfer.files && e.dataTransfer.files[0];
-  handleFile(file);
-});
-
-els.removeImage.addEventListener("click", () => {
-  currentImage = null;
-  els.fileInput.value = "";
-  els.previewWrap.hidden = true;
-  els.previewImg.src = "";
-  updateDescribeButtonState();
-  setStatus("");
-});
-
-function updateDescribeButtonState() {
-  els.describeBtn.disabled = !currentImage || !els.apiKey.value.trim();
-}
-
-els.apiKey.addEventListener("input", updateDescribeButtonState);
-
-// ---------- Describe action ----------
-
-els.describeBtn.addEventListener("click", describeSlide);
-
-async function describeSlide() {
-  if (!currentImage) {
-    setError("Please upload a slide image first.");
-    return;
+  if (e.dataTransfer.files && e.dataTransfer.files.length) {
+    addFiles(e.dataTransfer.files);
   }
+});
 
+// ---------- Batch processing ----------
+
+els.describeBtn.addEventListener("click", runBatch);
+els.stopBtn.addEventListener("click", () => {
+  cancelRequested = true;
+  els.stopBtn.disabled = true;
+  setStatus("Stopping — finishing in-flight requests…");
+  inFlightControllers.forEach((c) => c.abort());
+});
+
+async function runBatch() {
   const apiKey = els.apiKey.value.trim();
   if (!apiKey) {
     setError("Please enter your API key in API Settings.");
     return;
   }
 
-  const baseUrl = (els.baseUrl.value.trim() || "https://api.anthropic.com").replace(/\/+$/, "");
+  const runnable = [...jobs.values()].filter(
+    (j) => j.state === "pending" || j.state === "error" || j.state === "canceled"
+  );
+  if (runnable.length === 0) return;
+
   const model = els.model.value.trim() || "claude-haiku-4-5";
+  const concurrency = Math.min(
+    6,
+    Math.max(1, parseInt(els.concurrency.value, 10) || 3)
+  );
 
   setError("");
-  setStatus("Describing slide…");
+  batchRunning = true;
+  cancelRequested = false;
   els.describeBtn.disabled = true;
-  els.resultSection.hidden = true;
+  els.stopBtn.hidden = false;
+  els.stopBtn.disabled = false;
+  els.clearAllBtn.hidden = true;
+  updateOverallStatus();
 
-  try {
-    const response = await fetch(`${baseUrl}/v1/messages`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": ANTHROPIC_VERSION,
-        "anthropic-dangerous-direct-browser-access": "true",
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens: 4096,
-        system: SYSTEM_PROMPT,
-        messages: [
-          {
-            role: "user",
-            content: [
-              {
-                type: "image",
-                source: {
-                  type: "base64",
-                  media_type: currentImage.mediaType,
-                  data: currentImage.base64,
+  runnable.forEach((job) => {
+    job.attempt = 0;
+    job.error = null;
+  });
+
+  await runWithConcurrency(runnable, concurrency, (job) =>
+    describeOne(job, { apiKey, model })
+  );
+
+  batchRunning = false;
+  els.stopBtn.hidden = true;
+  updateDescribeButtonState();
+  updateOverallStatus();
+}
+
+async function runWithConcurrency(items, limit, worker) {
+  let idx = 0;
+  const poolSize = Math.min(limit, items.length);
+  const pool = new Array(poolSize).fill(null).map(async () => {
+    while (idx < items.length) {
+      if (cancelRequested) {
+        const remaining = items[idx++];
+        if (remaining.state === "pending" || remaining.state === "describing") {
+          remaining.state = "canceled";
+          renderJobState(remaining);
+        }
+        continue;
+      }
+      const item = items[idx++];
+      await worker(item);
+    }
+  });
+  await Promise.all(pool);
+}
+
+async function describeOne(job, { apiKey, model }) {
+  job.state = "describing";
+  job.attempt = 1;
+  renderJobState(job);
+
+  while (true) {
+    if (cancelRequested) {
+      job.state = "canceled";
+      renderJobState(job);
+      return;
+    }
+
+    const controller = new AbortController();
+    inFlightControllers.add(controller);
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/v1/messages`, {
+        method: "POST",
+        signal: controller.signal,
+        headers: {
+          "content-type": "application/json",
+          "x-api-key": apiKey,
+          "anthropic-version": ANTHROPIC_VERSION,
+          "anthropic-dangerous-direct-browser-access": "true",
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: 4096,
+          system: SYSTEM_PROMPT,
+          messages: [
+            {
+              role: "user",
+              content: [
+                {
+                  type: "image",
+                  source: {
+                    type: "base64",
+                    media_type: job.mediaType,
+                    data: job.base64,
+                  },
                 },
-              },
-              {
-                type: "text",
-                text: "Describe this STEM lecture slide following the system instructions.",
-              },
-            ],
-          },
-        ],
-      }),
-    });
+                {
+                  type: "text",
+                  text: "Describe this STEM lecture slide following the system instructions.",
+                },
+              ],
+            },
+          ],
+        }),
+      });
 
-    const payload = await response.json().catch(() => null);
+      inFlightControllers.delete(controller);
 
-    if (!response.ok) {
-      const apiMessage =
-        payload && payload.error && payload.error.message
-          ? payload.error.message
-          : `HTTP ${response.status}`;
-      throw new Error(apiMessage);
+      if (response.status === 429 || response.status >= 500) {
+        if (job.attempt >= MAX_ATTEMPTS) {
+          const payload = await response.json().catch(() => null);
+          throw new Error(apiErrorMessage(payload, response.status));
+        }
+        const retryAfterHeader = parseFloat(response.headers.get("retry-after"));
+        await sleep(retryDelay(job.attempt, retryAfterHeader));
+        if (cancelRequested) {
+          job.state = "canceled";
+          renderJobState(job);
+          return;
+        }
+        job.attempt += 1;
+        renderJobState(job); // updates the "retry N" status for the next attempt
+        continue;
+      }
+
+      const payload = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(apiErrorMessage(payload, response.status));
+      }
+
+      if (!payload || !Array.isArray(payload.content)) {
+        throw new Error("Unexpected response shape from the API.");
+      }
+
+      const textBlock = payload.content.find((b) => b.type === "text");
+      if (!textBlock || !textBlock.text) {
+        throw new Error("The model did not return any text content.");
+      }
+
+      applyResult(job, textBlock.text);
+      job.state = "done";
+      renderJobState(job);
+      return;
+    } catch (err) {
+      inFlightControllers.delete(controller);
+
+      if (err.name === "AbortError") {
+        job.state = "canceled";
+        renderJobState(job);
+        return;
+      }
+
+      if (err.name === "TypeError" && job.attempt < MAX_ATTEMPTS) {
+        // Likely a transient network error — retry the same as a 5xx.
+        await sleep(retryDelay(job.attempt, NaN));
+        if (cancelRequested) {
+          job.state = "canceled";
+          renderJobState(job);
+          return;
+        }
+        job.attempt += 1;
+        renderJobState(job);
+        continue;
+      }
+
+      job.state = "error";
+      job.error = describeFetchError(err);
+      renderJobState(job);
+      return;
     }
-
-    if (!payload || !Array.isArray(payload.content)) {
-      throw new Error("Unexpected response shape from the API.");
-    }
-
-    const textBlock = payload.content.find((b) => b.type === "text");
-    if (!textBlock || !textBlock.text) {
-      throw new Error("The model did not return any text content.");
-    }
-
-    renderResult(textBlock.text);
-    setStatus("Description ready.");
-  } catch (err) {
-    console.error(err);
-    setError(describeFetchError(err));
-    setStatus("");
-  } finally {
-    updateDescribeButtonState();
   }
+}
+
+function retryDelay(attempt, retryAfterSeconds) {
+  if (!Number.isNaN(retryAfterSeconds) && retryAfterSeconds > 0) {
+    return Math.min(retryAfterSeconds * 1000, RETRY_MAX_DELAY_MS);
+  }
+  const exponential = RETRY_BASE_DELAY_MS * 2 ** (attempt - 1);
+  const jitter = Math.random() * 250;
+  return Math.min(exponential + jitter, RETRY_MAX_DELAY_MS);
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function apiErrorMessage(payload, status) {
+  if (payload && payload.error && payload.error.message) {
+    return payload.error.message;
+  }
+  return `HTTP ${status}`;
 }
 
 function describeFetchError(err) {
   const msg = err && err.message ? err.message : String(err);
   if (msg === "Failed to fetch") {
     return (
-      "Network request failed. This can happen if the API base URL is wrong, " +
-      "you're offline, or the API does not allow direct browser requests from this origin (CORS)."
+      "Network request failed (you may be offline, or MIT Parley blocked this " +
+      "direct-from-browser request)."
     );
   }
-  return `Request failed: ${msg}`;
+  return msg;
 }
 
-// ---------- Rendering & sanitizing ----------
+// ---------- Rendering & sanitizing results ----------
 
 function sanitizeHtmlFragment(html) {
   const trimmed = html
@@ -429,7 +786,6 @@ function sanitizeHtmlFragment(html) {
 
 function domFragmentToText(fragment) {
   const clone = fragment.cloneNode(true);
-  // Remove raw MathML nodes; keep their sr-note plain-language reading instead.
   clone.querySelectorAll("math").forEach((m) => m.remove());
 
   const BLOCK_TAGS = new Set([
@@ -461,45 +817,22 @@ function domFragmentToText(fragment) {
     .trim();
 }
 
-function renderResult(rawHtml) {
+function applyResult(job, rawHtml) {
   const fragment = sanitizeHtmlFragment(rawHtml);
 
-  els.viewPreview.innerHTML = "";
-  els.viewPreview.appendChild(fragment.cloneNode(true));
+  const previewEl = job.el.querySelector(".result-preview");
+  previewEl.innerHTML = "";
+  previewEl.appendChild(fragment.cloneNode(true));
 
-  lastHtml = els.viewPreview.innerHTML;
-  els.sourceCode.textContent = lastHtml;
-
-  lastText = domFragmentToText(fragment);
-  els.plainTextCode.textContent = lastText;
-
-  els.resultSection.hidden = false;
-  els.resultSection.scrollIntoView({ behavior: "smooth", block: "start" });
+  job.resultHtml = previewEl.innerHTML;
+  job.el.querySelector(".source-code").textContent = job.resultHtml;
+  job.resultText = domFragmentToText(fragment);
 }
-
-// ---------- Tabs ----------
-
-const tabs = [
-  { btn: els.tabPreview, panel: els.viewPreview },
-  { btn: els.tabSource, panel: els.viewSource },
-  { btn: els.tabText, panel: els.viewText },
-];
-
-tabs.forEach(({ btn, panel }) => {
-  btn.addEventListener("click", () => {
-    tabs.forEach(({ btn: b, panel: p }) => {
-      const active = b === btn;
-      b.setAttribute("aria-selected", String(active));
-      b.classList.toggle("active", active);
-      p.hidden = !active;
-    });
-    panel.focus?.();
-  });
-});
 
 // ---------- Copy buttons ----------
 
 async function copyToClipboard(text, button, label) {
+  if (!text) return;
   try {
     await navigator.clipboard.writeText(text);
     const original = button.textContent;
@@ -511,14 +844,6 @@ async function copyToClipboard(text, button, label) {
     setError(`Could not copy ${label} to clipboard: ${err.message}`);
   }
 }
-
-els.copyHtmlBtn.addEventListener("click", () => {
-  copyToClipboard(lastHtml, els.copyHtmlBtn, "HTML");
-});
-
-els.copyTextBtn.addEventListener("click", () => {
-  copyToClipboard(lastText, els.copyTextBtn, "text");
-});
 
 // ---------- Init ----------
 

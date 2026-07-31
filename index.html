@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>DescribeMe — STEM Slide Accessibility Descriptions</title>
-<meta name="description" content="Upload a STEM lecture slide and generate a screen-reader-friendly extended description using Claude.">
+<meta name="description" content="Upload STEM lecture slides and generate screen-reader-friendly extended descriptions using Claude.">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -25,31 +25,32 @@
     </h2>
     <div id="settingsBody" class="panel-body" hidden>
       <p class="hint">
-        Your API key is used only to call the Anthropic Messages API directly from this page in your browser.
-        It is never sent to any server other than the API endpoint below.
+        Your API key is used only to call the MIT Parley API (<code>https://parley.api.mit.edu</code>)
+        directly from this page in your browser. It is never sent to any other server.
       </p>
 
       <div class="field">
-        <label for="apiKey">API key</label>
+        <label for="apiKey">MIT Parley API key</label>
         <div class="input-with-button">
           <input type="password" id="apiKey" autocomplete="off" spellcheck="false"
-                 placeholder="sk-ant-... or sk-parley-v1-..." aria-describedby="apiKeyHint">
+                 placeholder="sk-parley-v1-..." aria-describedby="apiKeyHint">
           <button type="button" id="toggleKeyVisibility" aria-pressed="false">Show</button>
         </div>
-        <p class="hint" id="apiKeyHint">Your normal Anthropic API key, or an MIT Parley key (see below).</p>
-      </div>
-
-      <div class="field">
-        <label for="baseUrl">API base URL</label>
-        <input type="text" id="baseUrl" autocomplete="off" spellcheck="false" value="https://api.anthropic.com">
-        <p class="hint">
-          Default is Anthropic's API. For MIT Parley, use <code>https://parley.api.mit.edu</code>.
-        </p>
+        <p class="hint" id="apiKeyHint">Your MIT Parley key.</p>
       </div>
 
       <div class="field">
         <label for="model">Model</label>
         <input type="text" id="model" autocomplete="off" spellcheck="false" value="claude-haiku-4-5">
+      </div>
+
+      <div class="field">
+        <label for="concurrency">Max simultaneous requests</label>
+        <input type="number" id="concurrency" min="1" max="6" step="1" value="3" style="max-width: 6em;">
+        <p class="hint">
+          How many slides to describe at once when processing a batch. Higher is faster but more likely to
+          hit rate limits; lower is slower but safer.
+        </p>
       </div>
 
       <fieldset class="field">
@@ -73,56 +74,71 @@
   </section>
 
   <section class="panel" aria-labelledby="upload-heading">
-    <h2 id="upload-heading">1. Upload a slide image</h2>
+    <h2 id="upload-heading">1. Upload slide images</h2>
 
     <div id="dropZone" class="drop-zone" tabindex="0" role="button"
-         aria-describedby="dropZoneHint" aria-label="Upload a slide image">
-      <p>Drag and drop an image here, or choose a file.</p>
-      <input type="file" id="fileInput" accept="image/png,image/jpeg,image/webp,image/gif">
+         aria-describedby="dropZoneHint" aria-label="Upload slide images">
+      <svg class="drop-zone-icon" viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+        <rect x="7" y="7" width="50" height="50" rx="10" fill="none" stroke="currentColor" stroke-width="2.5"/>
+        <circle cx="23" cy="24" r="5.5" fill="currentColor"/>
+        <path d="M11 47 L26 32 L35 41 L44 28 L53 39 V49 A4 4 0 0 1 49 53 H15 A4 4 0 0 1 11 49 Z"
+              fill="currentColor" opacity="0.85"/>
+      </svg>
+      <p class="drop-zone-title">Drop slide images here</p>
+      <p class="drop-zone-subtitle">or click to browse your files</p>
+      <input type="file" id="fileInput" accept="image/png,image/jpeg,image/webp,image/gif" multiple>
     </div>
-    <p class="hint" id="dropZoneHint">Accepted formats: PNG, JPEG, WebP, GIF. Max size 5 MB.</p>
+    <p class="hint" id="dropZoneHint">
+      Accepted formats: PNG, JPEG, WebP, GIF. Max 5 MB and 25 images per batch. Large images are
+      automatically resized in your browser before upload to keep requests fast and cheap.
+    </p>
 
-    <div id="previewWrap" class="preview-wrap" hidden>
-      <img id="previewImg" alt="Preview of the uploaded slide, not yet described.">
-      <button type="button" id="removeImage" class="secondary">Remove image</button>
-    </div>
+    <ul id="imageList" class="image-list"></ul>
   </section>
 
   <section class="panel" aria-labelledby="describe-heading">
-    <h2 id="describe-heading">2. Generate description</h2>
-    <button type="button" id="describeBtn" disabled>Describe slide</button>
+    <h2 id="describe-heading">2. Generate descriptions</h2>
+    <div class="button-row">
+      <button type="button" id="describeBtn" disabled>Describe all</button>
+      <button type="button" id="stopBtn" class="secondary" hidden>Stop</button>
+      <button type="button" id="clearAllBtn" class="secondary" hidden>Clear all</button>
+    </div>
     <p id="statusMessage" class="status" role="status" aria-live="polite"></p>
     <p id="errorMessage" class="error" role="alert" hidden></p>
   </section>
 
-  <section class="panel" id="resultSection" aria-labelledby="result-heading" hidden>
-    <h2 id="result-heading">3. Description</h2>
-
-    <div class="tabs" role="tablist" aria-label="Description view">
-      <button type="button" role="tab" id="tabPreview" aria-controls="viewPreview" aria-selected="true" class="tab active">Rendered preview</button>
-      <button type="button" role="tab" id="tabSource" aria-controls="viewSource" aria-selected="false" class="tab">HTML source</button>
-      <button type="button" role="tab" id="tabText" aria-controls="viewText" aria-selected="false" class="tab">Plain text</button>
-    </div>
-
-    <div class="tab-actions">
-      <button type="button" id="copyHtmlBtn" class="secondary">Copy HTML</button>
-      <button type="button" id="copyTextBtn" class="secondary">Copy plain text</button>
-    </div>
-
-    <div id="viewPreview" role="tabpanel" aria-labelledby="tabPreview" class="tabpanel result-preview"></div>
-    <div id="viewSource" role="tabpanel" aria-labelledby="tabSource" class="tabpanel" hidden>
-      <pre id="sourceCode"></pre>
-    </div>
-    <div id="viewText" role="tabpanel" aria-labelledby="tabText" class="tabpanel" hidden>
-      <pre id="plainTextCode"></pre>
-    </div>
-  </section>
-
 </main>
+
+<template id="imageCardTemplate">
+  <li class="image-card" data-state="pending">
+    <div class="image-card-header">
+      <img class="thumb" alt="">
+      <div class="image-card-meta">
+        <p class="image-card-name"></p>
+        <p class="image-card-status status"></p>
+      </div>
+      <div class="image-card-controls">
+        <button type="button" class="retry-btn secondary small" hidden>Retry</button>
+        <button type="button" class="remove-btn secondary small">Remove</button>
+      </div>
+    </div>
+    <div class="result-area" hidden>
+      <div class="result-actions">
+        <button type="button" class="copy-html-btn secondary small">Copy HTML</button>
+        <button type="button" class="copy-text-btn secondary small">Copy plain text</button>
+      </div>
+      <div class="result-preview"></div>
+      <details class="source-details">
+        <summary>HTML source</summary>
+        <pre class="source-code"></pre>
+      </details>
+    </div>
+  </li>
+</template>
 
 <footer class="site-footer">
   <p>
-    DescribeMe runs entirely in your browser and calls the Anthropic API directly.
+    DescribeMe runs entirely in your browser and calls the MIT Parley API directly.
     No image, key, or description is sent to or stored on any server operated by this site.
   </p>
 </footer>

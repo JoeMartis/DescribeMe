@@ -1,31 +1,55 @@
 # DescribeMe
 
 A tiny, standalone web app that generates screen-reader-friendly extended
-descriptions of STEM lecture slides using Claude. Upload a slide image, click
-**Describe slide**, and get back semantic HTML (with MathML for equations)
-ready to embed next to the slide.
+descriptions of STEM lecture slides using Claude. Upload one or more slide
+images, click **Describe all**, and get back semantic HTML (with MathML for
+equations) ready to embed next to each slide.
 
 The whole thing is static HTML/CSS/JS — no build step, no backend. It calls
-the Anthropic Messages API directly from your browser using an API key you
-supply, and is designed to be hosted for free on GitHub Pages.
+the MIT Parley API (an Anthropic-API-compatible proxy) directly from your
+browser using an API key you supply, and is designed to be hosted for free on
+GitHub Pages.
 
 ## Using it
 
 1. Open the page.
-2. Expand **API Settings** and enter your API key.
-   - A normal Anthropic API key (`sk-ant-...`), **or**
-   - An MIT Parley key (`sk-parley-v1-...`) — set the **API base URL** field
-     to `https://parley.api.mit.edu` when using this.
+2. Expand **API Settings** and enter your MIT Parley API key
+   (`sk-parley-v1-...`).
 3. Choose whether to remember the key for this tab only, on this device, or
    not at all (the default — nothing is written to storage, and the key only
    lives in page memory until you reload).
-4. Upload a slide image (PNG, JPEG, WebP, or GIF, up to 5 MB).
-5. Click **Describe slide**. The result appears as a rendered preview, raw
-   HTML source you can copy and embed, and a plain-text version.
+4. Optionally adjust **Max simultaneous requests** — how many slides are
+   described in parallel when you process a batch (default 3).
+5. Drag and drop slide images (or click to browse) — PNG, JPEG, WebP, or GIF,
+   up to 5 MB each and 25 per batch. Large images are automatically resized
+   in your browser before upload.
+6. Click **Describe all**. Each slide gets its own card with a rendered
+   preview, copy buttons for the HTML and plain text, and a collapsible raw
+   HTML source view. Failed items get a **Retry** button; you can **Stop** a
+   batch mid-run, and remove or re-run individual slides at any time.
 
-Nothing is uploaded to any server other than the Anthropic API endpoint you
-configure. There is no backend for this site — GitHub Pages only serves the
-static files.
+Nothing is uploaded to any server other than the MIT Parley endpoint. There is
+no backend for this site — GitHub Pages only serves the static files.
+
+## Making the API calls efficient
+
+A few things keep batches fast and cheap:
+
+- **Client-side image downscaling.** Images are resized in-browser (via
+  `<canvas>`) to at most 1568px on the long edge before upload — Claude
+  downsamples larger images internally anyway, so sending them at full
+  resolution only adds tokens and upload time without improving the
+  description. Small images are sent unmodified.
+- **Bounded concurrency.** Slides in a batch are described in parallel, up to
+  the configurable "Max simultaneous requests" limit (default 3), instead of
+  either running one at a time (slow) or firing everything at once (likely to
+  hit rate limits and waste retries).
+- **Automatic retry with backoff.** Rate-limit (429) and server (5xx)
+  responses, and transient network failures, are retried with exponential
+  backoff (respecting the API's `retry-after` header when present) instead of
+  failing the whole slide on the first hiccup.
+- **A single request per slide.** Each image gets exactly one Messages API
+  call — no unnecessary round trips.
 
 ## Hosting on GitHub Pages
 
@@ -39,31 +63,22 @@ static files.
 No secrets or environment variables are needed at deploy time — the API key
 is entered by whoever uses the page, in their own browser.
 
-## About the MIT Parley key
+## About MIT Parley
 
-MIT Parley proxies requests to the Anthropic API. The setup instructions for
-using it with Anthropic's own tools are:
-
-```
-export ANTHROPIC_BASE_URL=https://parley.api.mit.edu
-export ANTHROPIC_API_KEY=sk-parley-v1-...your-key...
-```
-
-This app has no environment to read those variables from (it's static, and
-your key should never live in a committed file), so instead you paste the key
-into the **API key** field and set **API base URL** to
-`https://parley.api.mit.edu`. The app sends requests to
-`{base URL}/v1/messages` exactly as the Anthropic SDK would.
+MIT Parley proxies requests to the Anthropic API. This app talks to it at a
+fixed base URL (`https://parley.api.mit.edu`) and sends requests to
+`/v1/messages` exactly as the Anthropic SDK would, using the key you enter in
+**API Settings**.
 
 ## Security notes
 
-- Your API key is only ever sent as an `x-api-key` header on requests to the
-  base URL you configure — it is never sent anywhere else, and this site has
-  no server component to intercept or log it.
+- Your API key is only ever sent as an `x-api-key` header on requests to MIT
+  Parley — it is never sent anywhere else, and this site has no server
+  component to intercept or log it.
 - By default the key is kept only in page memory and is gone as soon as you
   reload or close the tab. The "remember" options use your browser's
   `sessionStorage`/`localStorage`, entirely client-side.
-- Because this calls the Anthropic API directly from a browser, it sends the
+- Because this calls the API directly from a browser, it sends the
   `anthropic-dangerous-direct-browser-access: true` header, which is required
   for browser-based requests. Anyone who can read your page's network traffic
   (e.g. via browser devtools) can see your API key, the same as with any
@@ -78,5 +93,5 @@ into the **API key** field and set **API base URL** to
 
 - `index.html` — page structure and controls
 - `style.css` — styling (light/dark aware)
-- `app.js` — settings, upload handling, the API call, sanitizing/rendering,
-  and copy-to-clipboard
+- `app.js` — settings, batch upload/queue handling, image optimization, the
+  API calls (with retry/backoff), sanitizing/rendering, and copy-to-clipboard
