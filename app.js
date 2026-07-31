@@ -989,6 +989,7 @@ function renderDetail() {
     q(".js-copy-text").addEventListener("click", (e) =>
       copyToClipboard(job.resultText, e.currentTarget, "text")
     );
+    q(".js-remove").addEventListener("click", () => removeJob(job.id));
 
     const source = q(".js-source");
     source.hidden = false;
