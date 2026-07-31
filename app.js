@@ -251,6 +251,7 @@ const els = {
   verbosity: document.getElementById("verbosity"),
   verbosityValue: document.getElementById("verbosityValue"),
   verbosityHint: document.getElementById("verbosityHint"),
+  systemPromptPreview: document.getElementById("systemPromptPreview"),
   clearStoredKey: document.getElementById("clearStoredKey"),
 
   // templates
@@ -1845,6 +1846,7 @@ function updateVerbosityDisplay() {
   els.verbosityHint.textContent = verbosity.hint;
   els.verbosity.setAttribute("aria-valuetext", verbosity.label);
   annotateModelOptionsWithCostEstimates();
+  els.systemPromptPreview.textContent = buildSystemPrompt(verbosity);
 }
 
 function annotateModelOptionsWithCostEstimates() {

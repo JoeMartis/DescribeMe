@@ -36,7 +36,8 @@ GitHub Pages.
    structure, MathML, figures, tables); the slider only changes how much
    elaboration Claude adds on top of that minimum. It also updates the cost
    estimates above, since verbosity is the main thing that moves output
-   length.
+   length. Expand **System prompt used** below the slider to see the exact
+   prompt text Claude receives for the current verbosity setting.
 6. Drag and drop slide images (or click to browse) — PNG, JPEG, WebP, or GIF,
    up to 5 MB each and 25 per batch. Large images are automatically resized
    in your browser before upload.
