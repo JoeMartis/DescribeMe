@@ -11,7 +11,7 @@
 <a class="skip-link" href="#main">Skip to main content</a>
 
 <header class="site-header">
-  <h1>DescribeMe</h1>
+  <h1>DescribeMe <span class="version-badge" id="versionBadge" title="Build number, increases with every commit"></span></h1>
   <p class="tagline">Generate screen-reader-friendly descriptions of STEM lecture slides, powered by Claude.</p>
 </header>
 
@@ -42,13 +42,18 @@
       <div class="field">
         <label for="model">Model</label>
         <select id="model">
-          <option value="claude-haiku-4-5" selected>Claude Haiku 4.5 — fastest &amp; cheapest ($1 / $5 per MTok)</option>
-          <option value="claude-sonnet-5">Claude Sonnet 5 — sharper detail on dense slides ($3 / $15 per MTok)</option>
-          <option value="claude-opus-5">Claude Opus 5 — most thorough, best for cluttered figures ($5 / $25 per MTok)</option>
+          <option value="claude-haiku-4-5" selected>Claude Haiku 4.5 — fastest &amp; cheapest</option>
+          <option value="claude-sonnet-5">Claude Sonnet 5 — sharper detail on dense slides</option>
+          <option value="claude-opus-5">Claude Opus 5 — most thorough, best for cluttered figures</option>
         </select>
         <p class="hint">
           Listed cheapest to most expensive. Haiku 4.5 is a strong default for most slides; step up to
           Sonnet or Opus for slides with dense equations, crowded diagrams, or small text.
+        </p>
+        <p class="hint">
+          <strong>Estimated cost is per average slide</strong> (a typical image size and description
+          length) — actual cost varies with the image and how much text Claude generates.
+          <strong>These are rough estimates only; do not use them for budgeting.</strong>
         </p>
       </div>
 
@@ -151,6 +156,7 @@
   </p>
 </footer>
 
+<script src="version.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
