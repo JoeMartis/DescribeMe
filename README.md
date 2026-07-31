@@ -12,44 +12,54 @@ GitHub Pages.
 
 ## Using it
 
-1. Open the page.
-2. Expand **API Settings** and enter your MIT Parley API key
-   (`sk-parley-v1-...`).
-3. Choose whether to remember the key for this tab only, on this device, or
-   not at all (the default — nothing is written to storage, and the key only
-   lives in page memory until you reload).
-4. Pick a **Model**. The three options are the best fits for this task,
-   listed cheapest to most expensive, each with an estimated cost for a
-   single average slide:
-   - **Claude Haiku 4.5** (est. ~$0.005/slide) — fastest and cheapest; a
-     strong default for most slides.
-   - **Claude Sonnet 5** (est. ~$0.015/slide) — sharper on dense equations
-     and smaller text.
-   - **Claude Opus 5** (est. ~$0.025/slide) — most thorough; best for
-     crowded, multi-part figures.
+**First run.** A one-time setup screen asks for your MIT Parley API key, how
+long to remember it (this tab only, this device, or not at all — the
+default), and a starting **Model**, with a per-slide cost estimate for each:
 
-   These per-slide costs are rough estimates based on a typical image size
-   and description length — **not a budgeting tool**. Actual cost depends on
-   the specific image and how much text Claude generates for it.
-5. Set the **Description verbosity** slider — Concise, Standard, or Detailed.
-   All three still cover everything the system prompt requires (semantic
-   structure, MathML, figures, tables); the slider only changes how much
-   elaboration Claude adds on top of that minimum. It also updates the cost
-   estimates above, since verbosity is the main thing that moves output
-   length. Expand **System prompt used** below the slider to see the exact
-   prompt text Claude receives for the current verbosity setting.
-6. Drag and drop slide images (or click to browse) — PNG, JPEG, WebP, or GIF,
-   up to 5 MB each and 25 per batch. Large images are automatically resized
-   in your browser before upload.
-7. Click **Describe all**. A progress bar tracks the batch, and each slide
-   gets its own card with a rendered preview, copy buttons for the HTML and
-   plain text, and a collapsible raw HTML source view. Failed items get a
-   **Retry** button; you can **Stop** a batch mid-run, and remove or re-run
-   individual slides at any time. If any slides fail, they're named
-   explicitly (not just counted) so you know which ones to retry.
+- **Claude Haiku 4.5** (est. ~$0.005/slide) — fastest and cheapest; a strong
+  default for most slides.
+- **Claude Sonnet 5** (est. ~$0.015/slide) — sharper on dense equations and
+  smaller text.
+- **Claude Opus 5** (est. ~$0.025/slide) — most thorough; best for crowded,
+  multi-part figures.
+
+These are rough estimates for a typical image and description length —
+**not a budgeting tool**. All of this (plus the **Description verbosity**
+slider — Concise / Standard / Detailed, and a collapsible **System prompt
+used** view showing the exact prompt text for the current verbosity) stays
+reachable afterward from the gear icon in the header, which opens the same
+fields in a settings dialog.
+
+**The workspace** is two panes: a **Slides** rail on the left, and the
+selected slide's image plus its description on the right.
+
+1. Drop slide images anywhere in the workspace (or use **Add** in the rail) —
+   PNG, JPEG, WebP, or GIF, up to 5 MB each and 25 per batch. Large images
+   are resized in your browser before upload.
+2. Click **Describe all**. A progress card tracks the batch; you can **Stop**
+   mid-run. Each rail row shows that slide's status, and clicking one selects
+   it in the detail pane.
+3. For the selected slide, once described: read the rendered description,
+   check **HTML source** for the raw markup, or use **Copy HTML** / **Copy
+   text**.
+4. **Edit** turns the description directly editable in place; saving runs it
+   back through the same sanitizer before it's kept. If a description needs
+   more work instead, **More detail**, **Shorter**, or **Redo with a
+   stronger model** re-run just that slide with an adjusted prompt — the
+   previous version is kept so **Undo revision** can restore it.
+5. **Approve & next** (or press <kbd>A</kbd>) marks the slide ready for
+   export and jumps to the next unapproved one; <kbd>←</kbd>/<kbd>→</kbd>
+   move between slides at any time. Only approved slides go into the export.
+6. Failed slides show the error inline with a **Retry** button; any slide can
+   be removed from the batch from its detail pane.
+7. **Export as .zip** bundles every approved slide's description into one
+   HTML fragment each, plus a combined `index.html`.
 
 Nothing is uploaded to any server other than the MIT Parley endpoint. There is
 no backend for this site — GitHub Pages only serves the static files.
+
+Note: nothing here persists across a reload yet — refreshing mid-review loses
+unexported work in progress, so export before you close the tab.
 
 ## Making the API calls efficient
 
@@ -86,15 +96,22 @@ not just to produce accessible output:
   batch finishes with failures, the specific filenames are named — not just a
   count — so there's no need to manually scan the list to find out which
   slides need a retry.
+- **Keyboard slide navigation.** <kbd>←</kbd>/<kbd>→</kbd> move between
+  slides and <kbd>A</kbd> approves the selected one (ignored while focus is
+  in a field or the settings dialog is open), so reviewing a batch doesn't
+  require pointing at a rail row for every slide. Rail rows are real
+  `<button>`s with `aria-current` marking the selected one, not `<div>`s with
+  a synthetic click handler.
 - **Per-slide regions.** Each result is `role="region"` with an accessible
   name from its filename, so navigating by landmark (a common screen-reader
   technique) gives clear "which slide is this" context — independent of
   whatever heading levels (`<h2>`/`<h3>`) the generated description itself
   uses internally.
 - **Visible focus, semantic controls.** Focus outlines are never suppressed;
-  disclosures use `<button aria-expanded>`, grouped radio options use
-  `<fieldset>`/`<legend>`, and the "HTML source" view is a native
-  `<details>`/`<summary>` rather than a custom-built, keyboard-reimplemented
+  settings use a native `<dialog>` (built-in focus trapping and Escape-to-
+  close), grouped radio options use `<fieldset>`/`<legend>`, and the "HTML
+  source" view is a native `<details>`/`<summary>` rather than a
+  custom-built, keyboard-reimplemented
   toggle.
 
 The **generated descriptions** are the other half of this: the prompt asks
@@ -121,8 +138,8 @@ is entered by whoever uses the page, in their own browser.
 
 MIT Parley proxies requests to the Anthropic API. This app talks to it at a
 fixed base URL (`https://parley.api.mit.edu`) and sends requests to
-`/v1/messages` exactly as the Anthropic SDK would, using the key you enter in
-**API Settings**.
+`/v1/messages` exactly as the Anthropic SDK would, using the key you enter
+during setup or in **Settings**.
 
 ## Security notes
 
@@ -161,12 +178,22 @@ fixed base URL (`https://parley.api.mit.edu`) and sends requests to
   `<set>`) can rewrite an attribute like `href` *after* it was already
   checked, once the sanitized fragment is live in the page — removing the
   whole subtree closes both without needing to enumerate every SVG
-  sub-feature individually.
+  sub-feature individually. An `<img>` that ends up with no valid `src` after
+  that filtering is dropped entirely rather than left as a broken-image icon
+  — the model has no legitimate URL to reference in the first place, so this
+  only ever removes a hallucinated one. `contenteditable` is also stripped
+  from every element: the description preview is directly editable in place,
+  and a saved edit is re-run through this same sanitizer before it replaces
+  the stored HTML, so that attribute can never leak into a saved description
+  or the zip export.
 - A `Content-Security-Policy` meta tag adds a second, independent layer on
   top of that sanitizer: no inline or external scripts, no inline styles, no
-  `<object>`/`<embed>`, and `connect-src` restricted to the MIT Parley
-  endpoint — so even a sanitizer bug couldn't be used to run script or
-  exfiltrate data to another host.
+  `<object>`/`<embed>`, fonts restricted to this same origin (`font-src
+  'self'` — the two fonts are self-hosted from `fonts/`, see Files below),
+  and `connect-src` restricted to the MIT Parley endpoint — so even a
+  sanitizer bug couldn't be used to run script or exfiltrate data to another
+  host. `img-src` additionally allows `blob:`, needed only to generate the
+  downloadable `.zip` export link — that export never leaves the browser.
 
 ## Version number
 
@@ -189,10 +216,16 @@ falls back to showing "dev".
 
 ## Files
 
-- `index.html` — page structure and controls
+- `index.html` — page structure: onboarding screen, workspace, settings
+  dialog, and the rail-row/detail-pane `<template>`s
 - `style.css` — styling (light/dark aware)
 - `app.js` — settings, batch upload/queue handling, image optimization, cost
-  estimation, the API calls (with retry/backoff), sanitizing/rendering, and
-  copy-to-clipboard
+  estimation, the API calls (with retry/backoff), review/approve/revision
+  state, zip export, sanitizing/rendering, and copy-to-clipboard
+- `fonts/` — self-hosted `Caprasimo-Regular.woff2` and
+  `Figtree-Variable.woff2` (see the note at the top of `style.css`); without
+  them the fallback font stack is used and nothing breaks
+- `preview-only.html` — a CSP-stripped copy of `index.html` used only for
+  taking design screenshots; not part of the deployed app
 - `version.js` — generated by `.githooks/pre-commit`; not hand-edited
 - `.githooks/pre-commit` — regenerates `version.js` on every commit

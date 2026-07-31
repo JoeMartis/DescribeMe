@@ -3,13 +3,8 @@
    Tokens taken from the Organic design system. Every color, radius, shadow
    and font here is a variable; retune at the top rather than in the rules.
 
-   NOTE ON FONTS: the page's Content-Security-Policy is `default-src 'self'`,
-   so fonts cannot be loaded from Google Fonts — they must be self-hosted.
-   Drop these two files into ./fonts/ and the @font-face rules below pick
-   them up; without them the fallback stack is used and everything still
-   works, just in the system UI face.
-     fonts/Caprasimo-Regular.woff2   https://fonts.google.com/specimen/Caprasimo
-     fonts/Figtree-Variable.woff2    https://fonts.google.com/specimen/Figtree
+   Fonts are self-hosted from ./fonts/ (required — the CSP is
+   `default-src 'self'`, so Google Fonts' own CDN can't be used directly).
    ========================================================================== */
 
 @font-face {
