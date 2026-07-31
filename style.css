@@ -657,6 +657,14 @@ button.chip:hover { background: var(--neutral-200); }
   background: var(--neutral-200);
   aspect-ratio: 16 / 10;
   display: grid;
+  /* An implicit auto-sized grid track has no definite size, so the img's
+     height: 100% below can't resolve against it — it falls back to scaling
+     from the (percentage-resolvable) 100% width by the image's own aspect
+     ratio instead, which overflows the frame for anything taller than
+     16:10 and gets sliced off by overflow: hidden. Pin the track to 100%
+     of the frame so the percentage has something definite to resolve to. */
+  grid-template-columns: 100%;
+  grid-template-rows: 100%;
   place-items: center;
 }
 .slide-frame img { width: 100%; height: 100%; object-fit: contain; }
