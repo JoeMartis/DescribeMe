@@ -73,6 +73,15 @@ const RETRY_MAX_DELAY_MS = 15000;
 const USER_INSTRUCTION_TEXT =
   "Describe this STEM lecture slide following the system instructions.";
 
+// Cheapest to most expensive; also the order "redo with a stronger model"
+// steps through.
+const MODEL_LADDER = ["claude-haiku-4-5", "claude-sonnet-5", "claude-opus-5"];
+const MODEL_SHORT_NAMES = {
+  "claude-haiku-4-5": "Haiku 4.5",
+  "claude-sonnet-5": "Sonnet 5",
+  "claude-opus-5": "Opus 5",
+};
+
 // ---------- Verbosity ----------
 //
 // Appended to SYSTEM_PROMPT rather than replacing any of it — the structural
@@ -109,12 +118,28 @@ const VERBOSITY_LEVELS = [
   },
 ];
 
+// Per-slide revision instructions. These are appended after the verbosity
+// addendum, so the structural requirements still apply — a revision only
+// changes how much elaboration this one slide gets.
+const REVISIONS = {
+  more:
+    "REVISION: A previous description of this slide was too sparse. Describe spatial layout, " +
+    "relationships between elements, and sequence or flow more thoroughly this time. Still use only " +
+    "what is visibly present on the slide.",
+  less:
+    "REVISION: A previous description of this slide was longer than it needed to be. Convey the same " +
+    "instructional takeaway in noticeably fewer sentences, combining related points where nothing is lost.",
+};
+
 function currentVerbosity() {
   return VERBOSITY_LEVELS[Number(els.verbosity.value)] || VERBOSITY_LEVELS[1];
 }
 
-function buildSystemPrompt(verbosity) {
-  return verbosity.promptAddendum ? `${SYSTEM_PROMPT}\n\n${verbosity.promptAddendum}` : SYSTEM_PROMPT;
+function buildSystemPrompt(verbosity, revision) {
+  let prompt = SYSTEM_PROMPT;
+  if (verbosity.promptAddendum) prompt += `\n\n${verbosity.promptAddendum}`;
+  if (revision) prompt += `\n\n${revision}`;
+  return prompt;
 }
 
 // ---------- Cost estimation (rough, display only — see below) ----------
@@ -130,9 +155,6 @@ function buildSystemPrompt(verbosity) {
 // presentation aspect ratio) lands around this many image tokens. Many
 // slides are smaller than the cap and would cost less than this estimate.
 const ESTIMATED_IMAGE_TOKENS = 1200;
-
-// Per-verbosity-level output token estimates live on VERBOSITY_LEVELS above,
-// since verbosity is the main thing that moves output length.
 
 const TOKENS_PER_WORD_ESTIMATE = 1.35;
 
@@ -161,35 +183,76 @@ function estimateAverageSlideCostUsd(modelId, verbosity) {
   );
 }
 
-function formatUsd(amount) {
+function formatUsd(amount, decimals) {
   // These are sub-cent amounts — show enough precision to distinguish the
   // three models without implying false accuracy.
-  return `$${amount.toFixed(4)}`;
+  return `$${amount.toFixed(decimals == null ? 4 : decimals)}`;
 }
 
+// ---------- Elements ----------
+
 const els = {
-  settingsToggle: document.getElementById("settingsToggle"),
-  settingsBody: document.getElementById("settingsBody"),
+  // onboarding
+  onboarding: document.getElementById("onboarding"),
+  onboardKey: document.getElementById("onboardKey"),
+  onboardKeyToggle: document.getElementById("onboardKeyToggle"),
+  onboardModels: document.getElementById("onboardModels"),
+  onboardError: document.getElementById("onboardError"),
+  onboardStart: document.getElementById("onboardStart"),
+  onboardSkip: document.getElementById("onboardSkip"),
+  versionBadgeOnboard: document.getElementById("versionBadgeOnboard"),
+
+  // shell
+  app: document.getElementById("app"),
+  versionBadge: document.getElementById("versionBadge"),
+  batchName: document.getElementById("batchName"),
+  batchSummary: document.getElementById("batchSummary"),
+  settingsChip: document.getElementById("settingsChip"),
+  settingsChipDot: document.getElementById("settingsChipDot"),
+  settingsChipLabel: document.getElementById("settingsChipLabel"),
+  costChipLabel: document.getElementById("costChipLabel"),
+  costChipValue: document.getElementById("costChipValue"),
+  settingsBtn: document.getElementById("settingsBtn"),
+  exportBtn: document.getElementById("exportBtn"),
+  exportBtnLabel: document.getElementById("exportBtnLabel"),
+
+  // rail
+  railList: document.getElementById("railList"),
+  railEmpty: document.getElementById("railEmpty"),
+  railFileInput: document.getElementById("railFileInput"),
+  progressCard: document.getElementById("progressCard"),
+  progressLabel: document.getElementById("progressLabel"),
+  progressFill: document.getElementById("progressFill"),
+  stopBtn: document.getElementById("stopBtn"),
+  describeCard: document.getElementById("describeCard"),
+  describeCardTitle: document.getElementById("describeCardTitle"),
+  describeCardBody: document.getElementById("describeCardBody"),
+  describeBtn: document.getElementById("describeBtn"),
+
+  // detail
+  detail: document.getElementById("detail"),
+  emptyState: document.getElementById("emptyState"),
+  detailPane: document.getElementById("detailPane"),
+  dropZone: document.getElementById("dropZone"),
+  fileInput: document.getElementById("fileInput"),
+  statusMessage: document.getElementById("statusMessage"),
+  errorMessage: document.getElementById("errorMessage"),
+
+  // settings dialog
+  settingsDialog: document.getElementById("settingsDialog"),
+  settingsClose: document.getElementById("settingsClose"),
+  settingsDone: document.getElementById("settingsDone"),
   apiKey: document.getElementById("apiKey"),
   toggleKeyVisibility: document.getElementById("toggleKeyVisibility"),
   model: document.getElementById("model"),
   verbosity: document.getElementById("verbosity"),
   verbosityValue: document.getElementById("verbosityValue"),
   verbosityHint: document.getElementById("verbosityHint"),
-  versionBadge: document.getElementById("versionBadge"),
   clearStoredKey: document.getElementById("clearStoredKey"),
-  dropZone: document.getElementById("dropZone"),
-  fileInput: document.getElementById("fileInput"),
-  imageList: document.getElementById("imageList"),
-  describeBtn: document.getElementById("describeBtn"),
-  stopBtn: document.getElementById("stopBtn"),
-  clearAllBtn: document.getElementById("clearAllBtn"),
-  progressWrap: document.getElementById("progressWrap"),
-  progressLabel: document.getElementById("progressLabel"),
-  batchProgress: document.getElementById("batchProgress"),
-  statusMessage: document.getElementById("statusMessage"),
-  errorMessage: document.getElementById("errorMessage"),
-  imageCardTemplate: document.getElementById("imageCardTemplate"),
+
+  // templates
+  railRowTemplate: document.getElementById("railRowTemplate"),
+  detailTemplate: document.getElementById("detailTemplate"),
 };
 
 /** @type {Map<string, object>} jobId -> job */
@@ -197,6 +260,8 @@ const jobs = new Map();
 let jobSeq = 0;
 let batchRunning = false;
 let cancelRequested = false;
+let selectedJobId = null;
+let editing = false;
 const inFlightControllers = new Set();
 
 // ---------- Settings persistence ----------
@@ -206,6 +271,7 @@ const STORAGE_KEYS = {
   model: "describeme.model",
   verbosity: "describeme.verbosity",
   persistence: "describeme.keyPersistence",
+  onboarded: "describeme.onboarded",
 };
 
 // Not user-configurable — a fixed middle ground between processing a batch
@@ -262,11 +328,19 @@ function persistSettings() {
 document
   .querySelectorAll('input[name="keyPersistence"]')
   .forEach((radio) => radio.addEventListener("change", persistSettings));
-els.apiKey.addEventListener("input", persistSettings);
-els.model.addEventListener("input", persistSettings);
+
+els.apiKey.addEventListener("input", () => {
+  persistSettings();
+  updateControls();
+});
+els.model.addEventListener("input", () => {
+  persistSettings();
+  updateControls();
+});
 els.verbosity.addEventListener("input", () => {
   updateVerbosityDisplay();
   persistSettings();
+  updateControls();
 });
 
 els.clearStoredKey.addEventListener("click", () => {
@@ -278,22 +352,34 @@ els.clearStoredKey.addEventListener("click", () => {
   els.apiKey.value = "";
   document.querySelector('input[name="keyPersistence"][value="none"]').checked = true;
   setStatus("Stored API key cleared.");
+  updateControls();
 });
 
-// ---------- Settings panel disclosure ----------
+// ---------- Settings dialog ----------
 
-els.settingsToggle.addEventListener("click", () => {
-  const expanded = els.settingsToggle.getAttribute("aria-expanded") === "true";
-  els.settingsToggle.setAttribute("aria-expanded", String(!expanded));
-  els.settingsBody.hidden = expanded;
-});
+function openSettings() {
+  els.settingsDialog.showModal();
+  els.apiKey.focus();
+}
+function closeSettings() {
+  els.settingsDialog.close();
+}
+els.settingsBtn.addEventListener("click", openSettings);
+els.settingsChip.addEventListener("click", openSettings);
+els.settingsClose.addEventListener("click", closeSettings);
+els.settingsDone.addEventListener("click", closeSettings);
+els.settingsDialog.addEventListener("close", updateControls);
 
-els.toggleKeyVisibility.addEventListener("click", () => {
-  const isPassword = els.apiKey.type === "password";
-  els.apiKey.type = isPassword ? "text" : "password";
-  els.toggleKeyVisibility.setAttribute("aria-pressed", String(isPassword));
-  els.toggleKeyVisibility.textContent = isPassword ? "Hide" : "Show";
-});
+function wireKeyVisibilityToggle(input, button) {
+  button.addEventListener("click", () => {
+    const isPassword = input.type === "password";
+    input.type = isPassword ? "text" : "password";
+    button.setAttribute("aria-pressed", String(isPassword));
+    button.textContent = isPassword ? "Hide" : "Show";
+  });
+}
+wireKeyVisibilityToggle(els.apiKey, els.toggleKeyVisibility);
+wireKeyVisibilityToggle(els.onboardKey, els.onboardKeyToggle);
 
 // ---------- Status / error helpers ----------
 
@@ -309,6 +395,64 @@ function setError(message) {
     els.errorMessage.textContent = "";
     els.errorMessage.hidden = true;
   }
+}
+
+// ---------- Onboarding ----------
+
+function showOnboarding() {
+  els.onboarding.hidden = false;
+  els.app.hidden = true;
+  els.onboardKey.focus();
+}
+
+function showApp() {
+  els.onboarding.hidden = true;
+  els.app.hidden = false;
+}
+
+els.onboardStart.addEventListener("click", () => {
+  const key = els.onboardKey.value.trim();
+  if (!key) {
+    els.onboardError.textContent = "Enter your MIT Parley key to continue, or choose “I'll do this later”.";
+    els.onboardError.hidden = false;
+    els.onboardKey.focus();
+    return;
+  }
+  els.onboardError.hidden = true;
+
+  const persistence =
+    document.querySelector('input[name="onboardPersistence"]:checked')?.value || "local";
+  const model =
+    document.querySelector('input[name="onboardModel"]:checked')?.value || "claude-haiku-4-5";
+
+  els.apiKey.value = key;
+  els.model.value = model;
+  const radio = document.querySelector(`input[name="keyPersistence"][value="${persistence}"]`);
+  if (radio) radio.checked = true;
+
+  persistSettings();
+  localStorage.setItem(STORAGE_KEYS.onboarded, "1");
+  finishOnboarding();
+});
+
+els.onboardSkip.addEventListener("click", () => {
+  localStorage.setItem(STORAGE_KEYS.onboarded, "1");
+  finishOnboarding();
+});
+
+function finishOnboarding() {
+  showApp();
+  updateVerbosityDisplay();
+  updateControls();
+  els.fileInput.focus();
+}
+
+function annotateOnboardingCosts() {
+  const verbosity = VERBOSITY_LEVELS[1];
+  els.onboardModels.querySelectorAll("[data-model-cost]").forEach((span) => {
+    const cost = estimateAverageSlideCostUsd(span.dataset.modelCost, verbosity);
+    if (cost != null) span.textContent = formatUsd(cost);
+  });
 }
 
 // ---------- Image loading & client-side optimization ----------
@@ -392,89 +536,99 @@ function makeJobId() {
   return `job-${jobSeq}`;
 }
 
-function createJobCard(job) {
-  const fragment = els.imageCardTemplate.content.cloneNode(true);
-  const li = fragment.querySelector(".image-card");
-  li.dataset.jobId = job.id;
+function jobList() {
+  return [...jobs.values()];
+}
 
-  const thumb = li.querySelector(".thumb");
+function selectedJob() {
+  return selectedJobId ? jobs.get(selectedJobId) || null : null;
+}
+
+/** One place that decides how a job's state reads, for the rail and the detail pane. */
+function jobStatusMeta(job) {
+  switch (job.state) {
+    case "pending":
+      return { state: "pending", text: "Queued", dot: "" };
+    case "describing":
+      return {
+        state: "describing",
+        text: job.attempt > 1 ? `Describing… (retry ${job.attempt - 1})` : "Describing…",
+        dot: "dot-describing",
+      };
+    case "done":
+      return job.approved
+        ? { state: "approved", text: "Approved", dot: "dot-approved" }
+        : { state: "done", text: "Described · needs review", dot: "dot-done" };
+    case "error":
+      return { state: "error", text: "Failed · needs a retry", dot: "dot-error" };
+    case "canceled":
+      return { state: "canceled", text: "Canceled", dot: "" };
+    case "invalid":
+      return { state: "invalid", text: "Couldn't load this image", dot: "dot-error" };
+    default:
+      return { state: job.state, text: job.state, dot: "" };
+  }
+}
+
+function createRailRow(job) {
+  const fragment = els.railRowTemplate.content.cloneNode(true);
+  const li = fragment.querySelector("li");
+  const row = li.querySelector(".rail-row");
+  row.dataset.jobId = job.id;
+
+  const thumb = row.querySelector(".rail-thumb");
   thumb.src = job.previewDataUrl;
   thumb.alt = "";
 
-  const nameEl = li.querySelector(".image-card-name");
-  nameEl.textContent = job.name;
-  // Gives screen-reader users navigating by region/landmark a "which slide
-  // is this" cue, independent of whatever heading levels the generated
-  // description itself uses internally.
-  nameEl.id = `image-name-${job.id}`;
-  li.querySelector(".result-preview").setAttribute("aria-labelledby", nameEl.id);
+  row.querySelector(".rail-name").textContent = job.name;
+  row.addEventListener("click", () => selectJob(job.id));
 
-  li.querySelector(".retry-btn").addEventListener("click", () => retryJob(job.id));
-  li.querySelector(".remove-btn").addEventListener("click", () => removeJob(job.id));
-  li.querySelector(".copy-html-btn").addEventListener("click", (e) => {
-    copyToClipboard(job.resultHtml, e.currentTarget, "HTML");
-  });
-  li.querySelector(".copy-text-btn").addEventListener("click", (e) => {
-    copyToClipboard(job.resultText, e.currentTarget, "text");
-  });
-
-  els.imageList.appendChild(fragment);
-  job.el = els.imageList.querySelector(`[data-job-id="${job.id}"]`);
-  renderJobState(job);
+  els.railList.appendChild(fragment);
+  job.railEl = els.railList.querySelector(`[data-job-id="${job.id}"]`);
+  renderRailRow(job);
 }
 
-function renderJobState(job) {
-  const el = job.el;
-  if (!el) return;
-  el.dataset.state = job.state;
+function renderRailRow(job) {
+  const row = job.railEl;
+  if (!row) return;
+  const meta = jobStatusMeta(job);
+  row.dataset.state = meta.state;
+  row.querySelector(".rail-status").textContent = meta.text;
+  row.setAttribute("aria-current", String(job.id === selectedJobId));
+  const dot = row.querySelector(".dot");
+  dot.className = `dot ${meta.dot}`;
+  row.setAttribute(
+    "aria-label",
+    `${job.name} — ${meta.text}${job.id === selectedJobId ? ", currently open" : ""}`
+  );
+}
 
-  const statusEl = el.querySelector(".image-card-status");
-  const retryBtn = el.querySelector(".retry-btn");
-  const removeBtn = el.querySelector(".remove-btn");
-  const resultArea = el.querySelector(".result-area");
+function renderRail() {
+  jobs.forEach(renderRailRow);
+  els.railEmpty.hidden = jobs.size > 0;
+}
 
-  // Removing a job mid-flight can't stop the request already in progress, so
-  // disable the button rather than let it silently do nothing when clicked.
-  removeBtn.disabled = job.state === "describing";
+function selectJob(jobId, options) {
+  if (!jobs.has(jobId)) return;
+  if (editing) commitEdit();
+  selectedJobId = jobId;
+  renderRail();
+  renderDetail();
+  if (options && options.focusDetail) els.detail.focus();
+}
 
-  switch (job.state) {
-    case "pending":
-      statusEl.textContent = job.resized
-        ? `Ready (resized ${job.originalWidth}×${job.originalHeight} → ${job.width}×${job.height} for a smaller, faster request)`
-        : "Ready";
-      retryBtn.hidden = true;
-      resultArea.hidden = true;
-      break;
-    case "describing":
-      statusEl.textContent =
-        job.attempt > 1 ? `Describing… (retry ${job.attempt - 1})` : "Describing…";
-      retryBtn.hidden = true;
-      resultArea.hidden = true;
-      break;
-    case "done":
-      statusEl.textContent = "Done";
-      retryBtn.hidden = true;
-      resultArea.hidden = false;
-      break;
-    case "error":
-      statusEl.textContent = `Failed: ${job.error || "unknown error"}`;
-      retryBtn.hidden = false;
-      resultArea.hidden = true;
-      break;
-    case "canceled":
-      statusEl.textContent = "Canceled";
-      retryBtn.hidden = false;
-      resultArea.hidden = true;
-      break;
-    case "invalid":
-      statusEl.textContent = `Couldn't load this image: ${job.error || "unknown error"}`;
-      retryBtn.hidden = true;
-      resultArea.hidden = true;
-      break;
-  }
+function selectRelative(delta) {
+  const list = jobList();
+  if (list.length === 0) return;
+  const idx = list.findIndex((j) => j.id === selectedJobId);
+  const next = list[Math.min(list.length - 1, Math.max(0, (idx === -1 ? 0 : idx) + delta))];
+  if (next) selectJob(next.id);
+}
 
-  updateDescribeButtonState();
-  updateOverallStatus();
+function selectNextUnapproved() {
+  const next = jobList().find((j) => j.state === "done" && !j.approved);
+  if (next) selectJob(next.id);
+  else selectRelative(1);
 }
 
 async function addFiles(fileList) {
@@ -520,14 +674,19 @@ async function addFiles(fileList) {
       error: null,
       resultHtml: "",
       resultText: "",
-      el: null,
+      approved: false,
+      edited: false,
+      history: [],
+      durationMs: null,
+      usedModel: null,
+      railEl: null,
     };
     jobs.set(job.id, job);
 
     try {
       const prepared = await prepareImageForUpload(file);
       Object.assign(job, prepared, { previewDataUrl: prepared.dataUrl });
-      createJobCard(job);
+      createRailRow(job);
     } catch (err) {
       // The file itself couldn't be decoded (corrupt/unsupported) — this is
       // permanent, not something retrying the API call would fix, so it gets
@@ -539,8 +698,10 @@ async function addFiles(fileList) {
         encodeURIComponent(
           '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"></svg>'
         );
-      createJobCard(job);
+      createRailRow(job);
     }
+
+    if (!selectedJobId) selectedJobId = job.id;
   }
 
   if (skippedForRoom > 0) {
@@ -550,18 +711,43 @@ async function addFiles(fileList) {
   }
   if (messages.length > 0) setError(messages.join(" "));
 
-  updateDescribeButtonState();
-  updateOverallStatus();
+  maybeNameBatch();
+  renderAll();
 }
+
+/** Default the batch name to whatever the filenames have in common. */
+function maybeNameBatch() {
+  if (els.batchName.dataset.userNamed === "1") return;
+  const names = jobList().map((j) => j.name);
+  if (names.length === 0) return;
+  let prefix = names[0].replace(/\.[^.]+$/, "");
+  for (const name of names.slice(1)) {
+    const bare = name.replace(/\.[^.]+$/, "");
+    let i = 0;
+    while (i < prefix.length && i < bare.length && prefix[i] === bare[i]) i += 1;
+    prefix = prefix.slice(0, i);
+  }
+  prefix = prefix.replace(/[-_\s]+$/, "").trim();
+  els.batchName.value = prefix.length >= 3 ? prefix : "Untitled batch";
+}
+
+els.batchName.addEventListener("input", () => {
+  els.batchName.dataset.userNamed = "1";
+});
 
 function removeJob(jobId) {
   const job = jobs.get(jobId);
   if (!job) return;
   if (job.state === "describing") return; // don't remove mid-flight
-  job.el?.remove();
+  const list = jobList();
+  const idx = list.findIndex((j) => j.id === jobId);
+  job.railEl?.closest("li")?.remove();
   jobs.delete(jobId);
-  updateDescribeButtonState();
-  updateOverallStatus();
+  if (selectedJobId === jobId) {
+    const remaining = jobList();
+    selectedJobId = remaining.length ? (remaining[Math.min(idx, remaining.length - 1)].id) : null;
+  }
+  renderAll();
 }
 
 function retryJob(jobId) {
@@ -570,82 +756,439 @@ function retryJob(jobId) {
   job.state = "pending";
   job.error = null;
   job.attempt = 0;
-  renderJobState(job);
-  updateDescribeButtonState();
+  renderAll();
+  runBatch();
 }
 
-els.clearAllBtn.addEventListener("click", () => {
-  if (batchRunning) return;
-  jobs.clear();
-  els.imageList.innerHTML = "";
-  updateDescribeButtonState();
-  updateOverallStatus();
-  setError("");
-});
+// ---------- Header, controls, status ----------
 
-function updateDescribeButtonState() {
-  const hasApiKey = !!els.apiKey.value.trim();
-  const hasRunnable = [...jobs.values()].some(
+function counts() {
+  const c = { pending: 0, describing: 0, done: 0, error: 0, canceled: 0, invalid: 0, approved: 0 };
+  jobs.forEach((j) => {
+    c[j.state] = (c[j.state] || 0) + 1;
+    if (j.state === "done" && j.approved) c.approved += 1;
+  });
+  return c;
+}
+
+function runnableJobs() {
+  return jobList().filter(
     (j) => j.state === "pending" || j.state === "error" || j.state === "canceled"
   );
-  els.describeBtn.disabled = batchRunning || !hasApiKey || !hasRunnable;
-  els.clearAllBtn.hidden = jobs.size === 0 || batchRunning;
 }
 
-els.apiKey.addEventListener("input", updateDescribeButtonState);
+function updateControls() {
+  const c = counts();
+  const hasApiKey = !!els.apiKey.value.trim();
+  const runnable = runnableJobs();
+
+  // Header — batch summary
+  if (jobs.size === 0) {
+    els.batchSummary.textContent = "No slides yet";
+  } else {
+    const parts = [`${jobs.size} slide${jobs.size === 1 ? "" : "s"}`];
+    if (batchRunning) {
+      parts.push(`${c.done} described`, `${c.describing} in progress`, `${c.pending} queued`);
+    } else {
+      parts.push(`${c.done} described`);
+      if (c.approved) parts.push(`${c.approved} approved`);
+      if (c.error) parts.push(`${c.error} need a retry`);
+      if (c.pending) parts.push(`${c.pending} queued`);
+    }
+    els.batchSummary.textContent = parts.join(" · ");
+  }
+
+  // Header — settings chip
+  const modelName = MODEL_SHORT_NAMES[els.model.value] || els.model.value;
+  els.settingsChipLabel.textContent = hasApiKey
+    ? `Key set · ${modelName} · ${currentVerbosity().label}`
+    : "No key yet — add one";
+  els.settingsChipDot.className = hasApiKey ? "chip-dot" : "chip-dot chip-dot-warn";
+
+  // Header — cost estimate. Always an estimate; never a bill.
+  const perSlide = estimateAverageSlideCostUsd(els.model.value, currentVerbosity());
+  if (perSlide == null) {
+    els.costChipValue.textContent = "—";
+  } else if (jobs.size === 0) {
+    els.costChipLabel.textContent = "Est. per slide";
+    els.costChipValue.textContent = formatUsd(perSlide);
+  } else {
+    els.costChipLabel.textContent = "Est. this batch";
+    els.costChipValue.textContent = `≈ ${formatUsd(perSlide * jobs.size, 3)}`;
+  }
+
+  // Header — export
+  els.exportBtn.disabled = c.approved === 0;
+  els.exportBtnLabel.textContent =
+    c.approved === 0
+      ? "Export as .zip"
+      : `Export ${c.approved} approved as .zip`;
+
+  // Rail — describe card
+  els.describeCard.hidden = jobs.size === 0 || batchRunning;
+  els.describeBtn.disabled = batchRunning || !hasApiKey || runnable.length === 0;
+  if (!els.describeCard.hidden) {
+    if (runnable.length > 0) {
+      els.describeCardTitle.textContent = hasApiKey
+        ? `${runnable.length} slide${runnable.length === 1 ? "" : "s"} ready to describe.`
+        : "Add your API key to start.";
+      els.describeCardBody.textContent = hasApiKey
+        ? "Three at a time, retrying quietly. You can review the finished ones while the rest run."
+        : "The key lives in your browser only — open settings from the header.";
+      els.describeBtn.textContent = `Describe ${runnable.length === jobs.size ? "all" : runnable.length}`;
+    } else {
+      els.describeCardTitle.textContent = `All ${jobs.size} described.`;
+      els.describeCardBody.textContent = `${c.approved} approved, ${
+        c.done - c.approved
+      } waiting on you. Approving is what puts a slide in the export.`;
+      els.describeBtn.textContent = "Review next unapproved";
+      els.describeBtn.disabled = c.done - c.approved === 0;
+    }
+  }
+
+  // Empty state vs detail
+  const hasSelection = !!selectedJob();
+  els.emptyState.hidden = jobs.size > 0;
+  els.detailPane.hidden = !hasSelection;
+}
 
 function updateOverallStatus() {
   if (jobs.size === 0) {
     if (!batchRunning) setStatus("");
     return;
   }
-  const counts = { pending: 0, describing: 0, done: 0, error: 0, canceled: 0 };
-  jobs.forEach((j) => (counts[j.state] = (counts[j.state] || 0) + 1));
+  const c = counts();
 
   if (batchRunning) {
     setStatus(
-      `Describing… ${counts.done} done, ${counts.describing} in progress, ` +
-        `${counts.pending} queued${counts.error ? `, ${counts.error} failed` : ""}.`
+      `Describing… ${c.done} done, ${c.describing} in progress, ` +
+        `${c.pending} queued${c.error ? `, ${c.error} failed` : ""}.`
     );
-  } else if (counts.done > 0 || counts.error > 0 || counts.invalid > 0) {
-    const parts = [`${counts.done} of ${jobs.size} described`];
-    if (counts.error) parts.push(`${counts.error} failed`);
-    if (counts.canceled) parts.push(`${counts.canceled} canceled`);
-    if (counts.invalid) parts.push(`${counts.invalid} couldn't be loaded`);
+  } else if (c.done > 0 || c.error > 0 || c.invalid > 0) {
+    const parts = [`${c.done} of ${jobs.size} described`];
+    if (c.approved) parts.push(`${c.approved} approved`);
+    if (c.error) parts.push(`${c.error} failed`);
+    if (c.canceled) parts.push(`${c.canceled} canceled`);
+    if (c.invalid) parts.push(`${c.invalid} couldn't be loaded`);
     setStatus(parts.join(", ") + ".");
   }
 }
 
+function renderAll() {
+  renderRail();
+  renderDetail();
+  updateControls();
+  updateOverallStatus();
+}
+
+/** Called whenever one job's state changes. */
+function renderJobState(job) {
+  renderRailRow(job);
+  if (job.id === selectedJobId) renderDetail();
+  updateControls();
+  updateOverallStatus();
+}
+
+// ---------- Detail pane ----------
+
+function renderDetail() {
+  const job = selectedJob();
+  if (!job) {
+    els.detailPane.replaceChildren();
+    els.detailPane.hidden = true;
+    return;
+  }
+  if (editing) return; // never clobber an in-progress edit
+
+  const list = jobList();
+  const idx = list.findIndex((j) => j.id === job.id);
+  const frag = els.detailTemplate.content.cloneNode(true);
+  const q = (sel) => frag.querySelector(sel);
+
+  q(".js-kicker").textContent = `Slide ${idx + 1} of ${list.length} · ${job.name}`;
+  const prevBtn = q(".js-prev");
+  const nextBtn = q(".js-next");
+  prevBtn.disabled = idx <= 0;
+  nextBtn.disabled = idx >= list.length - 1;
+  prevBtn.addEventListener("click", () => selectRelative(-1));
+  nextBtn.addEventListener("click", () => selectRelative(1));
+
+  const img = q(".js-slide-img");
+  img.src = job.previewDataUrl;
+  img.alt = "";
+
+  const metaBits = [];
+  if (job.resized) {
+    metaBits.push(
+      `Resized ${job.originalWidth}×${job.originalHeight} → ${job.width}×${job.height} before upload`
+    );
+  } else if (job.width) {
+    metaBits.push(`${job.width}×${job.height}, sent unmodified`);
+  }
+  if (job.usedModel) metaBits.push(MODEL_SHORT_NAMES[job.usedModel] || job.usedModel);
+  if (job.durationMs) metaBits.push(`${(job.durationMs / 1000).toFixed(1)}s`);
+  q(".js-slide-meta").textContent = metaBits.join(" · ");
+
+  const described = job.state === "done" && job.resultHtml;
+
+  if (described) {
+    // Refine actions
+    const refine = q(".js-refine");
+    refine.hidden = false;
+    q(".js-refine-detail").addEventListener("click", () => refineJob(job.id, "more"));
+    q(".js-refine-short").addEventListener("click", () => refineJob(job.id, "less"));
+    const strongerBtn = q(".js-refine-model");
+    const stronger = strongerModel(job.usedModel || els.model.value);
+    if (stronger) {
+      strongerBtn.textContent = `Redo with ${MODEL_SHORT_NAMES[stronger]}`;
+      strongerBtn.addEventListener("click", () => refineJob(job.id, null, stronger));
+    } else {
+      strongerBtn.hidden = true;
+    }
+    if (job.history.length > 0) {
+      const undo = document.createElement("button");
+      undo.type = "button";
+      undo.className = "btn btn-small";
+      undo.textContent = "Undo revision";
+      undo.addEventListener("click", () => undoRevision(job.id));
+      refine.querySelector(".refine-actions").appendChild(undo);
+    }
+
+    // Description
+    q(".js-desc-head").hidden = false;
+    const tag = q(".js-tag");
+    tag.textContent = job.approved ? "Approved" : "Needs your review";
+    tag.className = `tag ${job.approved ? "tag-approved" : "tag-review"}`;
+
+    const words = job.resultText.trim().split(/\s+/).filter(Boolean).length;
+    const features = [];
+    if (/<math/i.test(job.resultHtml)) features.push("MathML");
+    const figures = (job.resultHtml.match(/<figure/gi) || []).length;
+    if (figures) features.push(`${figures} figure${figures === 1 ? "" : "s"}`);
+    const tables = (job.resultHtml.match(/<table/gi) || []).length;
+    if (tables) features.push(`${tables} table${tables === 1 ? "" : "s"}`);
+    if (job.edited) features.push("edited by you");
+    q(".js-desc-meta").textContent = [`${words} words`, ...features].join(" · ");
+
+    const desc = q(".js-desc");
+    desc.hidden = false;
+    const preview = q(".js-preview");
+    preview.innerHTML = job.resultHtml;
+    preview.setAttribute("aria-label", `Description of ${job.name}`);
+
+    const editBtn = q(".js-edit");
+    editBtn.addEventListener("click", () => toggleEdit(job.id));
+
+    q(".js-copy-html").addEventListener("click", (e) =>
+      copyToClipboard(job.resultHtml, e.currentTarget, "HTML")
+    );
+    q(".js-copy-text").addEventListener("click", (e) =>
+      copyToClipboard(job.resultText, e.currentTarget, "text")
+    );
+
+    const source = q(".js-source");
+    source.hidden = false;
+    q(".js-source-code").textContent = job.resultHtml;
+
+    const bar = q(".js-approve-bar");
+    bar.hidden = false;
+    q(".js-approve-copy").textContent = job.approved
+      ? "Approved — it's in the export. Un-approve if you spot something."
+      : "Reads well? Approving adds it to the export and opens the next slide that needs you.";
+    const approveBtn = q(".js-approve");
+    q(".js-approve-label").textContent = job.approved ? "Un-approve" : "Approve & next";
+    if (job.approved) approveBtn.classList.remove("btn-approve");
+    approveBtn.addEventListener("click", () => toggleApprove(job.id));
+  } else {
+    // Pending / running / failed / invalid
+    const pane = q(".js-pending");
+    pane.hidden = false;
+    const title = q(".js-pending-title");
+    const body = q(".js-pending-body");
+    const detail = q(".js-pending-detail");
+    const primary = q(".js-pending-primary");
+    const remove = q(".js-pending-remove");
+
+    remove.disabled = job.state === "describing";
+    remove.addEventListener("click", () => removeJob(job.id));
+
+    if (job.state === "describing") {
+      title.textContent = "Describing this slide…";
+      body.textContent =
+        job.attempt > 1
+          ? `Attempt ${job.attempt} — the last one hit a rate limit or a hiccup, so it's backing off and trying again.`
+          : "Claude is reading the slide now. You can review other slides while this runs.";
+      primary.hidden = true;
+    } else if (job.state === "error") {
+      title.textContent = "This one didn't come back.";
+      body.textContent =
+        "MIT Parley returned an error after four tries. Waiting a moment and retrying usually clears a rate limit.";
+      detail.hidden = false;
+      detail.textContent = job.error || "unknown error";
+      primary.textContent = "Retry this slide";
+      primary.addEventListener("click", () => retryJob(job.id));
+    } else if (job.state === "invalid") {
+      title.textContent = "This image couldn't be read.";
+      body.textContent =
+        "The file is corrupt or in a format the browser can't decode, so there's nothing to send. Re-export it and add it again.";
+      detail.hidden = false;
+      detail.textContent = job.error || "unknown error";
+      primary.hidden = true;
+    } else if (job.state === "canceled") {
+      title.textContent = "Stopped before this one ran.";
+      body.textContent = "Nothing was sent for this slide, so nothing was charged.";
+      primary.textContent = "Describe this slide";
+      primary.addEventListener("click", () => retryJob(job.id));
+    } else {
+      title.textContent = "Not described yet.";
+      body.textContent = job.resized
+        ? `Ready to go — resized to ${job.width}×${job.height} so the request stays small.`
+        : "Ready to go.";
+      primary.textContent = "Describe this slide";
+      primary.addEventListener("click", () => retryJob(job.id));
+    }
+  }
+
+  els.detailPane.replaceChildren(frag);
+  els.detailPane.hidden = false;
+}
+
+// ---------- Approve & edit ----------
+
+function toggleApprove(jobId) {
+  const job = jobs.get(jobId);
+  if (!job || job.state !== "done") return;
+  job.approved = !job.approved;
+  renderRailRow(job);
+  updateControls();
+  updateOverallStatus();
+  if (job.approved) {
+    setStatus(`${job.name} approved.`);
+    selectNextUnapproved();
+  } else {
+    renderDetail();
+  }
+}
+
+function toggleEdit(jobId) {
+  const job = jobs.get(jobId);
+  if (!job) return;
+  const preview = els.detailPane.querySelector(".js-preview");
+  const label = els.detailPane.querySelector(".js-edit-label");
+  if (!preview) return;
+
+  if (!editing) {
+    editing = true;
+    preview.setAttribute("contenteditable", "true");
+    preview.focus();
+    if (label) label.textContent = "Save changes";
+  } else {
+    commitEdit();
+  }
+}
+
+/** Re-sanitize whatever the user typed before it becomes the stored result. */
+function commitEdit() {
+  const job = selectedJob();
+  const preview = els.detailPane.querySelector(".js-preview");
+  if (!job || !preview) {
+    editing = false;
+    return;
+  }
+  const fragment = sanitizeHtmlFragment(preview.innerHTML);
+  job.history.push({ html: job.resultHtml, text: job.resultText });
+  const holder = document.createElement("div");
+  holder.appendChild(fragment.cloneNode(true));
+  job.resultHtml = holder.innerHTML;
+  job.resultText = domFragmentToText(fragment);
+  job.edited = true;
+  editing = false;
+  preview.removeAttribute("contenteditable");
+  renderDetail();
+  updateControls();
+  setStatus(`Your edits to ${job.name} were saved.`);
+}
+
+function undoRevision(jobId) {
+  const job = jobs.get(jobId);
+  if (!job || job.history.length === 0) return;
+  const previous = job.history.pop();
+  job.resultHtml = previous.html;
+  job.resultText = previous.text;
+  renderJobState(job);
+  setStatus(`Reverted ${job.name} to the previous description.`);
+}
+
 // ---------- File input / drag & drop ----------
 
-els.fileInput.addEventListener("change", (e) => {
-  addFiles(e.target.files);
-  els.fileInput.value = "";
+[els.fileInput, els.railFileInput].forEach((input) => {
+  input.addEventListener("change", (e) => {
+    addFiles(e.target.files);
+    input.value = "";
+  });
 });
 
 ["dragenter", "dragover"].forEach((evt) => {
-  els.dropZone.addEventListener(evt, (e) => {
+  els.app.addEventListener(evt, (e) => {
+    if (!e.dataTransfer || ![...e.dataTransfer.types].includes("Files")) return;
     e.preventDefault();
     els.dropZone.classList.add("dragover");
   });
 });
 
 ["dragleave", "drop"].forEach((evt) => {
-  els.dropZone.addEventListener(evt, (e) => {
+  els.app.addEventListener(evt, (e) => {
     e.preventDefault();
     els.dropZone.classList.remove("dragover");
   });
 });
 
-els.dropZone.addEventListener("drop", (e) => {
+els.app.addEventListener("drop", (e) => {
   if (e.dataTransfer.files && e.dataTransfer.files.length) {
     addFiles(e.dataTransfer.files);
   }
 });
 
+// ---------- Keyboard review ----------
+
+function typingInFormField(target) {
+  if (!target) return false;
+  if (target.isContentEditable) return true;
+  const tag = target.tagName;
+  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+}
+
+document.addEventListener("keydown", (e) => {
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (els.settingsDialog.open || !els.onboarding.hidden) return;
+  if (typingInFormField(e.target)) return;
+  if (jobs.size === 0) return;
+
+  if (e.key === "ArrowRight") {
+    e.preventDefault();
+    selectRelative(1);
+  } else if (e.key === "ArrowLeft") {
+    e.preventDefault();
+    selectRelative(-1);
+  } else if (e.key === "a" || e.key === "A") {
+    const job = selectedJob();
+    if (job && job.state === "done") {
+      e.preventDefault();
+      toggleApprove(job.id);
+    }
+  }
+});
+
 // ---------- Batch processing ----------
 
-els.describeBtn.addEventListener("click", runBatch);
+els.describeBtn.addEventListener("click", () => {
+  if (runnableJobs().length === 0) {
+    selectNextUnapproved();
+    return;
+  }
+  runBatch();
+});
+
 els.stopBtn.addEventListener("click", () => {
   cancelRequested = true;
   els.stopBtn.disabled = true;
@@ -653,16 +1196,22 @@ els.stopBtn.addEventListener("click", () => {
   inFlightControllers.forEach((c) => c.abort());
 });
 
+function strongerModel(modelId) {
+  const idx = MODEL_LADDER.indexOf(modelId);
+  if (idx === -1 || idx === MODEL_LADDER.length - 1) return null;
+  return MODEL_LADDER[idx + 1];
+}
+
 async function runBatch() {
+  if (batchRunning) return;
   const apiKey = els.apiKey.value.trim();
   if (!apiKey) {
-    setError("Please enter your API key in API Settings.");
+    setError("Add your MIT Parley API key in settings first.");
+    openSettings();
     return;
   }
 
-  const runnable = [...jobs.values()].filter(
-    (j) => j.state === "pending" || j.state === "error" || j.state === "canceled"
-  );
+  const runnable = runnableJobs();
   if (runnable.length === 0) return;
 
   const model = els.model.value.trim() || "claude-haiku-4-5";
@@ -671,11 +1220,9 @@ async function runBatch() {
   setError("");
   batchRunning = true;
   cancelRequested = false;
-  els.describeBtn.disabled = true;
-  els.stopBtn.hidden = false;
   els.stopBtn.disabled = false;
-  els.clearAllBtn.hidden = true;
-  showProgress(0, runnable.length);
+  els.progressCard.hidden = false;
+  updateControls();
   updateOverallStatus();
 
   runnable.forEach((job) => {
@@ -683,15 +1230,15 @@ async function runBatch() {
     job.error = null;
   });
 
+  showProgress(0, runnable.length);
+
   await runWithConcurrency(runnable, BATCH_CONCURRENCY, (job) =>
     describeOne(job, { apiKey, model, verbosity })
   );
 
   batchRunning = false;
-  els.stopBtn.hidden = true;
-  els.progressWrap.hidden = true;
-  updateDescribeButtonState();
-  updateOverallStatus();
+  els.progressCard.hidden = true;
+  renderAll();
 
   // The aggregate status line only gives a failure count; name the specific
   // slides so a screen-reader user doesn't have to hunt through the list to
@@ -699,15 +1246,46 @@ async function runBatch() {
   const failed = runnable.filter((job) => job.state === "error");
   if (failed.length > 0) {
     const names = failed.map((job) => job.name).join(", ");
-    setError(`Couldn't describe: ${names}. Use the Retry button on each to try again.`);
+    setError(`Couldn't describe: ${names}. Open each one to retry it.`);
+  } else {
+    const firstUnapproved = jobList().find((j) => j.state === "done" && !j.approved);
+    if (firstUnapproved) selectJob(firstUnapproved.id);
   }
 }
 
+/** Re-run one slide with a revision instruction and/or a stronger model. */
+async function refineJob(jobId, revisionKey, overrideModel) {
+  const job = jobs.get(jobId);
+  if (!job || batchRunning) return;
+  const apiKey = els.apiKey.value.trim();
+  if (!apiKey) {
+    setError("Add your MIT Parley API key in settings first.");
+    openSettings();
+    return;
+  }
+  job.history.push({ html: job.resultHtml, text: job.resultText });
+  job.attempt = 0;
+  job.error = null;
+  batchRunning = true;
+  updateControls();
+
+  await describeOne(job, {
+    apiKey,
+    model: overrideModel || job.usedModel || els.model.value,
+    verbosity: currentVerbosity(),
+    revision: revisionKey ? REVISIONS[revisionKey] : "",
+  });
+
+  batchRunning = false;
+  // A revision replaces an approved description, so it needs looking at again.
+  job.approved = false;
+  renderAll();
+}
+
 function showProgress(completed, total) {
-  els.progressWrap.hidden = false;
-  els.batchProgress.max = total;
-  els.batchProgress.value = completed;
-  els.progressLabel.textContent = `Describing slides… (${completed} of ${total})`;
+  els.progressCard.hidden = false;
+  els.progressLabel.textContent = `Describing slides — ${completed} of ${total} done`;
+  els.progressFill.style.width = `${total ? Math.round((completed / total) * 100) : 0}%`;
 }
 
 async function runWithConcurrency(items, limit, worker) {
@@ -734,14 +1312,15 @@ async function runWithConcurrency(items, limit, worker) {
   await Promise.all(pool);
 }
 
-async function describeOne(job, { apiKey, model, verbosity }) {
-  // The job may have been removed from the queue (via the per-card Remove
-  // button) while it was still waiting for a concurrency slot — don't spend
-  // an API call describing something the user already took off the list.
+async function describeOne(job, { apiKey, model, verbosity, revision }) {
+  // The job may have been removed from the queue while it was still waiting
+  // for a concurrency slot — don't spend an API call describing something the
+  // user already took off the list.
   if (!jobs.has(job.id)) return;
 
   job.state = "describing";
   job.attempt = 1;
+  const startedAt = performance.now();
   renderJobState(job);
 
   while (true) {
@@ -768,7 +1347,7 @@ async function describeOne(job, { apiKey, model, verbosity }) {
         body: JSON.stringify({
           model,
           max_tokens: 4096,
-          system: buildSystemPrompt(verbosity),
+          system: buildSystemPrompt(verbosity, revision),
           messages: [
             {
               role: "user",
@@ -831,6 +1410,9 @@ async function describeOne(job, { apiKey, model, verbosity }) {
 
       applyResult(job, textBlock.text);
       job.state = "done";
+      job.usedModel = model;
+      job.durationMs = performance.now() - startedAt;
+      job.edited = false;
       renderJobState(job);
       return;
     } catch (err) {
@@ -969,8 +1551,8 @@ function sanitizeHtmlFragment(html) {
   // The model is never asked to produce links or styling, so being strict
   // here costs nothing legitimate.
   const SAFE_HREF_SCHEME_RE = /^(https?:|mailto:)/i;
-  // No https?: here to match the img-src CSP directive below, which only
-  // allows 'self' and data:. The model is only ever given a base64 upload to
+  // No https?: here to match the img-src CSP directive, which only allows
+  // 'self' and data:. The model is only ever given a base64 upload to
   // describe — it has no image URLs to legitimately reference.
   const SAFE_SRC_SCHEME_RE = /^data:image\//i;
 
@@ -996,6 +1578,9 @@ function sanitizeHtmlFragment(html) {
         if (name.startsWith("on") || name === "style" || name === "target") {
           el.removeAttribute(attr.name);
         }
+        // The editable preview is contenteditable; don't let that attribute
+        // survive into a saved description or an export.
+        if (name === "contenteditable") el.removeAttribute(attr.name);
       });
       if (el.hasAttribute("href")) sanitizeUrlAttribute(el, "href", SAFE_HREF_SCHEME_RE);
       if (el.hasAttribute("src")) sanitizeUrlAttribute(el, "src", SAFE_SRC_SCHEME_RE);
@@ -1042,13 +1627,9 @@ function domFragmentToText(fragment) {
 
 function applyResult(job, rawHtml) {
   const fragment = sanitizeHtmlFragment(rawHtml);
-
-  const previewEl = job.el.querySelector(".result-preview");
-  previewEl.innerHTML = "";
-  previewEl.appendChild(fragment.cloneNode(true));
-
-  job.resultHtml = previewEl.innerHTML;
-  job.el.querySelector(".source-code").textContent = job.resultHtml;
+  const holder = document.createElement("div");
+  holder.appendChild(fragment.cloneNode(true));
+  job.resultHtml = holder.innerHTML;
   job.resultText = domFragmentToText(fragment);
 }
 
@@ -1068,7 +1649,191 @@ async function copyToClipboard(text, button, label) {
   }
 }
 
-// ---------- Model picker cost estimates, verbosity display & version badge ----------
+// ---------- Export: a store-only .zip, built by hand ----------
+//
+// The page's CSP forbids third-party scripts, so there's no JSZip to reach
+// for — and there's no need for one. These are small HTML text files; storing
+// them uncompressed keeps the writer to a CRC table and three record layouts.
+
+const CRC_TABLE = (() => {
+  const table = new Uint32Array(256);
+  for (let i = 0; i < 256; i += 1) {
+    let c = i;
+    for (let k = 0; k < 8; k += 1) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    table[i] = c >>> 0;
+  }
+  return table;
+})();
+
+function crc32(bytes) {
+  let c = 0xffffffff;
+  for (let i = 0; i < bytes.length; i += 1) c = CRC_TABLE[(c ^ bytes[i]) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+function buildZipBlob(files) {
+  const encoder = new TextEncoder();
+  const chunks = [];
+  const central = [];
+  let offset = 0;
+
+  const now = new Date();
+  const dosTime =
+    ((now.getHours() << 11) | (now.getMinutes() << 5) | (now.getSeconds() >> 1)) & 0xffff;
+  const dosDate =
+    (((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate()) & 0xffff;
+
+  for (const file of files) {
+    const nameBytes = encoder.encode(file.name);
+    const data = encoder.encode(file.content);
+    const crc = crc32(data);
+
+    const local = new Uint8Array(30 + nameBytes.length);
+    const lv = new DataView(local.buffer);
+    lv.setUint32(0, 0x04034b50, true); // local file header
+    lv.setUint16(4, 20, true); // version needed
+    lv.setUint16(6, 0x0800, true); // UTF-8 filenames
+    lv.setUint16(8, 0, true); // stored, no compression
+    lv.setUint16(10, dosTime, true);
+    lv.setUint16(12, dosDate, true);
+    lv.setUint32(14, crc, true);
+    lv.setUint32(18, data.length, true);
+    lv.setUint32(22, data.length, true);
+    lv.setUint16(26, nameBytes.length, true);
+    local.set(nameBytes, 30);
+
+    chunks.push(local, data);
+
+    const cd = new Uint8Array(46 + nameBytes.length);
+    const cv = new DataView(cd.buffer);
+    cv.setUint32(0, 0x02014b50, true); // central directory header
+    cv.setUint16(4, 20, true); // version made by
+    cv.setUint16(6, 20, true); // version needed
+    cv.setUint16(8, 0x0800, true);
+    cv.setUint16(10, 0, true);
+    cv.setUint16(12, dosTime, true);
+    cv.setUint16(14, dosDate, true);
+    cv.setUint32(16, crc, true);
+    cv.setUint32(20, data.length, true);
+    cv.setUint32(24, data.length, true);
+    cv.setUint16(28, nameBytes.length, true);
+    cv.setUint32(42, offset, true);
+    cd.set(nameBytes, 46);
+    central.push(cd);
+
+    offset += local.length + data.length;
+  }
+
+  const centralSize = central.reduce((total, c) => total + c.length, 0);
+  const eocd = new Uint8Array(22);
+  const ev = new DataView(eocd.buffer);
+  ev.setUint32(0, 0x06054b50, true); // end of central directory
+  ev.setUint16(8, files.length, true);
+  ev.setUint16(10, files.length, true);
+  ev.setUint32(12, centralSize, true);
+  ev.setUint32(16, offset, true);
+
+  return new Blob([...chunks, ...central, eocd], { type: "application/zip" });
+}
+
+function escapeHtml(text) {
+  return String(text)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function safeFileStem(name, taken) {
+  let stem = name
+    .replace(/\.[^.]+$/, "")
+    .replace(/[^a-zA-Z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  if (!stem) stem = "slide";
+  let candidate = stem;
+  let n = 2;
+  while (taken.has(candidate)) {
+    candidate = `${stem}-${n}`;
+    n += 1;
+  }
+  taken.add(candidate);
+  return candidate;
+}
+
+// Optional styling for whoever embeds these fragments. The fragments
+// themselves carry no classes beyond .sr-note and no inline styles, so they
+// inherit the host page's typography unless someone opts into this.
+const EXPORT_CSS = `/* Optional: minimal styling for DescribeMe fragments.
+   The descriptions are plain semantic HTML, so they inherit your site's
+   typography by default. Include this only if your platform styles nothing. */
+.describeme table { border-collapse: collapse; width: 100%; }
+.describeme :is(th, td) { border: 1px solid #ccc; padding: 0.4rem 0.6rem; text-align: left; }
+.describeme figure { margin: 1rem 0; padding: 0.75rem; border: 1px solid #ccc; }
+.describeme figcaption { font-size: 0.9em; opacity: 0.75; margin-top: 0.5rem; }
+.describeme .sr-note { display: block; font-style: italic; opacity: 0.8; margin-top: 0.25rem; }
+`;
+
+function exportApproved() {
+  const approved = jobList().filter((j) => j.state === "done" && j.approved);
+  if (approved.length === 0) return;
+
+  const batch = els.batchName.value.trim() || "Untitled batch";
+  const taken = new Set();
+  const entries = approved.map((job) => ({ job, stem: safeFileStem(job.name, taken) }));
+
+  const files = entries.map(({ job, stem }) => ({
+    name: `${stem}.html`,
+    content: `${job.resultHtml}\n`,
+  }));
+
+  files.push({
+    name: "describeme.css",
+    content: EXPORT_CSS,
+  });
+
+  files.push({
+    name: "index.html",
+    content:
+      `<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n` +
+      `<title>${escapeHtml(batch)} — slide descriptions</title>\n` +
+      `<link rel="stylesheet" href="describeme.css">\n</head>\n<body class="describeme">\n` +
+      `<h1>${escapeHtml(batch)}</h1>\n` +
+      `<p>${approved.length} approved slide description${approved.length === 1 ? "" : "s"}, ` +
+      `generated with DescribeMe. Each is also in this folder as its own HTML fragment, ` +
+      `ready to paste beside the slide.</p>\n` +
+      entries
+        .map(
+          ({ job, stem }) =>
+            `<section>\n<h2>${escapeHtml(job.name)} <small>(<a href="${stem}.html">${stem}.html</a>)</small></h2>\n` +
+            `${job.resultHtml}\n</section>`
+        )
+        .join("\n") +
+      `\n</body>\n</html>\n`,
+  });
+
+  const blob = buildZipBlob(files);
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `${safeFileStem(batch, new Set())}-descriptions.zip`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+  setStatus(`Exported ${approved.length} approved description${approved.length === 1 ? "" : "s"}.`);
+}
+
+els.exportBtn.addEventListener("click", exportApproved);
+
+// ---------- Verbosity display & version badge ----------
+
+function updateVerbosityDisplay() {
+  const verbosity = currentVerbosity();
+  els.verbosityValue.textContent = verbosity.label;
+  els.verbosityHint.textContent = verbosity.hint;
+  els.verbosity.setAttribute("aria-valuetext", verbosity.label);
+  annotateModelOptionsWithCostEstimates();
+}
 
 function annotateModelOptionsWithCostEstimates() {
   const verbosity = currentVerbosity();
@@ -1082,24 +1847,26 @@ function annotateModelOptionsWithCostEstimates() {
   });
 }
 
-function updateVerbosityDisplay() {
-  const verbosity = currentVerbosity();
-  els.verbosityValue.textContent = verbosity.label;
-  els.verbosityHint.textContent = verbosity.hint;
-  els.verbosity.setAttribute("aria-valuetext", verbosity.label);
-  annotateModelOptionsWithCostEstimates();
-}
-
 function renderVersionBadge() {
   // version.js (generated by a git pre-commit hook, see .githooks/pre-commit)
   // sets window.APP_VERSION to a number that increases with every commit.
   // It won't exist for a fresh checkout that hasn't committed yet.
-  els.versionBadge.textContent = window.APP_VERSION ? `v${window.APP_VERSION}` : "dev";
+  const label = window.APP_VERSION ? `v${window.APP_VERSION}` : "dev";
+  els.versionBadge.textContent = label;
+  els.versionBadgeOnboard.textContent = label;
 }
 
 // ---------- Init ----------
 
 loadSettings();
-updateDescribeButtonState();
 updateVerbosityDisplay();
+annotateOnboardingCosts();
 renderVersionBadge();
+
+if (localStorage.getItem(STORAGE_KEYS.onboarded)) {
+  showApp();
+} else {
+  showOnboarding();
+}
+
+renderAll();
