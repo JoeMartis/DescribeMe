@@ -31,15 +31,15 @@ GitHub Pages.
    These per-slide costs are rough estimates based on a typical image size
    and description length — **not a budgeting tool**. Actual cost depends on
    the specific image and how much text Claude generates for it.
-5. Optionally adjust **Max simultaneous requests** — how many slides are
-   described in parallel when you process a batch (default 3).
-6. Drag and drop slide images (or click to browse) — PNG, JPEG, WebP, or GIF,
+5. Drag and drop slide images (or click to browse) — PNG, JPEG, WebP, or GIF,
    up to 5 MB each and 25 per batch. Large images are automatically resized
    in your browser before upload.
-7. Click **Describe all**. Each slide gets its own card with a rendered
-   preview, copy buttons for the HTML and plain text, and a collapsible raw
-   HTML source view. Failed items get a **Retry** button; you can **Stop** a
-   batch mid-run, and remove or re-run individual slides at any time.
+6. Click **Describe all**. A progress bar tracks the batch, and each slide
+   gets its own card with a rendered preview, copy buttons for the HTML and
+   plain text, and a collapsible raw HTML source view. Failed items get a
+   **Retry** button; you can **Stop** a batch mid-run, and remove or re-run
+   individual slides at any time. If any slides fail, they're named
+   explicitly (not just counted) so you know which ones to retry.
 
 Nothing is uploaded to any server other than the MIT Parley endpoint. There is
 no backend for this site — GitHub Pages only serves the static files.
@@ -54,15 +54,49 @@ A few things keep batches fast and cheap:
   resolution only adds tokens and upload time without improving the
   description. Small images are sent unmodified.
 - **Bounded concurrency.** Slides in a batch are described in parallel, up to
-  the configurable "Max simultaneous requests" limit (default 3), instead of
-  either running one at a time (slow) or firing everything at once (likely to
-  hit rate limits and waste retries).
+  3 at a time, instead of either running one at a time (slow) or firing
+  everything at once (likely to hit rate limits and waste retries).
 - **Automatic retry with backoff.** Rate-limit (429) and server (5xx)
   responses, and transient network failures, are retried with exponential
   backoff (respecting the API's `retry-after` header when present) instead of
   failing the whole slide on the first hiccup.
 - **A single request per slide.** Each image gets exactly one Messages API
   call — no unnecessary round trips.
+
+## Accessibility
+
+The app itself is built to be usable with a screen reader and keyboard-only,
+not just to produce accessible output:
+
+- **Keyboard-operable upload.** The upload control is a real, natively
+  focusable `<input type="file">` with an accessible name and description —
+  not a decorative element with a synthetic click handler bolted on, and not
+  a redundant second tab stop alongside one. Drag-and-drop is available as an
+  additional, mouse-only convenience.
+- **Live status announcements.** The overall batch status (`role="status"`)
+  and any error (`role="alert"`) are in `aria-live` regions, so progress and
+  problems are announced without the user needing to hunt for them. When a
+  batch finishes with failures, the specific filenames are named — not just a
+  count — so there's no need to manually scan the list to find out which
+  slides need a retry.
+- **Per-slide regions.** Each result is `role="region"` with an accessible
+  name from its filename, so navigating by landmark (a common screen-reader
+  technique) gives clear "which slide is this" context — independent of
+  whatever heading levels (`<h2>`/`<h3>`) the generated description itself
+  uses internally.
+- **Visible focus, semantic controls.** Focus outlines are never suppressed;
+  disclosures use `<button aria-expanded>`, grouped radio options use
+  `<fieldset>`/`<legend>`, and the "HTML source" view is a native
+  `<details>`/`<summary>` rather than a custom-built, keyboard-reimplemented
+  toggle.
+
+The **generated descriptions** are the other half of this: the prompt asks
+for semantic headings, list grouping, MathML with a plain-language reading
+alongside every equation, `<figure>`/`<figcaption>` for diagrams, real
+`<table>` markup with `<th>` for data, and color/emphasis described by what
+it means rather than how it looks — see `app.js`'s `SYSTEM_PROMPT` for the
+exact instructions. Rendering relies on the browser's native MathML support
+(shipped in current Chrome, Firefox, and Safari).
 
 ## Hosting on GitHub Pages
 
@@ -101,10 +135,24 @@ fixed base URL (`https://parley.api.mit.edu`) and sends requests to
   devtools) can see your API key, the same as with any client-side API key
   usage — don't use a key with broader scope than you're comfortable
   exposing in your own browser.
-- Model output is sanitized before being rendered (script/iframe/style tags
-  and `on*`/`javascript:` attributes are stripped) before it's inserted into
-  the page, since the description is model-generated content derived from an
-  uploaded image.
+- Model output is sanitized before being rendered — this matters because the
+  description text is ultimately derived from an uploaded image, and text
+  hidden in a slide (e.g. from a shared or third-party deck) could act as an
+  indirect prompt injection attempting to steer the model into emitting
+  unwanted markup. The sanitizer uses allowlists rather than blocklists
+  where it matters most: `href`/`src` only accept `https:`, `mailto:`, or
+  (for images) `data:image/` — anything else, including `javascript:` and
+  `data:text/html`, is stripped; `style` and `target` attributes and event
+  handler (`on*`) attributes are stripped outright; `<script>`, `<iframe>`,
+  `<object>`, `<embed>`, `<style>`, `<form>`, `<meta>`, `<base>`, and `<link>`
+  tags are removed everywhere, including inside SVG/MathML content (where a
+  naive check can miss them — foreign-content elements keep their original
+  tag-name casing instead of the uppercase HTML elements normally get).
+- A `Content-Security-Policy` meta tag adds a second, independent layer on
+  top of that sanitizer: no inline or external scripts, no inline styles, no
+  `<object>`/`<embed>`, and `connect-src` restricted to the MIT Parley
+  endpoint — so even a sanitizer bug couldn't be used to run script or
+  exfiltrate data to another host.
 
 ## Version number
 

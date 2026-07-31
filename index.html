@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>DescribeMe — STEM Slide Accessibility Descriptions</title>
 <meta name="description" content="Upload STEM lecture slides and generate screen-reader-friendly extended descriptions using Claude.">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src https://parley.api.mit.edu; object-src 'none'; base-uri 'none'; form-action 'none';">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -57,15 +58,6 @@
         </p>
       </div>
 
-      <div class="field">
-        <label for="concurrency">Max simultaneous requests</label>
-        <input type="number" id="concurrency" min="1" max="6" step="1" value="3" style="max-width: 6em;">
-        <p class="hint">
-          How many slides to describe at once when processing a batch. Higher is faster but more likely to
-          hit rate limits; lower is slower but safer.
-        </p>
-      </div>
-
       <fieldset class="field">
         <legend>Remember my API key on this device</legend>
         <label class="radio-option">
@@ -89,8 +81,7 @@
   <section class="panel" aria-labelledby="upload-heading">
     <h2 id="upload-heading">1. Upload slide images</h2>
 
-    <div id="dropZone" class="drop-zone" tabindex="0" role="button"
-         aria-describedby="dropZoneHint" aria-label="Upload slide images">
+    <div id="dropZone" class="drop-zone">
       <svg class="drop-zone-icon" viewBox="0 0 64 64" aria-hidden="true" focusable="false">
         <rect x="7" y="7" width="50" height="50" rx="10" fill="none" stroke="currentColor" stroke-width="2.5"/>
         <circle cx="23" cy="24" r="5.5" fill="currentColor"/>
@@ -99,7 +90,8 @@
       </svg>
       <p class="drop-zone-title">Drop slide images here</p>
       <p class="drop-zone-subtitle">or click to browse your files</p>
-      <input type="file" id="fileInput" accept="image/png,image/jpeg,image/webp,image/gif" multiple>
+      <input type="file" id="fileInput" accept="image/png,image/jpeg,image/webp,image/gif" multiple
+             aria-label="Upload slide images" aria-describedby="dropZoneHint">
     </div>
     <p class="hint" id="dropZoneHint">
       Accepted formats: PNG, JPEG, WebP, GIF. Max 5 MB and 25 images per batch. Large images are
@@ -115,6 +107,10 @@
       <button type="button" id="describeBtn" disabled>Describe all</button>
       <button type="button" id="stopBtn" class="secondary" hidden>Stop</button>
       <button type="button" id="clearAllBtn" class="secondary" hidden>Clear all</button>
+    </div>
+    <div class="progress-wrap" id="progressWrap" hidden>
+      <label class="progress-label" for="batchProgress" id="progressLabel">Describing slides…</label>
+      <progress class="progress-bar" id="batchProgress" value="0" max="1"></progress>
     </div>
     <p id="statusMessage" class="status" role="status" aria-live="polite"></p>
     <p id="errorMessage" class="error" role="alert" hidden></p>
@@ -140,7 +136,7 @@
         <button type="button" class="copy-html-btn secondary small">Copy HTML</button>
         <button type="button" class="copy-text-btn secondary small">Copy plain text</button>
       </div>
-      <div class="result-preview"></div>
+      <div class="result-preview" role="region"></div>
       <details class="source-details">
         <summary>HTML source</summary>
         <pre class="source-code"></pre>

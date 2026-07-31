@@ -129,7 +129,6 @@ const els = {
   toggleKeyVisibility: document.getElementById("toggleKeyVisibility"),
   model: document.getElementById("model"),
   versionBadge: document.getElementById("versionBadge"),
-  concurrency: document.getElementById("concurrency"),
   clearStoredKey: document.getElementById("clearStoredKey"),
   dropZone: document.getElementById("dropZone"),
   fileInput: document.getElementById("fileInput"),
@@ -137,6 +136,9 @@ const els = {
   describeBtn: document.getElementById("describeBtn"),
   stopBtn: document.getElementById("stopBtn"),
   clearAllBtn: document.getElementById("clearAllBtn"),
+  progressWrap: document.getElementById("progressWrap"),
+  progressLabel: document.getElementById("progressLabel"),
+  batchProgress: document.getElementById("batchProgress"),
   statusMessage: document.getElementById("statusMessage"),
   errorMessage: document.getElementById("errorMessage"),
   imageCardTemplate: document.getElementById("imageCardTemplate"),
@@ -154,9 +156,13 @@ const inFlightControllers = new Set();
 const STORAGE_KEYS = {
   key: "describeme.apiKey",
   model: "describeme.model",
-  concurrency: "describeme.concurrency",
   persistence: "describeme.keyPersistence",
 };
+
+// Not user-configurable — a fixed middle ground between processing a batch
+// serially (slow) and firing every request at once (likely to trip rate
+// limits and waste retries).
+const BATCH_CONCURRENCY = 3;
 
 function loadSettings() {
   const persistence = localStorage.getItem(STORAGE_KEYS.persistence) || "none";
@@ -175,11 +181,6 @@ function loadSettings() {
     localStorage.getItem(STORAGE_KEYS.model) ||
     sessionStorage.getItem(STORAGE_KEYS.model);
   if (savedModel) els.model.value = savedModel;
-
-  const savedConcurrency =
-    localStorage.getItem(STORAGE_KEYS.concurrency) ||
-    sessionStorage.getItem(STORAGE_KEYS.concurrency);
-  if (savedConcurrency) els.concurrency.value = savedConcurrency;
 }
 
 function currentPersistenceMode() {
@@ -190,7 +191,7 @@ function currentPersistenceMode() {
 function persistSettings() {
   const mode = currentPersistenceMode();
 
-  [STORAGE_KEYS.key, STORAGE_KEYS.model, STORAGE_KEYS.concurrency].forEach((k) => {
+  [STORAGE_KEYS.key, STORAGE_KEYS.model].forEach((k) => {
     localStorage.removeItem(k);
     sessionStorage.removeItem(k);
   });
@@ -201,7 +202,6 @@ function persistSettings() {
     const store = mode === "local" ? localStorage : sessionStorage;
     store.setItem(STORAGE_KEYS.key, els.apiKey.value);
     store.setItem(STORAGE_KEYS.model, els.model.value);
-    store.setItem(STORAGE_KEYS.concurrency, els.concurrency.value);
   }
 }
 
@@ -210,7 +210,6 @@ document
   .forEach((radio) => radio.addEventListener("change", persistSettings));
 els.apiKey.addEventListener("input", persistSettings);
 els.model.addEventListener("input", persistSettings);
-els.concurrency.addEventListener("input", persistSettings);
 
 els.clearStoredKey.addEventListener("click", () => {
   localStorage.removeItem(STORAGE_KEYS.key);
@@ -342,7 +341,13 @@ function createJobCard(job) {
   thumb.src = job.previewDataUrl;
   thumb.alt = "";
 
-  li.querySelector(".image-card-name").textContent = job.name;
+  const nameEl = li.querySelector(".image-card-name");
+  nameEl.textContent = job.name;
+  // Gives screen-reader users navigating by region/landmark a "which slide
+  // is this" cue, independent of whatever heading levels the generated
+  // description itself uses internally.
+  nameEl.id = `image-name-${job.id}`;
+  li.querySelector(".result-preview").setAttribute("aria-labelledby", nameEl.id);
 
   li.querySelector(".retry-btn").addEventListener("click", () => retryJob(job.id));
   li.querySelector(".remove-btn").addEventListener("click", () => removeJob(job.id));
@@ -365,7 +370,12 @@ function renderJobState(job) {
 
   const statusEl = el.querySelector(".image-card-status");
   const retryBtn = el.querySelector(".retry-btn");
+  const removeBtn = el.querySelector(".remove-btn");
   const resultArea = el.querySelector(".result-area");
+
+  // Removing a job mid-flight can't stop the request already in progress, so
+  // disable the button rather than let it silently do nothing when clicked.
+  removeBtn.disabled = job.state === "describing";
 
   switch (job.state) {
     case "pending":
@@ -540,13 +550,6 @@ els.fileInput.addEventListener("change", (e) => {
   els.fileInput.value = "";
 });
 
-els.dropZone.addEventListener("keydown", (e) => {
-  if (e.key === "Enter" || e.key === " ") {
-    e.preventDefault();
-    els.fileInput.click();
-  }
-});
-
 ["dragenter", "dragover"].forEach((evt) => {
   els.dropZone.addEventListener(evt, (e) => {
     e.preventDefault();
@@ -590,10 +593,6 @@ async function runBatch() {
   if (runnable.length === 0) return;
 
   const model = els.model.value.trim() || "claude-haiku-4-5";
-  const concurrency = Math.min(
-    6,
-    Math.max(1, parseInt(els.concurrency.value, 10) || 3)
-  );
 
   setError("");
   batchRunning = true;
@@ -602,6 +601,7 @@ async function runBatch() {
   els.stopBtn.hidden = false;
   els.stopBtn.disabled = false;
   els.clearAllBtn.hidden = true;
+  showProgress(0, runnable.length);
   updateOverallStatus();
 
   runnable.forEach((job) => {
@@ -609,20 +609,37 @@ async function runBatch() {
     job.error = null;
   });
 
-  await runWithConcurrency(runnable, concurrency, (job) =>
+  await runWithConcurrency(runnable, BATCH_CONCURRENCY, (job) =>
     describeOne(job, { apiKey, model })
   );
 
   batchRunning = false;
   els.stopBtn.hidden = true;
+  els.progressWrap.hidden = true;
   updateDescribeButtonState();
   updateOverallStatus();
+
+  // The aggregate status line only gives a failure count; name the specific
+  // slides so a screen-reader user doesn't have to hunt through the list to
+  // find out which ones need a retry.
+  const failed = runnable.filter((job) => job.state === "error");
+  if (failed.length > 0) {
+    const names = failed.map((job) => job.name).join(", ");
+    setError(`Couldn't describe: ${names}. Use the Retry button on each to try again.`);
+  }
+}
+
+function showProgress(completed, total) {
+  els.progressWrap.hidden = false;
+  els.batchProgress.max = total;
+  els.batchProgress.value = completed;
+  els.progressLabel.textContent = `Describing slides… (${completed} of ${total})`;
 }
 
 async function runWithConcurrency(items, limit, worker) {
   let idx = 0;
-  const poolSize = Math.min(limit, items.length);
-  const pool = new Array(poolSize).fill(null).map(async () => {
+  let completed = 0;
+  const pool = new Array(Math.min(limit, items.length)).fill(null).map(async () => {
     while (idx < items.length) {
       if (cancelRequested) {
         const remaining = items[idx++];
@@ -630,16 +647,25 @@ async function runWithConcurrency(items, limit, worker) {
           remaining.state = "canceled";
           renderJobState(remaining);
         }
+        completed += 1;
+        showProgress(completed, items.length);
         continue;
       }
       const item = items[idx++];
       await worker(item);
+      completed += 1;
+      showProgress(completed, items.length);
     }
   });
   await Promise.all(pool);
 }
 
 async function describeOne(job, { apiKey, model }) {
+  // The job may have been removed from the queue (via the per-card Remove
+  // button) while it was still waiting for a concurrency slot — don't spend
+  // an API call describing something the user already took off the list.
+  if (!jobs.has(job.id)) return;
+
   job.state = "describing";
   job.attempt = 1;
   renderJobState(job);
@@ -650,6 +676,8 @@ async function describeOne(job, { apiKey, model }) {
       renderJobState(job);
       return;
     }
+
+    if (!jobs.has(job.id)) return; // removed while waiting out a retry backoff
 
     const controller = new AbortController();
     inFlightControllers.add(controller);
@@ -847,24 +875,44 @@ function sanitizeHtmlFragment(html) {
     "BASE",
   ]);
 
+  // Allowlists, not denylists, for anything that can carry a URL or arbitrary
+  // CSS: this app renders text derived from an uploaded image, so a
+  // maliciously-crafted slide (e.g. hidden text meant as a prompt injection)
+  // could in principle steer the model into emitting attacker-chosen markup.
+  // The model is never asked to produce links or styling, so being strict
+  // here costs nothing legitimate.
+  const SAFE_HREF_SCHEME_RE = /^(https?:|mailto:)/i;
+  // No https?: here to match the img-src CSP directive below, which only
+  // allows 'self' and data:. The model is only ever given a base64 upload to
+  // describe — it has no image URLs to legitimately reference.
+  const SAFE_SRC_SCHEME_RE = /^data:image\//i;
+
+  function sanitizeUrlAttribute(el, attrName, schemeRe) {
+    const value = el.getAttribute(attrName).trim();
+    if (value === "" || value.startsWith("#")) return; // empty or same-page fragment
+    if (schemeRe.test(value)) return;
+    el.removeAttribute(attrName);
+  }
+
   const walk = (node) => {
     [...node.querySelectorAll("*")].forEach((el) => {
-      if (DISALLOWED_TAGS.has(el.tagName)) {
+      // Foreign-content elements (SVG/MathML, e.g. an <svg><script>) keep
+      // their tagName's original case instead of the uppercase HTML normally
+      // gets — normalize before checking, or a namespaced element with the
+      // same local name silently skips this check.
+      if (DISALLOWED_TAGS.has(el.tagName.toUpperCase())) {
         el.remove();
         return;
       }
       [...el.attributes].forEach((attr) => {
         const name = attr.name.toLowerCase();
-        const value = attr.value.trim().toLowerCase();
-        if (name.startsWith("on")) {
-          el.removeAttribute(attr.name);
-        } else if (
-          (name === "href" || name === "src" || name === "xlink:href") &&
-          (value.startsWith("javascript:") || value.startsWith("data:text/html"))
-        ) {
+        if (name.startsWith("on") || name === "style" || name === "target") {
           el.removeAttribute(attr.name);
         }
       });
+      if (el.hasAttribute("href")) sanitizeUrlAttribute(el, "href", SAFE_HREF_SCHEME_RE);
+      if (el.hasAttribute("src")) sanitizeUrlAttribute(el, "src", SAFE_SRC_SCHEME_RE);
+      if (el.hasAttribute("xlink:href")) sanitizeUrlAttribute(el, "xlink:href", SAFE_SRC_SCHEME_RE);
     });
   };
 
