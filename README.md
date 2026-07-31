@@ -86,12 +86,16 @@ fixed base URL (`https://parley.api.mit.edu`) and sends requests to
 - By default the key is kept only in page memory and is gone as soon as you
   reload or close the tab. The "remember" options use your browser's
   `sessionStorage`/`localStorage`, entirely client-side.
-- Because this calls the API directly from a browser, it sends the
-  `anthropic-dangerous-direct-browser-access: true` header, which is required
-  for browser-based requests. Anyone who can read your page's network traffic
-  (e.g. via browser devtools) can see your API key, the same as with any
-  client-side API key usage — don't use a key with broader scope than you're
-  comfortable exposing in your own browser.
+- This calls MIT Parley directly from a browser, which relies on Parley
+  allowing cross-origin (CORS) requests from this page's origin — Parley,
+  not this app, controls whether that's permitted. If requests fail with a
+  network error (not an HTTP error from the API), check your browser's
+  DevTools console for a CORS message and, if you see one, ask MIT IT to
+  allow browser access from this page's origin.
+- Anyone who can read your page's network traffic (e.g. via browser
+  devtools) can see your API key, the same as with any client-side API key
+  usage — don't use a key with broader scope than you're comfortable
+  exposing in your own browser.
 - Model output is sanitized before being rendered (script/iframe/style tags
   and `on*`/`javascript:` attributes are stripped) before it's inserted into
   the page, since the description is model-generated content derived from an

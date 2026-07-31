@@ -609,7 +609,6 @@ async function describeOne(job, { apiKey, model }) {
           "content-type": "application/json",
           "x-api-key": apiKey,
           "anthropic-version": ANTHROPIC_VERSION,
-          "anthropic-dangerous-direct-browser-access": "true",
         },
         body: JSON.stringify({
           model,
@@ -639,10 +638,13 @@ async function describeOne(job, { apiKey, model }) {
 
       inFlightControllers.delete(controller);
 
+      const { raw, json: payload } = await readResponseBody(response);
+      const errorMessage = () =>
+        payload ? apiErrorMessage(payload, response.status) : nonJsonDiagnostic(response, raw);
+
       if (response.status === 429 || response.status >= 500) {
         if (job.attempt >= MAX_ATTEMPTS) {
-          const payload = await response.json().catch(() => null);
-          throw new Error(apiErrorMessage(payload, response.status));
+          throw new Error(errorMessage());
         }
         const retryAfterHeader = parseFloat(response.headers.get("retry-after"));
         await sleep(retryDelay(job.attempt, retryAfterHeader));
@@ -656,13 +658,14 @@ async function describeOne(job, { apiKey, model }) {
         continue;
       }
 
-      const payload = await response.json().catch(() => null);
-
       if (!response.ok) {
-        throw new Error(apiErrorMessage(payload, response.status));
+        throw new Error(errorMessage());
       }
 
-      if (!payload || !Array.isArray(payload.content)) {
+      if (!payload) {
+        throw new Error(nonJsonDiagnostic(response, raw));
+      }
+      if (!Array.isArray(payload.content)) {
         throw new Error("Unexpected response shape from the API.");
       }
 
@@ -725,12 +728,44 @@ function apiErrorMessage(payload, status) {
   return `HTTP ${status}`;
 }
 
+/** Reads a response body once, returning both the raw text and a best-effort JSON parse. */
+async function readResponseBody(response) {
+  const raw = await response.text();
+  let json = null;
+  try {
+    json = JSON.parse(raw);
+  } catch (_err) {
+    // Not JSON — leave json as null; callers use nonJsonDiagnostic() to explain why.
+  }
+  return { raw, json };
+}
+
+/**
+ * A non-JSON body usually means the request reached something other than the
+ * API — an SSO/login redirect, a WAF or error page, or a wrong path — rather
+ * than an ordinary API error. Surface enough detail to tell those apart.
+ */
+function nonJsonDiagnostic(response, raw) {
+  const titleMatch = raw.match(/<title[^>]*>\s*([^<]+?)\s*<\/title>/i);
+  const contentType = response.headers.get("content-type") || "an unknown content type";
+  const redirected = response.redirected ? ` (redirected to ${response.url})` : "";
+  const titlePart = titleMatch ? ` — page title: "${titleMatch[1]}"` : "";
+  return (
+    `MIT Parley returned HTTP ${response.status} with ${contentType} instead of JSON${redirected}` +
+    `${titlePart}. The request likely reached a login page or an error page rather than the API — ` +
+    `double-check the API key, and if this keeps happening, ask MIT IT whether this endpoint requires ` +
+    `something other than a direct browser request.`
+  );
+}
+
 function describeFetchError(err) {
   const msg = err && err.message ? err.message : String(err);
   if (msg === "Failed to fetch") {
     return (
-      "Network request failed (you may be offline, or MIT Parley blocked this " +
-      "direct-from-browser request)."
+      `Could not reach ${API_BASE_URL} — the browser blocked or failed the request before getting a ` +
+      `response. This is usually either no network connection, or MIT Parley not allowing cross-origin ` +
+      `(CORS) requests from ${location.origin}. If your key works from a terminal but not here, ask MIT ` +
+      `IT to enable browser (CORS) access from this origin.`
     );
   }
   return msg;
