@@ -73,6 +73,50 @@ const RETRY_MAX_DELAY_MS = 15000;
 const USER_INSTRUCTION_TEXT =
   "Describe this STEM lecture slide following the system instructions.";
 
+// ---------- Verbosity ----------
+//
+// Appended to SYSTEM_PROMPT rather than replacing any of it — the structural
+// requirements (semantic HTML, MathML + plain-language readings, figure/
+// figcaption, real tables, "include only what's on the slide") always apply
+// regardless of verbosity. Only how much elaboration to add on top of that
+// minimum changes.
+
+const VERBOSITY_LEVELS = [
+  {
+    label: "Concise",
+    hint: "Just the essentials — the fewest sentences that still convey the same instructional takeaway.",
+    estimatedOutputTokens: 350,
+    promptAddendum:
+      "VERBOSITY: Concise. Cover only what's necessary to give the same instructional takeaway a " +
+      "sighted student gets, in as few sentences as accomplishes that. Combine related points instead " +
+      "of listing them separately where nothing is lost. Don't restate in prose what structure already " +
+      "conveys — e.g. don't narrate a table's contents if the table itself is included.",
+  },
+  {
+    label: "Standard",
+    hint: "The default balance: complete but not padded.",
+    estimatedOutputTokens: 650,
+    promptAddendum: "",
+  },
+  {
+    label: "Detailed",
+    hint: "More depth on relationships, sequence, and spatial layout — still only what's on the slide.",
+    estimatedOutputTokens: 950,
+    promptAddendum:
+      "VERBOSITY: Detailed. Describe spatial layout, relationships between elements, and sequence or " +
+      "flow in more depth than the minimum requires. Use only what is visibly present on the slide — " +
+      "more thorough is not license to infer values, add outside facts, or editorialize.",
+  },
+];
+
+function currentVerbosity() {
+  return VERBOSITY_LEVELS[Number(els.verbosity.value)] || VERBOSITY_LEVELS[1];
+}
+
+function buildSystemPrompt(verbosity) {
+  return verbosity.promptAddendum ? `${SYSTEM_PROMPT}\n\n${verbosity.promptAddendum}` : SYSTEM_PROMPT;
+}
+
 // ---------- Cost estimation (rough, display only — see below) ----------
 //
 // These numbers exist to give a ballpark per-slide cost in the model picker,
@@ -87,18 +131,14 @@ const USER_INSTRUCTION_TEXT =
 // slides are smaller than the cap and would cost less than this estimate.
 const ESTIMATED_IMAGE_TOKENS = 1200;
 
-// A typical description: a couple of headings, a few paragraphs, maybe one
-// figure and one equation with its plain-language reading.
-const ESTIMATED_OUTPUT_TOKENS = 650;
+// Per-verbosity-level output token estimates live on VERBOSITY_LEVELS above,
+// since verbosity is the main thing that moves output length.
 
 const TOKENS_PER_WORD_ESTIMATE = 1.35;
 
 function estimateTokenCount(text) {
   return Math.round(text.trim().split(/\s+/).filter(Boolean).length * TOKENS_PER_WORD_ESTIMATE);
 }
-
-const ESTIMATED_INPUT_TOKENS =
-  estimateTokenCount(SYSTEM_PROMPT) + estimateTokenCount(USER_INSTRUCTION_TEXT) + ESTIMATED_IMAGE_TOKENS;
 
 // Pricing in USD per million tokens, matching the model picker below.
 const MODEL_PRICING = {
@@ -107,12 +147,17 @@ const MODEL_PRICING = {
   "claude-opus-5": { inputPerMTok: 5.0, outputPerMTok: 25.0 },
 };
 
-function estimateAverageSlideCostUsd(modelId) {
+function estimateAverageSlideCostUsd(modelId, verbosity) {
   const pricing = MODEL_PRICING[modelId];
   if (!pricing) return null;
+  const inputTokens =
+    estimateTokenCount(SYSTEM_PROMPT) +
+    estimateTokenCount(verbosity.promptAddendum) +
+    estimateTokenCount(USER_INSTRUCTION_TEXT) +
+    ESTIMATED_IMAGE_TOKENS;
   return (
-    (ESTIMATED_INPUT_TOKENS / 1e6) * pricing.inputPerMTok +
-    (ESTIMATED_OUTPUT_TOKENS / 1e6) * pricing.outputPerMTok
+    (inputTokens / 1e6) * pricing.inputPerMTok +
+    (verbosity.estimatedOutputTokens / 1e6) * pricing.outputPerMTok
   );
 }
 
@@ -128,6 +173,9 @@ const els = {
   apiKey: document.getElementById("apiKey"),
   toggleKeyVisibility: document.getElementById("toggleKeyVisibility"),
   model: document.getElementById("model"),
+  verbosity: document.getElementById("verbosity"),
+  verbosityValue: document.getElementById("verbosityValue"),
+  verbosityHint: document.getElementById("verbosityHint"),
   versionBadge: document.getElementById("versionBadge"),
   clearStoredKey: document.getElementById("clearStoredKey"),
   dropZone: document.getElementById("dropZone"),
@@ -156,6 +204,7 @@ const inFlightControllers = new Set();
 const STORAGE_KEYS = {
   key: "describeme.apiKey",
   model: "describeme.model",
+  verbosity: "describeme.verbosity",
   persistence: "describeme.keyPersistence",
 };
 
@@ -181,6 +230,11 @@ function loadSettings() {
     localStorage.getItem(STORAGE_KEYS.model) ||
     sessionStorage.getItem(STORAGE_KEYS.model);
   if (savedModel) els.model.value = savedModel;
+
+  const savedVerbosity =
+    localStorage.getItem(STORAGE_KEYS.verbosity) ||
+    sessionStorage.getItem(STORAGE_KEYS.verbosity);
+  if (savedVerbosity) els.verbosity.value = savedVerbosity;
 }
 
 function currentPersistenceMode() {
@@ -191,7 +245,7 @@ function currentPersistenceMode() {
 function persistSettings() {
   const mode = currentPersistenceMode();
 
-  [STORAGE_KEYS.key, STORAGE_KEYS.model].forEach((k) => {
+  [STORAGE_KEYS.key, STORAGE_KEYS.model, STORAGE_KEYS.verbosity].forEach((k) => {
     localStorage.removeItem(k);
     sessionStorage.removeItem(k);
   });
@@ -202,6 +256,7 @@ function persistSettings() {
     const store = mode === "local" ? localStorage : sessionStorage;
     store.setItem(STORAGE_KEYS.key, els.apiKey.value);
     store.setItem(STORAGE_KEYS.model, els.model.value);
+    store.setItem(STORAGE_KEYS.verbosity, els.verbosity.value);
   }
 }
 
@@ -210,6 +265,10 @@ document
   .forEach((radio) => radio.addEventListener("change", persistSettings));
 els.apiKey.addEventListener("input", persistSettings);
 els.model.addEventListener("input", persistSettings);
+els.verbosity.addEventListener("input", () => {
+  updateVerbosityDisplay();
+  persistSettings();
+});
 
 els.clearStoredKey.addEventListener("click", () => {
   localStorage.removeItem(STORAGE_KEYS.key);
@@ -593,6 +652,7 @@ async function runBatch() {
   if (runnable.length === 0) return;
 
   const model = els.model.value.trim() || "claude-haiku-4-5";
+  const verbosity = currentVerbosity();
 
   setError("");
   batchRunning = true;
@@ -610,7 +670,7 @@ async function runBatch() {
   });
 
   await runWithConcurrency(runnable, BATCH_CONCURRENCY, (job) =>
-    describeOne(job, { apiKey, model })
+    describeOne(job, { apiKey, model, verbosity })
   );
 
   batchRunning = false;
@@ -660,7 +720,7 @@ async function runWithConcurrency(items, limit, worker) {
   await Promise.all(pool);
 }
 
-async function describeOne(job, { apiKey, model }) {
+async function describeOne(job, { apiKey, model, verbosity }) {
   // The job may have been removed from the queue (via the per-card Remove
   // button) while it was still waiting for a concurrency slot — don't spend
   // an API call describing something the user already took off the list.
@@ -694,7 +754,7 @@ async function describeOne(job, { apiKey, model }) {
         body: JSON.stringify({
           model,
           max_tokens: 4096,
-          system: SYSTEM_PROMPT,
+          system: buildSystemPrompt(verbosity),
           messages: [
             {
               role: "user",
@@ -981,14 +1041,26 @@ async function copyToClipboard(text, button, label) {
   }
 }
 
-// ---------- Model picker cost estimates & version badge ----------
+// ---------- Model picker cost estimates, verbosity display & version badge ----------
 
 function annotateModelOptionsWithCostEstimates() {
+  const verbosity = currentVerbosity();
   [...els.model.options].forEach((option) => {
-    const cost = estimateAverageSlideCostUsd(option.value);
+    // Cache the pre-estimate label so repeated calls (verbosity changes)
+    // don't keep appending onto the previous estimate.
+    if (!option.dataset.baseLabel) option.dataset.baseLabel = option.textContent;
+    const cost = estimateAverageSlideCostUsd(option.value, verbosity);
     if (cost == null) return;
-    option.textContent = `${option.textContent} — est. ${formatUsd(cost)}/slide`;
+    option.textContent = `${option.dataset.baseLabel} — est. ${formatUsd(cost)}/slide`;
   });
+}
+
+function updateVerbosityDisplay() {
+  const verbosity = currentVerbosity();
+  els.verbosityValue.textContent = verbosity.label;
+  els.verbosityHint.textContent = verbosity.hint;
+  els.verbosity.setAttribute("aria-valuetext", verbosity.label);
+  annotateModelOptionsWithCostEstimates();
 }
 
 function renderVersionBadge() {
@@ -1002,5 +1074,5 @@ function renderVersionBadge() {
 
 loadSettings();
 updateDescribeButtonState();
-annotateModelOptionsWithCostEstimates();
+updateVerbosityDisplay();
 renderVersionBadge();

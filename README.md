@@ -31,10 +31,16 @@ GitHub Pages.
    These per-slide costs are rough estimates based on a typical image size
    and description length — **not a budgeting tool**. Actual cost depends on
    the specific image and how much text Claude generates for it.
-5. Drag and drop slide images (or click to browse) — PNG, JPEG, WebP, or GIF,
+5. Set the **Description verbosity** slider — Concise, Standard, or Detailed.
+   All three still cover everything the system prompt requires (semantic
+   structure, MathML, figures, tables); the slider only changes how much
+   elaboration Claude adds on top of that minimum. It also updates the cost
+   estimates above, since verbosity is the main thing that moves output
+   length.
+6. Drag and drop slide images (or click to browse) — PNG, JPEG, WebP, or GIF,
    up to 5 MB each and 25 per batch. Large images are automatically resized
    in your browser before upload.
-6. Click **Describe all**. A progress bar tracks the batch, and each slide
+7. Click **Describe all**. A progress bar tracks the batch, and each slide
    gets its own card with a rendered preview, copy buttons for the HTML and
    plain text, and a collapsible raw HTML source view. Failed items get a
    **Retry** button; you can **Stop** a batch mid-run, and remove or re-run

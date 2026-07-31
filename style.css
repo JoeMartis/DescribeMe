@@ -141,6 +141,19 @@ select {
 
 select { cursor: pointer; }
 
+input[type="range"] {
+  width: 100%;
+  margin: 0.4rem 0 0.15rem;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.range-scale {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
 .input-with-button { display: flex; gap: 0.5rem; }
 .input-with-button input { flex: 1; }
 

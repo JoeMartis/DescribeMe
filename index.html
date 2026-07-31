@@ -58,6 +58,15 @@
         </p>
       </div>
 
+      <div class="field">
+        <label for="verbosity">Description verbosity: <span id="verbosityValue"></span></label>
+        <input type="range" id="verbosity" min="0" max="2" step="1" value="1">
+        <div class="range-scale" aria-hidden="true">
+          <span>Concise</span><span>Standard</span><span>Detailed</span>
+        </div>
+        <p class="hint" id="verbosityHint"></p>
+      </div>
+
       <fieldset class="field">
         <legend>Remember my API key on this device</legend>
         <label class="radio-option">
