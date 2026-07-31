@@ -179,6 +179,7 @@ const els = {
   verbosity: document.getElementById("verbosity"),
   verbosityValue: document.getElementById("verbosityValue"),
   verbosityHint: document.getElementById("verbosityHint"),
+  systemPromptPreview: document.getElementById("systemPromptPreview"),
   versionBadge: document.getElementById("versionBadge"),
   clearStoredKey: document.getElementById("clearStoredKey"),
   dropZone: document.getElementById("dropZone"),
@@ -1100,6 +1101,7 @@ function updateVerbosityDisplay() {
   els.verbosityHint.textContent = verbosity.hint;
   els.verbosity.setAttribute("aria-valuetext", verbosity.label);
   annotateModelOptionsWithCostEstimates();
+  els.systemPromptPreview.textContent = buildSystemPrompt(verbosity);
 }
 
 function renderVersionBadge() {
