@@ -154,6 +154,13 @@ fixed base URL (`https://parley.api.mit.edu`) and sends requests to
   tags are removed everywhere, including inside SVG/MathML content (where a
   naive check can miss them — foreign-content elements keep their original
   tag-name casing instead of the uppercase HTML elements normally get).
+  `<template>` and `<svg>` are removed too: a `<template>`'s content lives in
+  a separate, detached DocumentFragment that a naive tree walk never
+  descends into, and SVG's declarative animation elements (`<animate>`,
+  `<set>`) can rewrite an attribute like `href` *after* it was already
+  checked, once the sanitized fragment is live in the page — removing the
+  whole subtree closes both without needing to enumerate every SVG
+  sub-feature individually.
 - A `Content-Security-Policy` meta tag adds a second, independent layer on
   top of that sanitizer: no inline or external scripts, no inline styles, no
   `<object>`/`<embed>`, and `connect-src` restricted to the MIT Parley

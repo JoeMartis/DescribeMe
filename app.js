@@ -220,21 +220,20 @@ function loadSettings() {
   );
   if (radio) radio.checked = true;
 
-  if (persistence === "local") {
-    els.apiKey.value = localStorage.getItem(STORAGE_KEYS.key) || "";
-  } else if (persistence === "session") {
-    els.apiKey.value = sessionStorage.getItem(STORAGE_KEYS.key) || "";
+  // Gate ALL three fields on persistence mode, not just the key — reading
+  // model/verbosity unconditionally meant a stale value left over in storage
+  // (e.g. from before switching persistence back to "none") would silently
+  // reapply on every load regardless of the user's current choice.
+  if (persistence === "local" || persistence === "session") {
+    const store = persistence === "local" ? localStorage : sessionStorage;
+    els.apiKey.value = store.getItem(STORAGE_KEYS.key) || "";
+
+    const savedModel = store.getItem(STORAGE_KEYS.model);
+    if (savedModel) els.model.value = savedModel;
+
+    const savedVerbosity = store.getItem(STORAGE_KEYS.verbosity);
+    if (savedVerbosity) els.verbosity.value = savedVerbosity;
   }
-
-  const savedModel =
-    localStorage.getItem(STORAGE_KEYS.model) ||
-    sessionStorage.getItem(STORAGE_KEYS.model);
-  if (savedModel) els.model.value = savedModel;
-
-  const savedVerbosity =
-    localStorage.getItem(STORAGE_KEYS.verbosity) ||
-    sessionStorage.getItem(STORAGE_KEYS.verbosity);
-  if (savedVerbosity) els.verbosity.value = savedVerbosity;
 }
 
 function currentPersistenceMode() {
@@ -271,8 +270,10 @@ els.verbosity.addEventListener("input", () => {
 });
 
 els.clearStoredKey.addEventListener("click", () => {
-  localStorage.removeItem(STORAGE_KEYS.key);
-  sessionStorage.removeItem(STORAGE_KEYS.key);
+  [STORAGE_KEYS.key, STORAGE_KEYS.model, STORAGE_KEYS.verbosity].forEach((k) => {
+    localStorage.removeItem(k);
+    sessionStorage.removeItem(k);
+  });
   localStorage.removeItem(STORAGE_KEYS.persistence);
   els.apiKey.value = "";
   document.querySelector('input[name="keyPersistence"][value="none"]').checked = true;
@@ -481,29 +482,35 @@ async function addFiles(fileList) {
   const files = Array.from(fileList);
   if (files.length === 0) return;
 
-  const room = MAX_BATCH_SIZE - jobs.size;
+  let room = MAX_BATCH_SIZE - jobs.size;
   if (room <= 0) {
     setError(`You already have the maximum of ${MAX_BATCH_SIZE} images queued.`);
     return;
   }
-  const toAdd = files.slice(0, room);
-  if (files.length > toAdd.length) {
-    setError(
-      `Only added ${toAdd.length} of ${files.length} files — batches are capped at ${MAX_BATCH_SIZE} images.`
-    );
-  }
 
-  for (const file of toAdd) {
+  // Validate every file first, independent of the batch-size cap — slicing
+  // the list by position before checking validity would let an earlier
+  // invalid file silently consume a slot that a later valid one needed,
+  // dropping it with no message at all.
+  const messages = [];
+  let skippedForRoom = 0;
+
+  for (const file of files) {
     if (!ACCEPTED_TYPES.includes(file.type)) {
-      setError(`Skipped "${file.name}": unsupported type "${file.type || "unknown"}".`);
+      messages.push(`Skipped "${file.name}": unsupported type "${file.type || "unknown"}".`);
       continue;
     }
     if (file.size > MAX_FILE_BYTES) {
-      setError(
+      messages.push(
         `Skipped "${file.name}": ${(file.size / (1024 * 1024)).toFixed(1)} MB is over the 5 MB limit.`
       );
       continue;
     }
+    if (room <= 0) {
+      skippedForRoom += 1;
+      continue;
+    }
+    room -= 1;
 
     const job = {
       id: makeJobId(),
@@ -535,6 +542,13 @@ async function addFiles(fileList) {
       createJobCard(job);
     }
   }
+
+  if (skippedForRoom > 0) {
+    messages.push(
+      `${skippedForRoom} file(s) skipped — batches are capped at ${MAX_BATCH_SIZE} images.`
+    );
+  }
+  if (messages.length > 0) setError(messages.join(" "));
 
   updateDescribeButtonState();
   updateOverallStatus();
@@ -933,6 +947,19 @@ function sanitizeHtmlFragment(html) {
     "FORM",
     "META",
     "BASE",
+    // <template>'s content lives in a detached DocumentFragment
+    // (element.content) that querySelectorAll never descends into — anything
+    // nested inside one, however dangerous, would pass through completely
+    // unexamined. There's no legitimate reason for the model's output to
+    // contain one.
+    "TEMPLATE",
+    // SVG's declarative animation elements (<animate>, <set>, ...) can
+    // rewrite an attribute — including href/src — *after* this sanitizer has
+    // already approved it, once the fragment is live in the DOM. The model
+    // is never asked to produce SVG, so removing the whole subtree costs
+    // nothing and closes that (and any other SVG-specific surface) at once,
+    // rather than trying to enumerate every dangerous SVG sub-feature.
+    "SVG",
   ]);
 
   // Allowlists, not denylists, for anything that can carry a URL or arbitrary
