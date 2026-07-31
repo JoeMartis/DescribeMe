@@ -45,8 +45,9 @@ Two follow-ups before this ships:
   export.
 - **Zip export** — a store-only ZIP writer (CRC-32 + local headers + central
   directory, ~70 lines, no dependency since the CSP forbids a CDN). Contains
-  one HTML fragment per approved slide, an `index.html` with all of them, and
-  an optional `describeme.css`.
+  one HTML fragment per approved slide, plus an `index.html` with all of
+  them — plain semantic HTML with no accompanying CSS, so it drops in
+  anywhere without fighting a host page's stylesheet.
 - **Batch name** — defaults to the common prefix of the filenames, editable in
   the header; names the exported zip.
 - **Cost** — header chip shows the estimate for the whole batch

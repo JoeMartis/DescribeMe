@@ -1777,16 +1777,6 @@ function safeFileStem(name, taken) {
 // Optional styling for whoever embeds these fragments. The fragments
 // themselves carry no classes beyond .sr-note and no inline styles, so they
 // inherit the host page's typography unless someone opts into this.
-const EXPORT_CSS = `/* Optional: minimal styling for DescribeMe fragments.
-   The descriptions are plain semantic HTML, so they inherit your site's
-   typography by default. Include this only if your platform styles nothing. */
-.describeme table { border-collapse: collapse; width: 100%; }
-.describeme :is(th, td) { border: 1px solid #ccc; padding: 0.4rem 0.6rem; text-align: left; }
-.describeme figure { margin: 1rem 0; padding: 0.75rem; border: 1px solid #ccc; }
-.describeme figcaption { font-size: 0.9em; opacity: 0.75; margin-top: 0.5rem; }
-.describeme .sr-note { display: block; font-style: italic; opacity: 0.8; margin-top: 0.25rem; }
-`;
-
 function exportApproved() {
   const approved = jobList().filter((j) => j.state === "done" && j.approved);
   if (approved.length === 0) return;
@@ -1801,16 +1791,10 @@ function exportApproved() {
   }));
 
   files.push({
-    name: "describeme.css",
-    content: EXPORT_CSS,
-  });
-
-  files.push({
     name: "index.html",
     content:
       `<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n` +
-      `<title>${escapeHtml(batch)} — slide descriptions</title>\n` +
-      `<link rel="stylesheet" href="describeme.css">\n</head>\n<body class="describeme">\n` +
+      `<title>${escapeHtml(batch)} — slide descriptions</title>\n</head>\n<body>\n` +
       `<h1>${escapeHtml(batch)}</h1>\n` +
       `<p>${approved.length} approved slide description${approved.length === 1 ? "" : "s"}, ` +
       `generated with DescribeMe. Each is also in this folder as its own HTML fragment, ` +
