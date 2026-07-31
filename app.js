@@ -166,9 +166,12 @@ function estimateTokenCount(text) {
 }
 
 // Pricing in USD per million tokens, matching the model picker below.
+// Per Parley's own cost guidance (parley-docs.mit.edu/cost-guidance) — these
+// are the rates actually configured in Parley, which can differ from
+// Anthropic's first-party API pricing.
 const MODEL_PRICING = {
   "claude-haiku-4-5": { inputPerMTok: 1.0, outputPerMTok: 5.0 },
-  "claude-sonnet-5": { inputPerMTok: 3.0, outputPerMTok: 15.0 },
+  "claude-sonnet-5": { inputPerMTok: 2.0, outputPerMTok: 10.0 },
   "claude-opus-5": { inputPerMTok: 5.0, outputPerMTok: 25.0 },
 };
 
@@ -754,14 +757,30 @@ function removeJob(jobId) {
   renderAll();
 }
 
-function retryJob(jobId) {
+/** Describe (or re-describe) exactly this one slide — never pulls in any
+ *  other queued job the way handing it to runBatch()'s runnableJobs() would. */
+async function describeSingleJob(jobId) {
   const job = jobs.get(jobId);
-  if (!job) return;
-  job.state = "pending";
-  job.error = null;
+  if (!job || batchRunning) return;
+  const apiKey = els.apiKey.value.trim();
+  if (!apiKey) {
+    setError("Add your MIT Parley API key in settings first.");
+    openSettings();
+    return;
+  }
+  const model = els.model.value.trim() || "claude-haiku-4-5";
+  const verbosity = currentVerbosity();
+
+  setError("");
   job.attempt = 0;
+  job.error = null;
+  batchRunning = true;
+  updateControls();
+
+  await describeOne(job, { apiKey, model, verbosity });
+
+  batchRunning = false;
   renderAll();
-  runBatch();
 }
 
 // ---------- Header, controls, status ----------
@@ -1031,7 +1050,7 @@ function renderDetail() {
       detail.hidden = false;
       detail.textContent = job.error || "unknown error";
       primary.textContent = "Retry this slide";
-      primary.addEventListener("click", () => retryJob(job.id));
+      primary.addEventListener("click", () => describeSingleJob(job.id));
     } else if (job.state === "invalid") {
       title.textContent = "This image couldn't be read.";
       body.textContent =
@@ -1043,14 +1062,14 @@ function renderDetail() {
       title.textContent = "Stopped before this one ran.";
       body.textContent = "Nothing was sent for this slide, so nothing was charged.";
       primary.textContent = "Describe this slide";
-      primary.addEventListener("click", () => retryJob(job.id));
+      primary.addEventListener("click", () => describeSingleJob(job.id));
     } else {
       title.textContent = "Not described yet.";
       body.textContent = job.resized
         ? `Ready to go — resized to ${job.width}×${job.height} so the request stays small.`
         : "Ready to go.";
       primary.textContent = "Describe this slide";
-      primary.addEventListener("click", () => retryJob(job.id));
+      primary.addEventListener("click", () => describeSingleJob(job.id));
     }
   }
 

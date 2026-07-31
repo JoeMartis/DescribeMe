@@ -14,17 +14,18 @@ GitHub Pages.
 
 **First run.** A one-time setup screen asks for your MIT Parley API key, how
 long to remember it (this tab only, this device, or not at all — the
-default), and a starting **Model**, with a per-slide cost estimate for each:
+default), and a starting **Model**, listed cheapest to most expensive with a
+live per-slide cost estimate next to each:
 
-- **Claude Haiku 4.5** (est. ~$0.005/slide) — fastest and cheapest; a strong
-  default for most slides.
-- **Claude Sonnet 5** (est. ~$0.015/slide) — sharper on dense equations and
-  smaller text.
-- **Claude Opus 5** (est. ~$0.025/slide) — most thorough; best for crowded,
-  multi-part figures.
+- **Claude Haiku 4.5** — fastest and cheapest; a strong default for most
+  slides.
+- **Claude Sonnet 5** — sharper on dense equations and smaller text.
+- **Claude Opus 5** — most thorough; best for crowded, multi-part figures.
 
-These are rough estimates for a typical image and description length —
-**not a budgeting tool**. All of this (plus the **Description verbosity**
+The estimate is computed from Parley's own published rates, so it stays
+correct as pricing changes rather than going stale in this doc — but it's
+still a rough estimate for a typical image and description length, **not a
+budgeting tool**. All of this (plus the **Description verbosity**
 slider — Concise / Standard / Detailed, and a collapsible **System prompt
 used** view showing the exact prompt text for the current verbosity) stays
 reachable afterward from the gear icon in the header, which opens the same
