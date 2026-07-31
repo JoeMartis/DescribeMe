@@ -18,12 +18,20 @@ GitHub Pages.
 3. Choose whether to remember the key for this tab only, on this device, or
    not at all (the default — nothing is written to storage, and the key only
    lives in page memory until you reload).
-4. Optionally adjust **Max simultaneous requests** — how many slides are
+4. Pick a **Model**. The three options are the best fits for this task,
+   listed cheapest to most expensive:
+   - **Claude Haiku 4.5** ($1 / $5 per MTok) — fastest and cheapest; a strong
+     default for most slides.
+   - **Claude Sonnet 5** ($3 / $15 per MTok) — sharper on dense equations and
+     smaller text.
+   - **Claude Opus 5** ($5 / $25 per MTok) — most thorough; best for crowded,
+     multi-part figures.
+5. Optionally adjust **Max simultaneous requests** — how many slides are
    described in parallel when you process a batch (default 3).
-5. Drag and drop slide images (or click to browse) — PNG, JPEG, WebP, or GIF,
+6. Drag and drop slide images (or click to browse) — PNG, JPEG, WebP, or GIF,
    up to 5 MB each and 25 per batch. Large images are automatically resized
    in your browser before upload.
-6. Click **Describe all**. Each slide gets its own card with a rendered
+7. Click **Describe all**. Each slide gets its own card with a rendered
    preview, copy buttons for the HTML and plain text, and a collapsible raw
    HTML source view. Failed items get a **Retry** button; you can **Stop** a
    batch mid-run, and remove or re-run individual slides at any time.

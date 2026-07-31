@@ -41,7 +41,15 @@
 
       <div class="field">
         <label for="model">Model</label>
-        <input type="text" id="model" autocomplete="off" spellcheck="false" value="claude-haiku-4-5">
+        <select id="model">
+          <option value="claude-haiku-4-5" selected>Claude Haiku 4.5 — fastest &amp; cheapest ($1 / $5 per MTok)</option>
+          <option value="claude-sonnet-5">Claude Sonnet 5 — sharper detail on dense slides ($3 / $15 per MTok)</option>
+          <option value="claude-opus-5">Claude Opus 5 — most thorough, best for cluttered figures ($5 / $25 per MTok)</option>
+        </select>
+        <p class="hint">
+          Listed cheapest to most expensive. Haiku 4.5 is a strong default for most slides; step up to
+          Sonnet or Opus for slides with dense equations, crowded diagrams, or small text.
+        </p>
       </div>
 
       <div class="field">
