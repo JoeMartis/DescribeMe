@@ -39,6 +39,9 @@ Color, emphasis, callouts
   not that it is red or boxed.
 
 Constraints
+- Do not include <img> elements. You have no URL for the original slide to
+  reference, so any <img> you emit will render as a broken image — describe
+  everything visual in text, inside <figure>/<figcaption> where appropriate.
 - Include only what is present on the slide. Do not infer values, add outside
   facts, or editorialize.
 - Be complete but not padded; every sentence should carry information a sighted
@@ -1000,6 +1003,15 @@ function sanitizeHtmlFragment(html) {
       if (el.hasAttribute("href")) sanitizeUrlAttribute(el, "href", SAFE_HREF_SCHEME_RE);
       if (el.hasAttribute("src")) sanitizeUrlAttribute(el, "src", SAFE_SRC_SCHEME_RE);
       if (el.hasAttribute("xlink:href")) sanitizeUrlAttribute(el, "xlink:href", SAFE_SRC_SCHEME_RE);
+
+      // The model has no URL for the original slide, so a <img> only ever
+      // reaches this point with a src if it hallucinated one — which the
+      // scheme allowlist above then strips. Rather than leave a broken-image
+      // icon in an accessibility-focused description, drop the element
+      // entirely once it has nothing valid to show.
+      if (el.tagName === "IMG" && !el.getAttribute("src")) {
+        el.remove();
+      }
     });
   };
 
