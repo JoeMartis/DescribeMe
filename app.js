@@ -968,14 +968,6 @@ function renderDetail() {
     } else {
       strongerBtn.hidden = true;
     }
-    if (job.history.length > 0) {
-      const undo = document.createElement("button");
-      undo.type = "button";
-      undo.className = "btn btn-small";
-      undo.textContent = "Undo revision";
-      undo.addEventListener("click", () => undoRevision(job.id));
-      refine.querySelector(".refine-actions").appendChild(undo);
-    }
 
     // Description
     q(".js-desc-head").hidden = false;
@@ -1001,6 +993,12 @@ function renderDetail() {
 
     const editBtn = q(".js-edit");
     editBtn.addEventListener("click", () => toggleEdit(job.id));
+
+    const undoBtn = q(".js-undo");
+    undoBtn.hidden = job.history.length === 0;
+    if (job.history.length > 0) {
+      undoBtn.addEventListener("click", () => undoRevision(job.id));
+    }
 
     q(".js-copy-html").addEventListener("click", (e) =>
       copyToClipboard(job.resultHtml, e.currentTarget, "HTML")
