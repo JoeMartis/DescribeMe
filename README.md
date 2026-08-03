@@ -45,8 +45,11 @@ selected slide's image plus its description on the right.
    text**.
 4. **Edit** turns the description directly editable in place; saving runs it
    back through the same sanitizer before it's kept. If a description needs
-   more work instead, **More detail**, **Shorter**, or **Redo with a
-   stronger model** re-run just that slide with an adjusted prompt — the
+   more work instead, **More detail**, **Shorter**, **Text only** (for title
+   or section-divider slides that are just on-screen text — skips the
+   narrative description and returns a plain transcription instead), or
+   **Redo with a stronger model** re-run just that slide with an adjusted
+   prompt — the
    previous version is kept so **Undo revision** can restore it.
 5. **Approve & next** (or press <kbd>A</kbd>) marks the slide ready for
    export and jumps to the next unapproved one; <kbd>←</kbd>/<kbd>→</kbd>

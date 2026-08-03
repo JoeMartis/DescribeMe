@@ -132,6 +132,13 @@ const REVISIONS = {
   less:
     "REVISION: A previous description of this slide was longer than it needed to be. Convey the same " +
     "instructional takeaway in noticeably fewer sentences, combining related points where nothing is lost.",
+  textOnly:
+    "REVISION: This slide's only content is on-screen text (e.g. a title or section-divider slide) — " +
+    "there is nothing to describe visually. Override the instructions above: skip the opening summary " +
+    "sentence and any narrative description, and return only a semantic transcription of the text " +
+    "exactly as it appears, in reading order (a heading for a title, paragraphs or a list for any " +
+    "subtitle or supporting lines). Do not add framing like \"This slide reads\" or restate that it's a " +
+    "title slide.",
 };
 
 function currentVerbosity() {
@@ -960,6 +967,7 @@ function renderDetail() {
     refine.hidden = false;
     q(".js-refine-detail").addEventListener("click", () => refineJob(job.id, "more"));
     q(".js-refine-short").addEventListener("click", () => refineJob(job.id, "less"));
+    q(".js-refine-textonly").addEventListener("click", () => refineJob(job.id, "textOnly"));
     const strongerBtn = q(".js-refine-model");
     const stronger = strongerModel(job.usedModel || els.model.value);
     if (stronger) {
