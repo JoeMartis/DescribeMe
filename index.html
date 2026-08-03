@@ -41,7 +41,7 @@
     </fieldset>
 
     <fieldset class="field">
-      <legend>Model <span class="hint">— estimated cost per slide at Standard verbosity</span></legend>
+      <legend>Model <span class="hint">— estimated cost per slide at default verbosity</span></legend>
       <div class="model-grid" id="onboardModels">
         <label class="model-option">
           <input type="radio" name="onboardModel" value="claude-haiku-4-5" checked>
@@ -215,7 +215,7 @@
 
     <div class="field">
       <label for="verbosity">Description verbosity: <span id="verbosityValue"></span></label>
-      <input type="range" id="verbosity" min="0" max="2" step="1" value="1">
+      <input type="range" id="verbosity" min="0" max="2" step="1" value="0">
       <div class="range-scale" aria-hidden="true">
         <span>Concise</span><span>Standard</span><span>Detailed</span>
       </div>
