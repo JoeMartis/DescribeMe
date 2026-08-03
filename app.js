@@ -116,8 +116,21 @@ function currentVerbosity() {
   return VERBOSITY_LEVELS[Number(els.verbosity.value)] || VERBOSITY_LEVELS[1];
 }
 
-function buildSystemPrompt(verbosity) {
-  return verbosity.promptAddendum ? `${SYSTEM_PROMPT}\n\n${verbosity.promptAddendum}` : SYSTEM_PROMPT;
+// Overrides the structural requirements above for slides that are only
+// on-screen text (e.g. a title or section-divider slide) — there's nothing
+// to describe visually, so the usual narrative framing would just be noise.
+const TEXT_ONLY_REVISION =
+  "REVISION: This slide's only content is on-screen text (e.g. a title or section-divider slide) — " +
+  "there is nothing to describe visually. Override the instructions above: skip the opening summary " +
+  "sentence and any narrative description, and return only a semantic transcription of the text " +
+  "exactly as it appears, in reading order (a heading for a title, paragraphs or a list for any " +
+  "subtitle or supporting lines). Do not add framing like \"This slide reads\" or restate that it's a " +
+  "title slide.";
+
+function buildSystemPrompt(verbosity, revision) {
+  let prompt = verbosity.promptAddendum ? `${SYSTEM_PROMPT}\n\n${verbosity.promptAddendum}` : SYSTEM_PROMPT;
+  if (revision) prompt += `\n\n${revision}`;
+  return prompt;
 }
 
 // ---------- Cost estimation (rough, display only — see below) ----------
@@ -421,6 +434,7 @@ function createJobCard(job) {
   li.querySelector(".copy-text-btn").addEventListener("click", (e) => {
     copyToClipboard(job.resultText, e.currentTarget, "text");
   });
+  li.querySelector(".text-only-btn").addEventListener("click", () => textOnlyJob(job.id));
 
   els.imageList.appendChild(fragment);
   job.el = els.imageList.querySelector(`[data-job-id="${job.id}"]`);
@@ -576,6 +590,34 @@ function retryJob(jobId) {
   job.attempt = 0;
   renderJobState(job);
   updateDescribeButtonState();
+}
+
+/** Re-describe just this one already-done slide as a plain text
+ *  transcription, for title/section-divider slides that don't need the
+ *  full narrative description. Runs immediately, independent of the batch
+ *  runner and any other queued job. */
+async function textOnlyJob(jobId) {
+  const job = jobs.get(jobId);
+  if (!job || batchRunning) return;
+  const apiKey = els.apiKey.value.trim();
+  if (!apiKey) {
+    setError("Please enter your API key in API Settings.");
+    return;
+  }
+  const model = els.model.value.trim() || "claude-haiku-4-5";
+  const verbosity = currentVerbosity();
+
+  setError("");
+  job.attempt = 0;
+  job.error = null;
+  batchRunning = true;
+  updateDescribeButtonState();
+
+  await describeOne(job, { apiKey, model, verbosity, revision: TEXT_ONLY_REVISION });
+
+  batchRunning = false;
+  updateDescribeButtonState();
+  updateOverallStatus();
 }
 
 els.clearAllBtn.addEventListener("click", () => {
@@ -738,7 +780,7 @@ async function runWithConcurrency(items, limit, worker) {
   await Promise.all(pool);
 }
 
-async function describeOne(job, { apiKey, model, verbosity }) {
+async function describeOne(job, { apiKey, model, verbosity, revision }) {
   // The job may have been removed from the queue (via the per-card Remove
   // button) while it was still waiting for a concurrency slot — don't spend
   // an API call describing something the user already took off the list.
@@ -772,7 +814,7 @@ async function describeOne(job, { apiKey, model, verbosity }) {
         body: JSON.stringify({
           model,
           max_tokens: 4096,
-          system: buildSystemPrompt(verbosity),
+          system: buildSystemPrompt(verbosity, revision),
           messages: [
             {
               role: "user",

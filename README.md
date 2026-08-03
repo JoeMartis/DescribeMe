@@ -47,6 +47,9 @@ GitHub Pages.
    **Retry** button; you can **Stop** a batch mid-run, and remove or re-run
    individual slides at any time. If any slides fail, they're named
    explicitly (not just counted) so you know which ones to retry.
+8. For a title or section-divider slide that's just on-screen text, click
+   **Text only** on that slide's card to replace its description with a
+   plain transcription of the text instead of a full narrative description.
 
 Nothing is uploaded to any server other than the MIT Parley endpoint. There is
 no backend for this site — GitHub Pages only serves the static files.
