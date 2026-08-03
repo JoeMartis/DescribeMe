@@ -1042,12 +1042,27 @@ function renderDetail() {
     remove.disabled = job.state === "describing";
     remove.addEventListener("click", () => removeJob(job.id));
 
+    // A per-slide action (describeSingleJob) is a no-op while a batch run
+    // owns the shared apiKey/model/verbosity + inFlightControllers state, but
+    // the button doesn't know that on its own — so any state below that would
+    // otherwise offer one has to be told the batch has first claim.
     if (job.state === "describing") {
       title.textContent = "Describing this slide…";
       body.textContent =
         job.attempt > 1
           ? `Attempt ${job.attempt} — the last one hit a rate limit or a hiccup, so it's backing off and trying again.`
           : "Claude is reading the slide now. You can review other slides while this runs.";
+      primary.hidden = true;
+    } else if (job.state === "invalid") {
+      title.textContent = "This image couldn't be read.";
+      body.textContent =
+        "The file is corrupt or in a format the browser can't decode, so there's nothing to send. Re-export it and add it again.";
+      detail.hidden = false;
+      detail.textContent = job.error || "unknown error";
+      primary.hidden = true;
+    } else if (batchRunning) {
+      title.textContent = "Queued.";
+      body.textContent = "Waiting for other slides in this batch to finish first.";
       primary.hidden = true;
     } else if (job.state === "error") {
       title.textContent = "This one didn't come back.";
@@ -1057,13 +1072,6 @@ function renderDetail() {
       detail.textContent = job.error || "unknown error";
       primary.textContent = "Retry this slide";
       primary.addEventListener("click", () => describeSingleJob(job.id));
-    } else if (job.state === "invalid") {
-      title.textContent = "This image couldn't be read.";
-      body.textContent =
-        "The file is corrupt or in a format the browser can't decode, so there's nothing to send. Re-export it and add it again.";
-      detail.hidden = false;
-      detail.textContent = job.error || "unknown error";
-      primary.hidden = true;
     } else if (job.state === "canceled") {
       title.textContent = "Stopped before this one ran.";
       body.textContent = "Nothing was sent for this slide, so nothing was charged.";
@@ -1252,6 +1260,10 @@ async function runBatch() {
   cancelRequested = false;
   els.stopBtn.disabled = false;
   els.progressCard.hidden = false;
+  // renderDetail (not just updateControls) so a selected-but-not-yet-picked-up
+  // slide immediately shows "Queued" instead of its old, now-stale "ready to
+  // describe" view — otherwise it won't refresh until its own turn comes up.
+  renderDetail();
   updateControls();
   updateOverallStatus();
 
