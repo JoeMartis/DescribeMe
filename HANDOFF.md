@@ -6,8 +6,9 @@ three files.
 
 > **Historical.** This describes landing the two-pane workspace redesign
 > itself. The visual system it references (Caprasimo/Figtree, "Organic") has
-> since been replaced by the Living Isle design system from the `krofft`
-> branch — see the note at the top of `style.css` for the current fonts.
+> since been replaced twice over — first by Living Isle (`krofft` branch),
+> then by the current Modernist system (`minimal_design` branch) — see the
+> note at the top of `style.css` for the current fonts.
 
 ## What to copy
 
