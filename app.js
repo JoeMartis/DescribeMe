@@ -43,7 +43,10 @@ Constraints
   reference, so any <img> you emit will render as a broken image — describe
   everything visual in text, inside <figure>/<figcaption> where appropriate.
 - Include only what is present on the slide. Do not infer values, add outside
-  facts, or editorialize.
+  facts, or editorialize. This includes summary framing: do not append a
+  "Takeaways," "Key points," or similar synthesis section unless the slide
+  itself displays one — restate what's visibly there, not your own reading
+  of what it means or why it matters.
 - Be complete but not padded; every sentence should carry information a sighted
   viewer would receive.
 - Do not start with "This slide" but rather name the type of visual diagram on the slide, such as "A line graph shows…" "A diagram illustrates." etc.
@@ -142,7 +145,10 @@ const REVISIONS = {
 };
 
 function currentVerbosity() {
-  return VERBOSITY_LEVELS[Number(els.verbosity.value)] || VERBOSITY_LEVELS[1];
+  // Default is Concise (index 0), not Standard — even Opus, the most
+  // succinct model, still needed the "Shorter" revision at least once at
+  // Standard, and Sonnet/Haiku typically needed it twice.
+  return VERBOSITY_LEVELS[Number(els.verbosity.value)] || VERBOSITY_LEVELS[0];
 }
 
 function buildSystemPrompt(verbosity, revision) {
@@ -462,7 +468,7 @@ function finishOnboarding() {
 }
 
 function annotateOnboardingCosts() {
-  const verbosity = VERBOSITY_LEVELS[1];
+  const verbosity = VERBOSITY_LEVELS[0]; // matches the default verbosity below
   els.onboardModels.querySelectorAll("[data-model-cost]").forEach((span) => {
     const cost = estimateAverageSlideCostUsd(span.dataset.modelCost, verbosity);
     if (cost != null) span.textContent = formatUsd(cost);
