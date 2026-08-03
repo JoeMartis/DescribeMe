@@ -562,7 +562,12 @@ function selectedJob() {
 function jobStatusMeta(job) {
   switch (job.state) {
     case "pending":
-      return { state: "pending", text: "Queued", dot: "" };
+      // "Queued" only means something once a batch is actually running and
+      // waiting to reach this job — otherwise it's just sitting there ready
+      // to go, same as a slide added moments ago with no batch in progress.
+      return batchRunning
+        ? { state: "pending", text: "Queued", dot: "" }
+        : { state: "pending", text: "Ready", dot: "" };
     case "describing":
       return {
         state: "describing",
@@ -574,7 +579,9 @@ function jobStatusMeta(job) {
         ? { state: "approved", text: "Approved", dot: "dot-approved" }
         : { state: "done", text: "Described · needs review", dot: "dot-done" };
     case "error":
-      return { state: "error", text: "Failed · needs a retry", dot: "dot-error" };
+      return batchRunning
+        ? { state: "error", text: "Failed · retry once this batch finishes", dot: "dot-error" }
+        : { state: "error", text: "Failed · needs a retry", dot: "dot-error" };
     case "canceled":
       return { state: "canceled", text: "Canceled", dot: "" };
     case "invalid":
@@ -1260,12 +1267,11 @@ async function runBatch() {
   cancelRequested = false;
   els.stopBtn.disabled = false;
   els.progressCard.hidden = false;
-  // renderDetail (not just updateControls) so a selected-but-not-yet-picked-up
-  // slide immediately shows "Queued" instead of its old, now-stale "ready to
-  // describe" view — otherwise it won't refresh until its own turn comes up.
-  renderDetail();
-  updateControls();
-  updateOverallStatus();
+  // renderAll (not just updateControls) so every not-yet-picked-up rail row
+  // and the detail pane immediately read "Queued" instead of their old,
+  // now-stale "ready to describe" view — otherwise they won't refresh until
+  // their own turn comes up.
+  renderAll();
 
   runnable.forEach((job) => {
     job.attempt = 0;
