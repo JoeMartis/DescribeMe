@@ -161,10 +161,6 @@ a:hover { color: var(--poster-red); }
 code, kbd {
   font-family: var(--font-mono);
   font-size: 0.85em;
-  background: var(--swamp-parchment);
-  border: 2px solid var(--border);
-  border-radius: 6px;
-  padding: 1px 6px;
 }
 
 :focus { outline: none; }
