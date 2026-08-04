@@ -264,6 +264,12 @@ code, kbd {
 .btn-ghost { border-color: transparent; box-shadow: none; background: transparent; }
 .btn-ghost:hover:not(:disabled) { box-shadow: none; background: var(--swamp-parchment); }
 
+/* .btn's default ink-brown text is nearly invisible against the onboarding
+   card's own ink-brown background — it only became visible on hover, once
+   the light hover background gave it something to contrast against. */
+.onboard-card .btn-ghost { color: var(--paper-white); }
+.onboard-card .btn-ghost:hover:not(:disabled) { color: var(--fg); }
+
 /* ---------- chips ---------- */
 
 .chip {
