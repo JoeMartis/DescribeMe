@@ -522,6 +522,7 @@ button.chip:hover { background: var(--swamp-parchment); }
 }
 .rail-text { min-width: 0; flex: 1; }
 .rail-name {
+  display: block;
   font-family: var(--font-heading);
   font-size: 12px;
   white-space: nowrap;
@@ -529,6 +530,7 @@ button.chip:hover { background: var(--swamp-parchment); }
   text-overflow: ellipsis;
 }
 .rail-status {
+  display: block;
   font-family: var(--font-accent);
   font-size: 13px;
   color: var(--faint);
