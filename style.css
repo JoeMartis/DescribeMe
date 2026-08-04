@@ -335,7 +335,13 @@ button.chip:hover { background: var(--swamp-parchment); }
   border: var(--border-width-thick) solid var(--border);
   border-radius: var(--radius-lg);
   padding: 44px 44px 36px;
-  box-shadow: var(--shadow-lg);
+  /* --shadow-lg's 10px offset is wide enough, relative to this card's large
+     28px radius, that the shadow's rounded corner visibly parts ways with
+     the card's own at the two corners where only one adjacent edge carries
+     shadow (top-right, bottom-left) — the union of the two arcs reads as a
+     lumpy corner instead of a clean curve. A narrower offset plus a touch
+     of blur softens that seam while keeping the signature pop-shadow look. */
+  box-shadow: 6px 6px 3px var(--ink-brown);
   color: var(--paper-white);
 }
 .onboard-brand {
