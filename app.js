@@ -276,6 +276,7 @@ const els = {
   projectsDialog: document.getElementById("projectsDialog"),
   projectsClose: document.getElementById("projectsClose"),
   saveProjectBtn: document.getElementById("saveProjectBtn"),
+  importProjectInput: document.getElementById("importProjectInput"),
   saveProjectHint: document.getElementById("saveProjectHint"),
   projectsError: document.getElementById("projectsError"),
   projectList: document.getElementById("projectList"),
@@ -2178,15 +2179,133 @@ async function refreshProjectList() {
     openBtn.textContent = "Open";
     openBtn.addEventListener("click", () => openProject(record.id));
 
+    const exportBtn = document.createElement("button");
+    exportBtn.type = "button";
+    exportBtn.className = "btn btn-small";
+    exportBtn.textContent = "Export";
+    exportBtn.addEventListener("click", () => exportProjectRecord(record));
+
     const deleteBtn = document.createElement("button");
     deleteBtn.type = "button";
     deleteBtn.className = "btn btn-small btn-ghost";
     deleteBtn.textContent = "Delete";
     deleteBtn.addEventListener("click", () => deleteProject(record.id, record.name));
 
-    li.append(text, openBtn, deleteBtn);
+    li.append(text, openBtn, exportBtn, deleteBtn);
     els.projectList.appendChild(li);
   }
+}
+
+// --- Import / export: a project as a plain .json file, so a batch can move
+// to another device or person. The export is just the stored record; the
+// import treats the file as untrusted (anyone can hand-edit JSON, and "sent
+// to someone else" is exactly the case where that matters) — every
+// description is re-run through the same sanitizer as model output, and
+// every field is validated rather than copied.
+
+const PROJECT_FILE_FORMAT = "describeme-project";
+
+function exportProjectRecord(record) {
+  const payload = {
+    format: PROJECT_FILE_FORMAT,
+    version: 1,
+    name: record.name,
+    savedAt: record.savedAt,
+    jobs: record.jobs,
+  };
+  const blob = new Blob([JSON.stringify(payload)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `${safeFileStem(record.name, new Set())}.describeme.json`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+  setStatus(`Exported "${record.name}" as a project file.`);
+}
+
+/** Validate + sanitize a parsed project file into a fresh storable record.
+    Throws with a user-facing message on anything unusable. */
+function importedProjectRecord(raw) {
+  if (!raw || typeof raw !== "object" || raw.format !== PROJECT_FILE_FORMAT || !Array.isArray(raw.jobs)) {
+    throw new Error("That doesn't look like a DescribeMe project file.");
+  }
+  if (raw.jobs.length === 0) throw new Error("That project file has no slides in it.");
+  if (raw.jobs.length > MAX_BATCH_SIZE) {
+    throw new Error(`That project has ${raw.jobs.length} slides — batches are capped at ${MAX_BATCH_SIZE}.`);
+  }
+
+  const VALID_STATES = new Set(["pending", "done", "error", "canceled", "invalid"]);
+  const sanitizeToStored = (html) => {
+    const fragment = sanitizeHtmlFragment(String(html || ""));
+    const holder = document.createElement("div");
+    holder.appendChild(fragment.cloneNode(true));
+    return { html: holder.innerHTML, text: domFragmentToText(fragment) };
+  };
+
+  const jobs = raw.jobs.map((saved, i) => {
+    const dataUrlOk = typeof saved.dataUrl === "string" && saved.dataUrl.startsWith("data:image/");
+    const result = sanitizeToStored(saved.resultHtml);
+    const state = VALID_STATES.has(saved.state) ? saved.state : "pending";
+    const num = (v) => (Number.isFinite(v) ? v : null);
+    return {
+      name: typeof saved.name === "string" && saved.name ? saved.name : `Slide ${i + 1}`,
+      state,
+      error: typeof saved.error === "string" ? saved.error : null,
+      resultHtml: result.html,
+      resultText: result.text,
+      approved: !!saved.approved && state === "done",
+      edited: !!saved.edited,
+      history: Array.isArray(saved.history)
+        ? saved.history.map((entry) => sanitizeToStored(entry && entry.html))
+        : [],
+      durationMs: num(saved.durationMs),
+      usedModel: MODEL_LADDER.includes(saved.usedModel) ? saved.usedModel : null,
+      dataUrl: dataUrlOk
+        ? saved.dataUrl
+        : "data:image/svg+xml;utf8," +
+          encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"></svg>'),
+      mediaType: ACCEPTED_TYPES.includes(saved.mediaType) ? saved.mediaType : "image/jpeg",
+      width: num(saved.width),
+      height: num(saved.height),
+      resized: !!saved.resized,
+      originalWidth: num(saved.originalWidth),
+      originalHeight: num(saved.originalHeight),
+    };
+  });
+
+  return {
+    // Always a fresh id — an import must never silently overwrite an existing
+    // project that happens to share an id (e.g. re-importing your own export).
+    id: `project-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    name: typeof raw.name === "string" && raw.name.trim() ? raw.name.trim() : "Imported project",
+    savedAt: Date.now(),
+    jobs,
+  };
+}
+
+async function importProjectFile(file) {
+  setProjectsError("");
+  let record;
+  try {
+    record = importedProjectRecord(JSON.parse(await file.text()));
+  } catch (err) {
+    setProjectsError(
+      err instanceof SyntaxError
+        ? "That file isn't valid JSON — is it really a DescribeMe project export?"
+        : `Couldn't import: ${err.message || err}`
+    );
+    return;
+  }
+  try {
+    await projectStoreRequest("readwrite", (store) => store.put(record));
+  } catch (err) {
+    setProjectsError(`Couldn't store the imported project: ${err.message || err}`);
+    return;
+  }
+  setStatus(`Imported "${record.name}" — it's in the list, ready to open.`);
+  await refreshProjectList();
 }
 
 els.projectsBtn.addEventListener("click", async () => {
@@ -2200,6 +2319,11 @@ els.projectsBtn.addEventListener("click", async () => {
 });
 els.projectsClose.addEventListener("click", () => els.projectsDialog.close());
 els.saveProjectBtn.addEventListener("click", saveCurrentProject);
+els.importProjectInput.addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  e.target.value = "";
+  if (file) await importProjectFile(file);
+});
 
 // ---------- Init ----------
 

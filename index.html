@@ -265,10 +265,15 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
       </button>
     </div>
-    <p class="sheet-lede">Saved in this browser only — slides, descriptions, edits and approvals all come back exactly as you left them. Nothing is uploaded anywhere, so a project won't follow you to another device, and clearing this site's data deletes it.</p>
+    <p class="sheet-lede">Saved in this browser only — slides, descriptions, edits and approvals all come back exactly as you left them. Nothing is uploaded anywhere, and clearing this site's data deletes saved projects. To move one to another device or person, export it as a file and import it there.</p>
 
     <div class="project-save-row">
       <button type="button" class="btn btn-primary" id="saveProjectBtn">Save current batch</button>
+      <span class="btn file-btn">
+        Import a project file
+        <input type="file" id="importProjectInput" accept="application/json,.json"
+               aria-label="Import a project file">
+      </span>
       <span class="hint" id="saveProjectHint"></span>
     </div>
 

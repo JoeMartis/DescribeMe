@@ -69,10 +69,15 @@ no backend for this site — GitHub Pages only serves the static files.
 **Projects.** The folder icon in the header saves the current batch — slides,
 descriptions, edits, approvals, and the batch name — to your browser's
 IndexedDB, and lists every saved project so you can reopen one later, exactly
-as you left it. Like everything else here it's client-side only: a project
-lives in the browser it was saved in (it won't follow you to another device),
-and clearing the site's browsing data deletes it. Unsaved work still
-disappears on reload — save before you close the tab.
+as you left it. Like everything else here it's client-side only: a saved
+project lives in the browser it was saved in, and clearing the site's
+browsing data deletes it. To hand a batch to someone else (or move it to
+another machine), **Export** any saved project as a `.describeme.json` file
+and use **Import a project file** on the other side — the file carries the
+slides and descriptions, never your API key. Imported files are treated as
+untrusted: every description in one is re-run through the same sanitizer as
+model output before it's stored. Unsaved work still disappears on reload —
+save before you close the tab.
 
 ## Making the API calls efficient
 

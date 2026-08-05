@@ -471,8 +471,11 @@ button.chip:hover { background: var(--swamp-parchment); }
   padding: 18px 20px 12px;
 }
 .rail-head h2 { font-size: 18px; }
-.rail-add { position: relative; overflow: hidden; }
-.rail-add input[type="file"] {
+/* A button that is really a file input — the input covers the whole button
+   invisibly, so it stays natively focusable and keyboard-operable. Used by
+   the rail's Add button and the projects dialog's Import button. */
+.rail-add, .file-btn { position: relative; overflow: hidden; }
+.rail-add input[type="file"], .file-btn input[type="file"] {
   position: absolute;
   inset: 0;
   opacity: 0;
