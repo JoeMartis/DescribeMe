@@ -748,13 +748,18 @@ button.chip:hover { background: var(--swamp-parchment); }
 .refine-card h3 { font-family: var(--font-heading); font-size: 12px; margin-bottom: 8px; }
 .refine-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
+/* Two deliberate rows — status pill + meta (with the destructive Remove
+   kept apart at the right), then the working pills together on one line —
+   instead of a single wrapping row, where the break point landed wherever
+   it happened to land and scattered the buttons. */
 .desc-head {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 10px;
-  flex-wrap: wrap;
   margin-bottom: 10px;
 }
+.desc-status { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.desc-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .desc-meta { font-family: var(--font-accent); font-size: 14px; color: var(--faint); }
 
 .desc {
