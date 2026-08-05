@@ -61,8 +61,8 @@ selected slide's image plus its description on the right.
    move between slides at any time. Only approved slides go into the export.
 6. Failed slides show the error inline with a **Retry** button; any slide can
    be removed from the batch from its detail pane, and **New batch** in the
-   rail clears all of them to start over (with a confirm step if any
-   descriptions would be lost).
+   rail clears all of them to start over (always behind a confirm — the
+   warning is sharper when descriptions would be lost).
 7. **Export as .zip** bundles every approved slide's description into one
    HTML fragment each, plus a combined `index.html`.
 

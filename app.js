@@ -812,17 +812,17 @@ els.batchName.addEventListener("input", () => {
 });
 
 /** Clear every slide to start over — the batch-wide sibling of removeJob.
-    As destructive as a reload, so described slides warrant a confirm;
-    a batch of still-pending slides (nothing generated yet) doesn't. */
+    As destructive as a reload, so it always confirms first; the message
+    is sharper when descriptions (i.e. money and review time) are at stake. */
 function newBatch() {
   if (jobs.size === 0 || batchRunning) return;
   const described = jobList().some((j) => j.state === "done");
-  if (described) {
-    const ok = window.confirm(
-      "Start a new batch? The current slides and their descriptions go away unless you've saved or exported them."
-    );
-    if (!ok) return;
-  }
+  const ok = window.confirm(
+    described
+      ? "Start a new batch? The current slides and their descriptions go away unless you've saved or exported them."
+      : `Start a new batch? This clears the ${jobs.size} queued slide${jobs.size === 1 ? "" : "s"}.`
+  );
+  if (!ok) return;
   jobs.clear();
   els.railList.replaceChildren();
   selectedJobId = null;
