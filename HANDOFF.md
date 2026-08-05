@@ -77,7 +77,9 @@ with `aria-current`.
 ## Not done — the one big thing
 
 > **Since done.** Projects (the folder icon in the header) now save the
-> whole batch — including the images — to IndexedDB and restore it later.
+> whole batch — including the images — to IndexedDB and restore it later,
+> and the current batch is additionally autosaved after every change and
+> restored on reload.
 
 Nothing survives a reload. Once people are reviewing and approving 25 slides,
 an accidental refresh costs money and patience. Persisting descriptions,

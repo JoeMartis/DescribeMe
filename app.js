@@ -934,6 +934,7 @@ function maybeNameBatch() {
 
 els.batchName.addEventListener("input", () => {
   els.batchName.dataset.userNamed = "1";
+  markDirty();
 });
 
 /** Clear every slide to start over — the batch-wide sibling of removeJob.
@@ -1156,6 +1157,7 @@ function renderAll() {
   renderDetail();
   updateControls();
   updateOverallStatus();
+  markDirty();
 }
 
 /** Called whenever one job's state changes. */
@@ -1164,6 +1166,7 @@ function renderJobState(job) {
   if (job.id === selectedJobId) renderDetail();
   updateControls();
   updateOverallStatus();
+  markDirty();
 }
 
 // ---------- Detail pane ----------
@@ -1422,6 +1425,7 @@ function toggleApprove(jobId) {
   if (!job || job.state !== "done") return;
   commitPendingEdit(); // approve what's on screen, not the pre-edit version
   job.approved = !job.approved;
+  markDirty();
   renderRailRow(job);
   updateControls();
   updateOverallStatus();
@@ -1496,6 +1500,7 @@ function commitEdit() {
   preview.removeAttribute("contenteditable");
   renderDetail();
   updateControls();
+  markDirty();
   setStatus(`Your edits to ${job.name} were saved.`);
 }
 
@@ -1545,6 +1550,7 @@ function commitSourceEdit() {
   textarea.readOnly = true;
   renderDetail();
   updateControls();
+  markDirty();
   setStatus(`Your edits to ${job.name} were saved.`);
 }
 
@@ -2436,6 +2442,69 @@ async function projectStoreRequest(mode, run) {
   }
 }
 
+// ---------- Autosave: the current batch survives a reload ----------
+// A shadow record in the same projects store, written debounced after every
+// mutation and restored on load. Named projects stay explicit; this only
+// protects against the accidental refresh that used to cost a whole
+// review session.
+
+const AUTOSAVE_ID = "__autosave";
+const AUTOSAVE_DEBOUNCE_MS = 1500;
+let autosaveTimer = null;
+let autosaveDirty = false;
+
+function markDirty() {
+  autosaveDirty = true;
+  clearTimeout(autosaveTimer);
+  autosaveTimer = setTimeout(writeAutosave, AUTOSAVE_DEBOUNCE_MS);
+}
+
+async function writeAutosave() {
+  clearTimeout(autosaveTimer);
+  if (!autosaveDirty) return;
+  // Mid-batch state is churn — the batch's final renderAll re-marks dirty,
+  // so the settled result is what gets written.
+  if (batchRunning) return;
+  autosaveDirty = false;
+  const record = {
+    ...serializeProject(),
+    id: AUTOSAVE_ID,
+    // Which named project (if any) the batch was opened from / saved as,
+    // so the association survives the reload too.
+    projectId: currentProjectId,
+    userNamed: els.batchName.dataset.userNamed === "1",
+  };
+  try {
+    await projectStoreRequest("readwrite", (store) => store.put(record));
+  } catch (_err) {
+    // Best-effort by design: never interrupt real work over a failed
+    // background save. An empty-jobs record doubles as "nothing to restore".
+  }
+}
+
+// Flush on tab hide/close so the last action before closing is kept.
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") writeAutosave();
+});
+window.addEventListener("pagehide", () => writeAutosave());
+
+async function restoreAutosave() {
+  let record;
+  try {
+    record = await projectStoreRequest("readonly", (store) => store.get(AUTOSAVE_ID));
+  } catch (_err) {
+    return; // no storage, no restore — same as before autosave existed
+  }
+  if (!record || !Array.isArray(record.jobs) || record.jobs.length === 0) return;
+  if (jobs.size > 0) return; // the user already started something this load
+  loadProjectRecord(record);
+  // loadProjectRecord treats the record as a named project — undo the two
+  // assumptions that don't hold for the shadow record.
+  currentProjectId = record.projectId || null;
+  if (record.userNamed !== true) delete els.batchName.dataset.userNamed;
+  setStatus("Restored your last session — everything is as you left it.");
+}
+
 /** Confirmations that fire while the projects dialog is open must land in
     an in-dialog live region — showModal() makes the page's main status line
     inert (unannounced) and the backdrop hides it visually. The page-level
@@ -2530,6 +2599,7 @@ async function saveCurrentProject() {
     return;
   }
   currentProjectId = record.id;
+  markDirty(); // refresh the autosave's link to this named project
   announceProjects(`Project "${record.name}" saved.`);
   await refreshProjectList();
 }
@@ -2586,6 +2656,7 @@ async function refreshProjectList() {
     setProjectsError(`Couldn't read saved projects: ${err.message || err}`);
     return;
   }
+  records = records.filter((r) => r.id !== AUTOSAVE_ID);
   records.sort((a, b) => b.savedAt - a.savedAt);
 
   els.projectList.replaceChildren();
@@ -2786,3 +2857,4 @@ if (localStorage.getItem(STORAGE_KEYS.onboarded)) {
 }
 
 renderAll();
+restoreAutosave();

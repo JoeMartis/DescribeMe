@@ -82,8 +82,15 @@ another machine), **Export** any saved project as a `.describeme.json` file
 and use **Import a project file** on the other side — the file carries the
 slides and descriptions, never your API key. Imported files are treated as
 untrusted: every description in one is re-run through the same sanitizer as
-model output before it's stored. Unsaved work still disappears on reload —
-save before you close the tab.
+model output before it's stored.
+
+**Auto-save.** Separately from named projects, the current batch is quietly
+autosaved to IndexedDB a moment after every change (and when the tab is
+hidden or closed), and restored on the next load — an accidental refresh
+mid-review no longer costs anything. **New batch** clears the autosave along
+with the batch. Named projects are still the way to keep more than one batch
+around, or to export one for someone else; the autosave only ever holds the
+latest state of the current one, in this browser.
 
 ## Making the API calls efficient
 
