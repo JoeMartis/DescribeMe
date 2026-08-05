@@ -2041,6 +2041,36 @@ function renderVersionBadge() {
   els.versionBadgeOnboard.textContent = label;
 }
 
+// ---------- Easter egg ----------
+// Five quick clicks on the header wordmark and a visitor swings by. The
+// container is aria-hidden with pointer-events: none, so he can't intercept
+// a click, a tab stop, or a screen reader — strictly a treat for whoever
+// idly clicks the logo.
+(() => {
+  const egg = document.getElementById("monkeyEgg");
+  const brand = document.querySelector(".app-header .brand");
+  if (!egg || !brand) return;
+  let clicks = 0;
+  let lastClick = 0;
+  brand.addEventListener("click", () => {
+    const now = Date.now();
+    clicks = now - lastClick < 1200 ? clicks + 1 : 1;
+    lastClick = now;
+    if (clicks < 5 || !egg.hidden) return;
+    clicks = 0;
+    egg.hidden = false;
+    egg.classList.add("is-up");
+    egg.addEventListener(
+      "animationend",
+      () => {
+        egg.classList.remove("is-up");
+        egg.hidden = true;
+      },
+      { once: true }
+    );
+  });
+})();
+
 // ---------- Projects (IndexedDB persistence) ----------
 // Everything about the current batch — slide images (as the already-downscaled
 // JPEG data URLs), descriptions, edits, history, approvals, the batch name —

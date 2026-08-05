@@ -1008,3 +1008,40 @@ input[type="range"] {
   font-size: 14px;
   color: var(--faint);
 }
+
+/* ---------- easter egg ---------- */
+/* Summoned by app.js (five quick clicks on the header wordmark). Fixed to
+   the viewport edge, aria-hidden, pointer-events: none — he can't block a
+   click or a focus ring, only briefly improve someone's day. */
+.monkey-egg {
+  position: fixed;
+  bottom: 0;
+  right: 44px;
+  width: 210px;
+  z-index: 300;
+  pointer-events: none;
+  transform: translateY(105%);
+}
+.monkey-egg svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  filter: drop-shadow(0 4px 0 rgba(36, 26, 18, 0.25));
+}
+.monkey-egg.is-up { animation: monkey-visit 4.5s cubic-bezier(0.34, 1.4, 0.64, 1) forwards; }
+@keyframes monkey-visit {
+  0%   { transform: translateY(105%) rotate(0deg); }
+  16%  { transform: translateY(10%) rotate(-4deg); }
+  26%  { transform: translateY(14%) rotate(3deg); }
+  36%  { transform: translateY(11%) rotate(-2deg); }
+  82%  { transform: translateY(12%) rotate(0deg); }
+  100% { transform: translateY(105%) rotate(0deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .monkey-egg.is-up { animation: monkey-visit-calm 4.5s ease forwards; }
+}
+@keyframes monkey-visit-calm {
+  0%       { opacity: 0; transform: translateY(12%); }
+  12%, 84% { opacity: 1; transform: translateY(12%); }
+  100%     { opacity: 0; transform: translateY(12%); }
+}
