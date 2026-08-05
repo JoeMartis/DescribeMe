@@ -311,7 +311,6 @@ button.chip:hover { background: var(--swamp-parchment); }
 }
 .tag-review { background: var(--mustard); color: var(--ink-brown); }
 .tag-approved { background: var(--sage-200); color: var(--sage-700); }
-.tag-neutral { background: var(--swamp-parchment); color: var(--muted); }
 
 /* ---------- onboarding ---------- */
 /* The vortex is the design system's signature moment — reserved for this
@@ -328,7 +327,6 @@ button.chip:hover { background: var(--swamp-parchment); }
   background-size: 220% 220%;
   background-position: center;
 }
-.onboarding::before, .onboarding::after { content: none; }
 .onboard-card {
   position: relative;
   width: 100%;
@@ -453,7 +451,6 @@ button.chip:hover { background: var(--swamp-parchment); }
 
 .workspace {
   flex: 1;
-  min-height: 0;
   display: grid;
   grid-template-columns: var(--rail-width) minmax(0, 1fr);
   min-height: 0;
@@ -481,6 +478,10 @@ button.chip:hover { background: var(--swamp-parchment); }
    invisibly, so it stays natively focusable and keyboard-operable. Used by
    the rail's Add button and the projects dialog's Import button. */
 .rail-add, .file-btn { position: relative; overflow: hidden; }
+/* The input is opacity:0, so the default focus ring painted on it is
+   invisible — surface keyboard focus on the visible button instead. */
+.rail-add:has(input:focus-visible),
+.file-btn:has(input:focus-visible) { outline: 3px solid var(--focus); outline-offset: 3px; }
 .rail-add input[type="file"], .file-btn input[type="file"] {
   position: absolute;
   inset: 0;
@@ -640,21 +641,6 @@ button.chip:hover { background: var(--swamp-parchment); }
 
 .status { min-height: 1.2em; font-family: var(--font-accent); font-size: 14px; color: var(--faint); }
 
-.banner {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  background: var(--mustard);
-  border: var(--border-width) solid var(--border);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-sm);
-  padding: 14px 18px;
-  margin-bottom: 20px;
-  color: var(--ink-brown);
-  font-size: 14px;
-}
-.banner svg { width: 20px; height: 20px; flex-shrink: 0; }
-.banner p { flex: 1; }
 
 .empty { max-width: 780px; margin: 0 auto; }
 .empty h1 { font-family: var(--font-display); font-size: 30px; margin: 12px 0 8px; color: var(--poster-red); }

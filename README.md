@@ -22,9 +22,9 @@ live per-slide cost estimate next to each:
   default.
 - **Claude Opus 5** — most thorough; best for crowded, multi-part figures.
 
-The estimate is computed from Parley's own published rates, so it stays
-correct as pricing changes rather than going stale in this doc — but it's
-still a rough estimate for a typical image and description length, **not a
+The estimate is computed from per-model rates recorded in `app.js` (taken
+from Parley's published pricing — update them there if pricing changes),
+for a typical image and description length. It's a rough estimate, **not a
 budgeting tool**. All of this (plus the **Description verbosity**
 slider — Concise / Standard / Detailed, and a collapsible **System prompt
 used** view showing the exact prompt text for the current verbosity) stays
@@ -134,8 +134,9 @@ not just to produce accessible output:
   technique) gives clear "which slide is this" context — independent of
   whatever heading levels (`<h2>`/`<h3>`) the generated description itself
   uses internally.
-- **Visible focus, semantic controls.** Focus outlines are never suppressed;
-  settings use a native `<dialog>` (built-in focus trapping and Escape-to-
+- **Visible focus, semantic controls.** Keyboard focus always gets a
+  visible ring (via `:focus-visible`, so mouse clicks don't paint stray
+  outlines); settings use a native `<dialog>` (built-in focus trapping and Escape-to-
   close), grouped radio options use `<fieldset>`/`<legend>`, and the "HTML
   source" view is a native `<details>`/`<summary>` rather than a
   custom-built, keyboard-reimplemented
@@ -219,8 +220,9 @@ during setup or in **Settings**.
   'self'` — the two fonts are self-hosted from `fonts/`, see Files below),
   and `connect-src` restricted to the MIT Parley endpoint — so even a
   sanitizer bug couldn't be used to run script or exfiltrate data to another
-  host. `img-src` additionally allows `blob:`, needed only to generate the
-  downloadable `.zip` export link — that export never leaves the browser.
+  host. The `.zip` and project-file exports are plain `<a download>` links
+  to in-browser blobs — downloads aren't governed by `img-src`, so the CSP
+  needs no allowance for them, and those exports never leave the browser.
 
 ## Version number
 

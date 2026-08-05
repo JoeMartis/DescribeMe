@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>DescribeMe — STEM Slide Accessibility Descriptions</title>
 <meta name="description" content="Upload STEM lecture slides and generate screen-reader-friendly extended descriptions using Claude.">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; font-src 'self'; connect-src https://parley.api.mit.edu; object-src 'none'; base-uri 'none'; form-action 'none';">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src https://parley.api.mit.edu; object-src 'none'; base-uri 'none'; form-action 'none';">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -35,8 +35,8 @@
       <legend>Keep this key</legend>
       <div class="refine-actions">
         <label class="radio-option"><input type="radio" name="onboardPersistence" value="session"> Just this tab</label>
-        <label class="radio-option"><input type="radio" name="onboardPersistence" value="local" checked> On this device</label>
-        <label class="radio-option"><input type="radio" name="onboardPersistence" value="none"> Don't keep it</label>
+        <label class="radio-option"><input type="radio" name="onboardPersistence" value="local"> On this device</label>
+        <label class="radio-option"><input type="radio" name="onboardPersistence" value="none" checked> Don't keep it</label>
       </div>
     </fieldset>
 
@@ -123,7 +123,7 @@
           </span>
         </div>
       </div>
-      <p class="rail-empty" id="railEmpty">Nothing queued yet. Drop a folder of slide exports on the right and they'll line up here.</p>
+      <p class="rail-empty" id="railEmpty">Nothing queued yet. Drop your slide exports on the right and they'll line up here.</p>
       <ul class="rail-list" id="railList"></ul>
       <div class="rail-foot" id="railFoot">
         <div class="rail-card" id="progressCard" hidden>
@@ -132,13 +132,13 @@
             <div class="progress-fill" id="progressFill"></div>
           </div>
           <div class="rail-card-row">
-            <span class="rail-card-note">3 at a time, retrying quietly</span>
+            <span class="rail-card-note">Three at a time, retrying quietly</span>
             <button type="button" class="btn btn-small" id="stopBtn">Stop</button>
           </div>
         </div>
         <div class="rail-card rail-card-review" id="describeCard" hidden>
-          <h3 id="describeCardTitle">Ready when you are.</h3>
-          <p id="describeCardBody">Approving a description is what puts it in the export.</p>
+          <h3 id="describeCardTitle"></h3>
+          <p id="describeCardBody"></p>
           <button type="button" class="btn btn-small" id="describeBtn" disabled>Describe all</button>
         </div>
       </div>
@@ -151,7 +151,7 @@
       <!-- Empty state -->
       <div class="empty" id="emptyState">
         <h1>Bring in a lecture.</h1>
-        <p class="empty-lede">Export your deck as images and drop them all at once. They stay in your browser — nothing is uploaded except to MIT Parley, one slide at a time.</p>
+        <p class="empty-lede">Export your deck as images and drop them all at once. They stay in your browser — nothing is uploaded anywhere except to MIT Parley for describing.</p>
         <div class="dropzone" id="dropZone">
           <div class="dropzone-mark" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="4"></rect><circle cx="8.5" cy="9" r="1.6"></circle><path d="M21 15l-5-5-4.5 5.5L9 13l-6 6"></path></svg>

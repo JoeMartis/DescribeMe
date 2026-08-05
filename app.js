@@ -108,7 +108,7 @@ const MODEL_SHORT_NAMES = {
 const VERBOSITY_LEVELS = [
   {
     label: "Concise",
-    hint: "Just the essentials — the fewest sentences that still convey the same instructional takeaway.",
+    hint: "The default. Just the essentials — the fewest sentences that still convey the same instructional takeaway.",
     estimatedOutputTokens: 350,
     promptAddendum:
       "VERBOSITY: Concise. Cover only what's necessary to give the same instructional takeaway a " +
@@ -118,7 +118,7 @@ const VERBOSITY_LEVELS = [
   },
   {
     label: "Standard",
-    hint: "The default balance: complete but not padded.",
+    hint: "A fuller middle ground: complete but not padded.",
     estimatedOutputTokens: 650,
     promptAddendum: "",
   },
@@ -415,6 +415,7 @@ els.clearStoredKey.addEventListener("click", () => {
 // ---------- Settings dialog ----------
 
 function openSettings() {
+  els.settingsStatus.textContent = ""; // don't re-announce a stale confirmation
   els.settingsDialog.showModal();
   els.apiKey.focus();
 }
@@ -472,7 +473,7 @@ function showApp() {
 els.onboardStart.addEventListener("click", () => {
   const key = els.onboardKey.value.trim();
   if (!key) {
-    els.onboardError.textContent = "Enter your MIT Parley key to continue, or choose “I'll do this later”.";
+    els.onboardError.textContent = "Enter your MIT Parley key to continue, or choose \"I'll do this later\".";
     els.onboardError.hidden = false;
     els.onboardKey.focus();
     return;
@@ -648,7 +649,7 @@ function jobStatusMeta(job) {
     case "canceled":
       return { state: "canceled", text: "Canceled", dot: "" };
     case "invalid":
-      return { state: "invalid", text: "Couldn't load this image", dot: "dot-error" };
+      return { state: "invalid", text: "Couldn't prepare this image", dot: "dot-error" };
     default:
       return { state: job.state, text: job.state, dot: "" };
   }
@@ -1045,13 +1046,15 @@ function updateControls() {
     els.batchSummary.textContent = "No slides yet";
   } else {
     const parts = [`${jobs.size} slide${jobs.size === 1 ? "" : "s"}`];
-    if (batchRunning) {
+    if (batchRunning && runScope === "batch") {
       parts.push(`${c.done} described`, `${c.describing} in progress`, `${c.pending} queued`);
     } else {
       parts.push(`${c.done} described`);
       if (c.approved) parts.push(`${c.approved} approved`);
       if (c.error) parts.push(`${c.error} need a retry`);
-      if (c.pending) parts.push(`${c.pending} queued`);
+      // "ready", matching the rail's wording — nothing is queued behind a
+      // batch unless a batch is actually running.
+      if (c.pending) parts.push(`${c.pending} ready`);
     }
     els.batchSummary.textContent = parts.join(" · ");
   }
@@ -1090,6 +1093,7 @@ function updateControls() {
   els.describeCard.hidden = jobs.size === 0 || batchRunning;
   els.describeBtn.disabled = batchRunning || !hasApiKey || runnable.length === 0;
   if (!els.describeCard.hidden) {
+    const stillDecoding = jobList().some((j) => j.state === "pending" && !j.base64);
     if (runnable.length > 0) {
       els.describeCardTitle.textContent = hasApiKey
         ? `${runnable.length} slide${runnable.length === 1 ? "" : "s"} ready to describe.`
@@ -1098,6 +1102,13 @@ function updateControls() {
         ? "Three at a time, retrying quietly. You can review the finished ones while the rest run."
         : "The key lives in your browser only — open settings from the header.";
       els.describeBtn.textContent = `Describe ${runnable.length === jobs.size ? "all" : runnable.length}`;
+    } else if (stillDecoding) {
+      // Just-dropped files aren't runnable until their images decode — the
+      // all-described branch below would briefly claim "All 0 described."
+      els.describeCardTitle.textContent = "Getting slides ready…";
+      els.describeCardBody.textContent = "Reading the images in your browser now.";
+      els.describeBtn.textContent = "Describe all";
+      els.describeBtn.disabled = true;
     } else {
       els.describeCardTitle.textContent = c.invalid
         ? `All ${c.done} readable slides described.`
@@ -1123,11 +1134,13 @@ function updateOverallStatus() {
   }
   const c = counts();
 
-  if (batchRunning) {
+  if (batchRunning && runScope === "batch") {
     setStatus(
       `Describing… ${c.done} done, ${c.describing} in progress, ` +
         `${c.pending} queued${c.error ? `, ${c.error} failed` : ""}.`
     );
+  } else if (batchRunning) {
+    setStatus("Describing one slide…");
   } else if (c.done > 0 || c.error > 0 || c.invalid > 0) {
     const parts = [`${c.done} of ${jobs.size} described`];
     if (c.approved) parts.push(`${c.approved} approved`);
@@ -1308,9 +1321,12 @@ function renderDetail() {
           : "Claude is reading the slide now. You can review other slides while this runs.";
       primary.hidden = true;
     } else if (job.state === "invalid") {
-      title.textContent = "This image couldn't be read.";
+      title.textContent = "This image can't be sent.";
+      // The detail line below carries the actual reason — this state covers
+      // both undecodable files and the still-over-the-API-cap backstop, so
+      // the body must not claim one specific cause.
       body.textContent =
-        "The file is corrupt or in a format the browser can't decode, so there's nothing to send. Re-export it and add it again.";
+        "Something about the file itself is the problem, so retrying the request won't help — the note below says what. Re-export the slide and add it again.";
       detail.hidden = false;
       detail.textContent = job.error || "unknown error";
       primary.hidden = true;
@@ -1318,17 +1334,31 @@ function renderDetail() {
       // Checked before the queued/waiting branch: a slide that already
       // failed mid-batch should show its error, not claim to be queued.
       title.textContent = "This one didn't come back.";
+      // Only rate limits, server errors, and network hiccups are retried —
+      // a 400/401 fails on the first attempt, and claiming "four tries" or
+      // suggesting a wait would be wrong for those (bad key, bad request).
       body.textContent =
-        "MIT Parley returned an error after four tries. Waiting a moment and retrying usually clears a rate limit.";
+        job.attempt >= MAX_ATTEMPTS
+          ? "MIT Parley returned an error after four tries. Waiting a moment and retrying usually clears a rate limit."
+          : "MIT Parley rejected this request outright — the error below says why. Fix the cause (often the API key) before retrying.";
       detail.hidden = false;
       detail.textContent = job.error || "unknown error";
       primary.textContent = "Retry this slide";
       primary.hidden = batchRunning; // retry is a no-op while a run owns the shared state
       primary.addEventListener("click", () => describeSingleJob(job.id));
-    } else if (job.state === "canceled" && !batchRunning) {
-      title.textContent = "Stopped before this one ran.";
-      body.textContent = "Nothing was sent for this slide, so nothing was charged.";
+    } else if (job.state === "canceled") {
+      // Also checked before the queued/waiting branch — while a stopped
+      // batch drains, an already-canceled slide shouldn't claim "Queued".
+      if (job.requestSent) {
+        title.textContent = "Stopped mid-request.";
+        body.textContent =
+          "The request for this slide had already been sent when you stopped, so it may still be billed — but nothing came back, and nothing was kept.";
+      } else {
+        title.textContent = "Stopped before this one ran.";
+        body.textContent = "Nothing was sent for this slide, so nothing was charged.";
+      }
       primary.textContent = "Describe this slide";
+      primary.hidden = batchRunning;
       primary.addEventListener("click", () => describeSingleJob(job.id));
     } else if (batchRunning) {
       if (runScope === "batch") {
@@ -1716,7 +1746,8 @@ async function refineJob(jobId, revisionKey, overrideModel) {
     job.resultHtml = previous.html;
     job.resultText = previous.text;
     setError(
-      `Couldn't revise ${job.name}: ${job.error || "the request didn't finish"}. The previous description is untouched.`
+      `Couldn't revise ${job.name}: ${(job.error || "the request didn't finish").replace(/\.$/, "")}. ` +
+        `The previous description is untouched.`
     );
     job.state = "done";
     job.error = null;
@@ -1766,6 +1797,7 @@ async function describeOne(job, { apiKey, model, verbosity, revision }) {
 
   job.state = "describing";
   job.attempt = 1;
+  job.requestSent = false;
   const startedAt = performance.now();
   renderJobState(job);
 
@@ -1782,6 +1814,10 @@ async function describeOne(job, { apiKey, model, verbosity, revision }) {
     inFlightControllers.add(controller);
 
     try {
+      // From here the request is on the wire — a cancel after this point is
+      // an abort of a sent (possibly billable) request, not a skipped one,
+      // and the canceled-state copy distinguishes the two.
+      job.requestSent = true;
       const response = await fetch(`${API_BASE_URL}/v1/messages`, {
         method: "POST",
         signal: controller.signal,
@@ -1998,7 +2034,7 @@ function sanitizeHtmlFragment(html) {
   // could in principle steer the model into emitting attacker-chosen markup.
   // The model is never asked to produce links or styling, so being strict
   // here costs nothing legitimate.
-  const SAFE_HREF_SCHEME_RE = /^(https?:|mailto:)/i;
+  const SAFE_HREF_SCHEME_RE = /^(https:|mailto:)/i;
   // No https?: here to match the img-src CSP directive, which only allows
   // 'self' and data:. The model is only ever given a base64 upload to
   // describe — it has no image URLs to legitimately reference.
@@ -2382,8 +2418,18 @@ async function projectStoreRequest(mode, run) {
     return await new Promise((resolve, reject) => {
       const tx = db.transaction(PROJECT_STORE, mode);
       const req = run(tx.objectStore(PROJECT_STORE));
-      req.onsuccess = () => resolve(req.result);
+      let result;
+      req.onsuccess = () => {
+        result = req.result;
+      };
       req.onerror = () => reject(req.error || new Error("Project storage failed."));
+      // Resolve on transaction commit, not request success: quota errors on
+      // a put commonly surface at commit time, AFTER the request-level
+      // success event — resolving early would announce "saved" for a write
+      // that was then rolled back.
+      tx.oncomplete = () => resolve(result);
+      tx.onabort = () => reject(tx.error || new Error("Project storage was rolled back."));
+      tx.onerror = () => reject(tx.error || new Error("Project storage failed."));
     });
   } finally {
     db.close();
