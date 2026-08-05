@@ -960,6 +960,9 @@ async function describeSingleJob(jobId) {
   job.attempt = 0;
   job.error = null;
   batchRunning = true;
+  // Stale from a previous batch's Stop — only runBatch resets it, so without
+  // this, describeOne would instantly re-cancel the slide instead of running.
+  cancelRequested = false;
   updateControls();
 
   await describeOne(job, { apiKey, model, verbosity });
@@ -1586,6 +1589,9 @@ async function refineJob(jobId, revisionKey, overrideModel) {
   job.attempt = 0;
   job.error = null;
   batchRunning = true;
+  // Stale from a previous batch's Stop — only runBatch resets it, so without
+  // this, describeOne would instantly re-cancel instead of running.
+  cancelRequested = false;
   updateControls();
 
   await describeOne(job, {
@@ -1596,8 +1602,22 @@ async function refineJob(jobId, revisionKey, overrideModel) {
   });
 
   batchRunning = false;
-  // A revision replaces an approved description, so it needs looking at again.
-  job.approved = false;
+  if (job.state !== "done") {
+    // The revision failed — put the previous (still good) description back
+    // instead of hiding it behind an error pane, whose Retry button wouldn't
+    // even carry the revision instruction.
+    const previous = job.history.pop();
+    job.resultHtml = previous.html;
+    job.resultText = previous.text;
+    setError(
+      `Couldn't revise ${job.name}: ${job.error || "the request didn't finish"}. The previous description is untouched.`
+    );
+    job.state = "done";
+    job.error = null;
+  } else {
+    // A successful revision replaces the description, so it needs review again.
+    job.approved = false;
+  }
   renderAll();
 }
 
