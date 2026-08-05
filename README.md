@@ -17,9 +17,9 @@ long to remember it (this tab only, this device, or not at all — the
 default), and a starting **Model**, listed cheapest to most expensive with a
 live per-slide cost estimate next to each:
 
-- **Claude Haiku 4.5** — fastest and cheapest; a strong default for most
-  slides.
-- **Claude Sonnet 5** — sharper on dense equations and smaller text.
+- **Claude Haiku 4.5** — fastest and cheapest; fine for simple slides.
+- **Claude Sonnet 5** — sharper on dense equations and smaller text; the
+  default.
 - **Claude Opus 5** — most thorough; best for crowded, multi-part figures.
 
 The estimate is computed from Parley's own published rates, so it stays

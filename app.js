@@ -28,7 +28,6 @@ Figures, diagrams, processes
 - Name the figure type first (graph, circuit, free-body diagram, reaction
   pathway…), then describe its components, their spatial or logical
   relationships, and the direction of any flow or sequence.
-- Explain what the figure demonstrates — that's why it's on the slide.
 
 Data and charts
 - Give chart type, axes, ranges, and units, then the trend and the specific
@@ -47,6 +46,8 @@ Constraints
   "Takeaways," "Key points," or similar synthesis section unless the slide
   itself displays one — restate what's visibly there, not your own reading
   of what it means or why it matters.
+- Do not interpret the meaning or lesson of a graph. Report only what is
+  visible on the graph.
 - Be complete but not padded; every sentence should carry information a sighted
   viewer would receive.
 - Do not start with "This slide" but rather name the type of visual diagram on the slide, such as "A line graph shows…" "A diagram illustrates." etc.
@@ -443,7 +444,7 @@ els.onboardStart.addEventListener("click", () => {
   const persistence =
     document.querySelector('input[name="onboardPersistence"]:checked')?.value || "local";
   const model =
-    document.querySelector('input[name="onboardModel"]:checked')?.value || "claude-haiku-4-5";
+    document.querySelector('input[name="onboardModel"]:checked')?.value || "claude-sonnet-5";
 
   els.apiKey.value = key;
   els.model.value = model;
@@ -788,7 +789,7 @@ async function describeSingleJob(jobId) {
     openSettings();
     return;
   }
-  const model = els.model.value.trim() || "claude-haiku-4-5";
+  const model = els.model.value.trim() || "claude-sonnet-5";
   const verbosity = currentVerbosity();
 
   setError("");
@@ -1265,7 +1266,7 @@ async function runBatch() {
   const runnable = runnableJobs();
   if (runnable.length === 0) return;
 
-  const model = els.model.value.trim() || "claude-haiku-4-5";
+  const model = els.model.value.trim() || "claude-sonnet-5";
   const verbosity = currentVerbosity();
 
   setError("");
