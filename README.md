@@ -40,7 +40,9 @@ selected slide's image plus its description on the right.
    original file size barely matters — anything up to 50 MB is accepted.
 2. Click **Describe all**. A progress card tracks the batch; you can **Stop**
    mid-run. Each rail row shows that slide's status, and clicking one selects
-   it in the detail pane.
+   it in the detail pane. The arrow buttons beside each row (or dragging a
+   row) reorder the batch — review order, <kbd>←</kbd>/<kbd>→</kbd>
+   navigation, and the export all follow the rail's order.
 3. For the selected slide, once described: read the rendered description,
    check **HTML source** for the raw markup, or use **Copy HTML** / **Copy
    text**.

@@ -289,7 +289,7 @@
 
 <!-- Rail row -->
 <template id="railRowTemplate">
-  <li>
+  <li draggable="true">
     <button type="button" class="rail-row" aria-current="false">
       <img class="rail-thumb" alt="">
       <span class="rail-text">
@@ -298,6 +298,14 @@
       </span>
       <span class="dot" aria-hidden="true"></span>
     </button>
+    <span class="rail-move">
+      <button type="button" class="rail-move-btn js-move-up">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="18 15 12 9 6 15"></polyline></svg>
+      </button>
+      <button type="button" class="rail-move-btn js-move-down">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"></polyline></svg>
+      </button>
+    </span>
   </li>
 </template>
 

@@ -648,6 +648,7 @@ function jobStatusMeta(job) {
 function createRailRow(job) {
   const fragment = els.railRowTemplate.content.cloneNode(true);
   const li = fragment.querySelector("li");
+  li.dataset.jobId = job.id;
   const row = li.querySelector(".rail-row");
   row.dataset.jobId = job.id;
 
@@ -658,9 +659,76 @@ function createRailRow(job) {
   row.querySelector(".rail-name").textContent = job.name;
   row.addEventListener("click", () => selectJob(job.id));
 
+  li.querySelector(".js-move-up").addEventListener("click", () => moveJob(job.id, -1));
+  li.querySelector(".js-move-down").addEventListener("click", () => moveJob(job.id, 1));
+  wireRowDrag(li, job.id);
+
   els.railList.appendChild(fragment);
-  job.railEl = els.railList.querySelector(`[data-job-id="${job.id}"]`);
+  job.railEl = els.railList.querySelector(`.rail-row[data-job-id="${job.id}"]`);
   renderRailRow(job);
+}
+
+// ---------- Reordering ----------
+// Order is meaningful: it drives prev/next review, "Slide N of M", and the
+// export. jobs is an insertion-ordered Map, so reordering means rebuilding
+// its entries; the rail <li>s are then moved (appendChild relocates a live
+// node) rather than recreated, keeping thumbnails and listeners intact.
+
+/** Move a job to an absolute position in the batch (clamped). */
+function moveJobTo(jobId, targetIndex) {
+  const entries = [...jobs.entries()];
+  const from = entries.findIndex(([id]) => id === jobId);
+  if (from === -1) return;
+  const to = Math.max(0, Math.min(entries.length - 1, targetIndex));
+  if (to === from) return;
+  const [entry] = entries.splice(from, 1);
+  entries.splice(to, 0, entry);
+  jobs.clear();
+  for (const [id, job] of entries) jobs.set(id, job);
+  for (const [, job] of entries) {
+    const li = job.railEl?.closest("li");
+    if (li) els.railList.appendChild(li);
+  }
+  renderAll();
+}
+
+/** Move a job one step up (-1) or down (+1). */
+function moveJob(jobId, delta) {
+  const ids = [...jobs.keys()];
+  const idx = ids.indexOf(jobId);
+  if (idx === -1) return;
+  moveJobTo(jobId, idx + delta);
+}
+
+let draggedJobId = null;
+
+function wireRowDrag(li, jobId) {
+  li.addEventListener("dragstart", (e) => {
+    draggedJobId = jobId;
+    li.classList.add("is-dragging");
+    e.dataTransfer.effectAllowed = "move";
+    // Some browsers need data set for the drag to start at all.
+    e.dataTransfer.setData("text/plain", jobId);
+  });
+  li.addEventListener("dragend", () => {
+    draggedJobId = null;
+    li.classList.remove("is-dragging");
+  });
+  li.addEventListener("dragover", (e) => {
+    if (!draggedJobId || draggedJobId === jobId) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+  });
+  li.addEventListener("drop", (e) => {
+    if (!draggedJobId || draggedJobId === jobId) return;
+    e.preventDefault();
+    // Land before or after this row depending on which half was dropped on.
+    const rect = li.getBoundingClientRect();
+    const after = e.clientY > rect.top + rect.height / 2;
+    const ids = [...jobs.keys()].filter((id) => id !== draggedJobId);
+    const base = ids.indexOf(jobId);
+    moveJobTo(draggedJobId, after ? base + 1 : base);
+  });
 }
 
 function renderRailRow(job) {
@@ -681,6 +749,18 @@ function renderRailRow(job) {
 function renderRail() {
   jobs.forEach(renderRailRow);
   els.railEmpty.hidden = jobs.size > 0;
+
+  const list = jobList();
+  list.forEach((job, i) => {
+    const li = job.railEl?.closest("li");
+    if (!li) return;
+    const up = li.querySelector(".js-move-up");
+    const down = li.querySelector(".js-move-down");
+    up.disabled = i === 0;
+    down.disabled = i === list.length - 1;
+    up.setAttribute("aria-label", `Move ${job.name} earlier (position ${i + 1} of ${list.length})`);
+    down.setAttribute("aria-label", `Move ${job.name} later (position ${i + 1} of ${list.length})`);
+  });
 }
 
 function selectJob(jobId, options) {
