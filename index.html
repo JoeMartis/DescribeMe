@@ -358,6 +358,19 @@
         </div>
       </div>
 
+      <div class="edit-toolbar js-edit-toolbar" role="toolbar" aria-label="Formatting" hidden>
+        <button type="button" class="edit-tool" data-cmd="bold" aria-label="Bold"><strong>B</strong></button>
+        <button type="button" class="edit-tool" data-cmd="italic" aria-label="Italic"><em>I</em></button>
+        <span class="edit-toolbar-sep" aria-hidden="true"></span>
+        <button type="button" class="edit-tool" data-block="h2" aria-label="Heading">H2</button>
+        <button type="button" class="edit-tool" data-block="h3" aria-label="Subheading">H3</button>
+        <button type="button" class="edit-tool" data-block="p" aria-label="Plain paragraph">¶</button>
+        <span class="edit-toolbar-sep" aria-hidden="true"></span>
+        <button type="button" class="edit-tool" data-cmd="insertUnorderedList" aria-label="Bulleted list">• List</button>
+        <button type="button" class="edit-tool" data-cmd="insertOrderedList" aria-label="Numbered list">1. List</button>
+        <span class="edit-toolbar-hint">Formatting applies to the selected text. Save with the Save changes button above.</span>
+      </div>
+
       <article class="desc js-desc" hidden>
         <div class="result-preview js-preview" role="region"></div>
       </article>

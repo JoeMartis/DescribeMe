@@ -787,6 +787,50 @@ button.chip:hover { background: var(--swamp-parchment); }
 .desc-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .desc-meta { font-family: var(--font-accent); font-size: 14px; color: var(--faint); }
 
+/* Formatting toolbar shown only while the preview is editable. */
+.edit-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  background: var(--paper-white);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+}
+.edit-tool {
+  min-width: 34px;
+  height: 30px;
+  padding: 0 11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-heading);
+  font-size: 12px;
+  border: var(--border-width) solid var(--border);
+  border-radius: 999px;
+  background: var(--raised);
+  color: var(--fg);
+  cursor: pointer;
+}
+.edit-tool:hover { background: var(--mustard); }
+.edit-tool:active { background: var(--swamp-parchment); }
+.edit-toolbar-sep {
+  width: 3px;
+  height: 20px;
+  border-radius: 2px;
+  background: var(--border);
+  opacity: 0.2;
+}
+.edit-toolbar-hint {
+  font-family: var(--font-accent);
+  font-size: 13px;
+  color: var(--faint);
+  margin-left: 4px;
+}
+
 .desc {
   background: var(--panel);
   border: var(--border-width) solid var(--border);

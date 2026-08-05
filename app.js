@@ -1174,6 +1174,22 @@ function renderDetail() {
     const editBtn = q(".js-edit");
     editBtn.addEventListener("click", () => toggleEdit(job.id));
 
+    // Formatting toolbar (visible only while editing). mousedown is
+    // prevented so clicking a tool never steals the selection from the
+    // editable preview — the command needs that selection to apply.
+    const toolbar = q(".js-edit-toolbar");
+    toolbar.addEventListener("mousedown", (e) => e.preventDefault());
+    toolbar.addEventListener("click", (e) => {
+      const tool = e.target.closest("[data-cmd], [data-block]");
+      if (!tool || editMode !== "preview") return;
+      if (tool.dataset.block) {
+        document.execCommand("formatBlock", false, `<${tool.dataset.block}>`);
+      } else {
+        document.execCommand(tool.dataset.cmd, false, null);
+      }
+      els.detailPane.querySelector(".js-preview")?.focus();
+    });
+
     const undoBtn = q(".js-undo");
     undoBtn.hidden = job.history.length === 0;
     if (job.history.length > 0) {
@@ -1300,6 +1316,11 @@ function toggleEdit(jobId) {
   if (editMode !== "preview") {
     editMode = "preview";
     preview.setAttribute("contenteditable", "true");
+    // Formatting must come out as tags (<b>, <i>) — inline styles would be
+    // stripped by the sanitizer on save, silently losing the formatting.
+    document.execCommand("styleWithCSS", false, "false");
+    const toolbar = els.detailPane.querySelector(".js-edit-toolbar");
+    if (toolbar) toolbar.hidden = false;
     preview.focus();
     if (label) label.textContent = "Save changes";
   } else {

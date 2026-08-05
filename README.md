@@ -46,11 +46,12 @@ selected slide's image plus its description on the right.
 3. For the selected slide, once described: read the rendered description,
    check **HTML source** for the raw markup, or use **Copy HTML** / **Copy
    text**.
-4. **Edit** turns the description directly editable in place. For structural
-   fixes that editing the rendered text can't reach — a heading at the wrong
-   level, a list that should be a table, a `<p>` that should be a
-   `<figcaption>` — open **HTML source** and use **Edit source** to change
-   the markup directly. Either way, saving runs the result back through the
+4. **Edit** turns the description directly editable in place, with a
+   formatting toolbar (bold, italic, heading level, lists) that applies to
+   the selected text. For structural fixes beyond what the toolbar covers —
+   a list that should be a table, a `<p>` that should be a `<figcaption>` —
+   open **HTML source** and use **Edit source** to change the markup
+   directly. Either way, saving runs the result back through the
    same sanitizer before it's kept, and pushes the previous version onto the
    undo stack. If a description needs more work instead, **More detail**,
    **Shorter**, **Text only** (for title or section-divider slides that are
