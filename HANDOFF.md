@@ -76,6 +76,9 @@ with `aria-current`.
 
 ## Not done — the one big thing
 
+> **Since done.** Projects (the folder icon in the header) now save the
+> whole batch — including the images — to IndexedDB and restore it later.
+
 Nothing survives a reload. Once people are reviewing and approving 25 slides,
 an accidental refresh costs money and patience. Persisting descriptions,
 approvals and edits (not the images) to IndexedDB is the largest remaining

@@ -95,6 +95,9 @@
       <p class="chip chip-cost" id="costChip">
         <span id="costChipLabel">Est. per slide</span> <strong id="costChipValue">—</strong>
       </p>
+      <button type="button" class="btn btn-icon" id="projectsBtn" aria-haspopup="dialog" aria-label="Projects">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+      </button>
       <button type="button" class="btn btn-icon" id="settingsBtn" aria-haspopup="dialog" aria-label="Settings">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
       </button>
@@ -123,7 +126,7 @@
         <div class="rail-card" id="progressCard" hidden>
           <h3 id="progressLabel">Describing slides…</h3>
           <div class="progress-track">
-            <div class="progress-fill" id="progressFill" style="width: 0%"></div>
+            <div class="progress-fill" id="progressFill"></div>
           </div>
           <div class="rail-card-row">
             <span class="rail-card-note">3 at a time, retrying quietly</span>
@@ -247,6 +250,32 @@
       <button type="button" class="btn" id="clearStoredKey">Clear any stored key</button>
       <button type="button" class="btn btn-primary" id="settingsDone">Done</button>
     </div>
+  </div>
+</dialog>
+
+<!-- ══════════════════════════════════════════════════════════════════════
+     Projects — save the current batch (slides, descriptions, approvals)
+     to this browser's IndexedDB and come back to it later.
+     ══════════════════════════════════════════════════════════════════ -->
+<dialog class="sheet" id="projectsDialog" aria-labelledby="projectsTitle">
+  <div class="sheet-body">
+    <div class="sheet-head">
+      <h2 id="projectsTitle">Projects</h2>
+      <button type="button" class="btn btn-icon" id="projectsClose" aria-label="Close projects">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+      </button>
+    </div>
+    <p class="sheet-lede">Saved in this browser only — slides, descriptions, edits and approvals all come back exactly as you left them. Nothing is uploaded anywhere, so a project won't follow you to another device, and clearing this site's data deletes it.</p>
+
+    <div class="project-save-row">
+      <button type="button" class="btn btn-primary" id="saveProjectBtn">Save current batch</button>
+      <span class="hint" id="saveProjectHint"></span>
+    </div>
+
+    <p class="error" id="projectsError" role="alert" hidden></p>
+
+    <ul class="project-list" id="projectList"></ul>
+    <p class="hint" id="projectsEmpty">No saved projects yet.</p>
   </div>
 </dialog>
 

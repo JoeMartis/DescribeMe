@@ -580,6 +580,7 @@ button.chip:hover { background: var(--swamp-parchment); }
 }
 .progress-fill {
   height: 100%;
+  width: 0%;
   background-image: var(--pattern-sunburst);
   background-size: 200% 200%;
   transition: width 0.25s ease;
@@ -838,13 +839,20 @@ button.chip:hover { background: var(--swamp-parchment); }
   font-family: var(--font-mono);
   font-size: 12px;
   color: var(--neutral-700);
-  height: 280px;
-  resize: vertical;
+  max-height: 280px;
   overflow: auto;
   margin: 10px 0 0;
 }
-.source-code:read-only { cursor: default; }
-.source-code:not(:read-only) {
+/* The description's source panel is a textarea (editable); the settings
+   dialog's system-prompt view stays a plain <pre> and keeps the shared
+   sizing above. */
+textarea.source-code {
+  height: 280px;
+  max-height: none;
+  resize: vertical;
+}
+textarea.source-code:read-only { cursor: default; }
+textarea.source-code:not(:read-only) {
   background: var(--paper-white);
   color: var(--fg);
   outline: var(--border-width) dashed var(--grape);
@@ -924,6 +932,22 @@ dialog.sheet::backdrop { background: rgba(36, 26, 18, 0.55); }
 .sheet-head h2 { font-size: 22px; }
 .sheet-lede { font-size: 13px; color: var(--muted); margin-bottom: 22px; text-wrap: pretty; }
 .sheet-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 24px; flex-wrap: wrap; }
+
+/* ---------- projects dialog ---------- */
+.project-save-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
+.project-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.project-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--raised);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-md);
+}
+.project-text { flex: 1; min-width: 0; }
+.project-name { font-family: var(--font-heading); font-size: 13px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.project-meta { font-family: var(--font-accent); font-size: 13px; color: var(--faint); }
 
 .field { display: flex; flex-direction: column; gap: 8px; margin-bottom: 22px; }
 .field > label:not(.radio-option), fieldset.field legend { font-family: var(--font-heading); font-size: 12px; }

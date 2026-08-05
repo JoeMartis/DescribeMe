@@ -66,8 +66,13 @@ selected slide's image plus its description on the right.
 Nothing is uploaded to any server other than the MIT Parley endpoint. There is
 no backend for this site — GitHub Pages only serves the static files.
 
-Note: nothing here persists across a reload yet — refreshing mid-review loses
-unexported work in progress, so export before you close the tab.
+**Projects.** The folder icon in the header saves the current batch — slides,
+descriptions, edits, approvals, and the batch name — to your browser's
+IndexedDB, and lists every saved project so you can reopen one later, exactly
+as you left it. Like everything else here it's client-side only: a project
+lives in the browser it was saved in (it won't follow you to another device),
+and clearing the site's browsing data deletes it. Unsaved work still
+disappears on reload — save before you close the tab.
 
 ## Making the API calls efficient
 

@@ -271,6 +271,16 @@ const els = {
   systemPromptPreview: document.getElementById("systemPromptPreview"),
   clearStoredKey: document.getElementById("clearStoredKey"),
 
+  // projects dialog
+  projectsBtn: document.getElementById("projectsBtn"),
+  projectsDialog: document.getElementById("projectsDialog"),
+  projectsClose: document.getElementById("projectsClose"),
+  saveProjectBtn: document.getElementById("saveProjectBtn"),
+  saveProjectHint: document.getElementById("saveProjectHint"),
+  projectsError: document.getElementById("projectsError"),
+  projectList: document.getElementById("projectList"),
+  projectsEmpty: document.getElementById("projectsEmpty"),
+
   // templates
   railRowTemplate: document.getElementById("railRowTemplate"),
   detailTemplate: document.getElementById("detailTemplate"),
@@ -283,6 +293,7 @@ let batchRunning = false;
 let cancelRequested = false;
 let selectedJobId = null;
 let editMode = null; // null | "preview" | "source" — which edit surface, if any, is live
+let currentProjectId = null; // set once the batch is saved as / loaded from a project
 const inFlightControllers = new Set();
 
 // ---------- Settings persistence ----------
@@ -1269,7 +1280,7 @@ function typingInFormField(target) {
 
 document.addEventListener("keydown", (e) => {
   if (e.metaKey || e.ctrlKey || e.altKey) return;
-  if (els.settingsDialog.open || !els.onboarding.hidden) return;
+  if (els.settingsDialog.open || els.projectsDialog.open || !els.onboarding.hidden) return;
   if (typingInFormField(e.target)) return;
   if (jobs.size === 0) return;
 
@@ -1961,6 +1972,234 @@ function renderVersionBadge() {
   els.versionBadge.textContent = label;
   els.versionBadgeOnboard.textContent = label;
 }
+
+// ---------- Projects (IndexedDB persistence) ----------
+// Everything about the current batch — slide images (as the already-downscaled
+// JPEG data URLs), descriptions, edits, history, approvals, the batch name —
+// saved in this browser's IndexedDB so a batch can be reopened later.
+// localStorage can't hold this (a 25-slide project is ~10 MB of images);
+// IndexedDB's quota comfortably can.
+
+const PROJECT_DB_NAME = "describeme";
+const PROJECT_DB_VERSION = 1;
+const PROJECT_STORE = "projects";
+
+function openProjectDb() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(PROJECT_DB_NAME, PROJECT_DB_VERSION);
+    req.onupgradeneeded = () => {
+      if (!req.result.objectStoreNames.contains(PROJECT_STORE)) {
+        req.result.createObjectStore(PROJECT_STORE, { keyPath: "id" });
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error || new Error("Couldn't open project storage."));
+  });
+}
+
+async function projectStoreRequest(mode, run) {
+  const db = await openProjectDb();
+  try {
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(PROJECT_STORE, mode);
+      const req = run(tx.objectStore(PROJECT_STORE));
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error || new Error("Project storage failed."));
+    });
+  } finally {
+    db.close();
+  }
+}
+
+function setProjectsError(message) {
+  els.projectsError.textContent = message;
+  els.projectsError.hidden = !message;
+}
+
+function serializeProject() {
+  return {
+    id: currentProjectId || `project-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    name: els.batchName.value.trim() || "Untitled batch",
+    savedAt: Date.now(),
+    jobs: jobList().map((job) => ({
+      name: job.name,
+      // A slide caught mid-request goes back to pending — a restored project
+      // has no request in flight to resume.
+      state: job.state === "describing" ? "pending" : job.state,
+      error: job.error,
+      resultHtml: job.resultHtml,
+      resultText: job.resultText,
+      approved: job.approved,
+      edited: job.edited,
+      history: job.history,
+      durationMs: job.durationMs,
+      usedModel: job.usedModel,
+      dataUrl: job.previewDataUrl,
+      mediaType: job.mediaType,
+      width: job.width,
+      height: job.height,
+      resized: job.resized,
+      originalWidth: job.originalWidth,
+      originalHeight: job.originalHeight,
+    })),
+  };
+}
+
+function loadProjectRecord(record) {
+  jobs.clear();
+  els.railList.replaceChildren();
+  selectedJobId = null;
+  editMode = null;
+
+  for (const saved of record.jobs) {
+    const job = {
+      id: makeJobId(),
+      attempt: 0,
+      railEl: null,
+      ...saved,
+      previewDataUrl: saved.dataUrl,
+      base64:
+        saved.dataUrl && saved.dataUrl.startsWith("data:") && saved.dataUrl.includes(",")
+          ? saved.dataUrl.slice(saved.dataUrl.indexOf(",") + 1)
+          : null,
+    };
+    delete job.dataUrl;
+    jobs.set(job.id, job);
+    createRailRow(job);
+    if (!selectedJobId) selectedJobId = job.id;
+  }
+
+  els.batchName.value = record.name;
+  els.batchName.dataset.userNamed = "1"; // don't auto-rename a named project
+  currentProjectId = record.id;
+  renderAll();
+}
+
+async function saveCurrentProject() {
+  if (jobs.size === 0) {
+    setProjectsError("Nothing to save yet — add some slides first.");
+    return;
+  }
+  if (batchRunning) {
+    setProjectsError("Wait for the current batch to finish before saving.");
+    return;
+  }
+  setProjectsError("");
+  const record = serializeProject();
+  try {
+    await projectStoreRequest("readwrite", (store) => store.put(record));
+  } catch (err) {
+    setProjectsError(`Couldn't save: ${err.message || err}`);
+    return;
+  }
+  currentProjectId = record.id;
+  setStatus(`Project "${record.name}" saved.`);
+  await refreshProjectList();
+}
+
+async function openProject(id) {
+  if (batchRunning) {
+    setProjectsError("Wait for the current batch to finish first.");
+    return;
+  }
+  let record;
+  try {
+    record = await projectStoreRequest("readonly", (store) => store.get(id));
+  } catch (err) {
+    setProjectsError(`Couldn't open: ${err.message || err}`);
+    return;
+  }
+  if (!record) {
+    setProjectsError("That project is gone — it may have been deleted in another tab.");
+    await refreshProjectList();
+    return;
+  }
+  if (jobs.size > 0 && currentProjectId !== record.id) {
+    const ok = window.confirm(
+      "Opening a project replaces the current batch. Anything unsaved is lost. Continue?"
+    );
+    if (!ok) return;
+  }
+  loadProjectRecord(record);
+  els.projectsDialog.close();
+  setStatus(`Project "${record.name}" opened.`);
+}
+
+async function deleteProject(id, name) {
+  const ok = window.confirm(`Delete the saved project "${name}"? This can't be undone.`);
+  if (!ok) return;
+  try {
+    await projectStoreRequest("readwrite", (store) => store.delete(id));
+  } catch (err) {
+    setProjectsError(`Couldn't delete: ${err.message || err}`);
+    return;
+  }
+  if (currentProjectId === id) currentProjectId = null;
+  await refreshProjectList();
+}
+
+async function refreshProjectList() {
+  let records;
+  try {
+    records = await projectStoreRequest("readonly", (store) => store.getAll());
+  } catch (err) {
+    setProjectsError(`Couldn't read saved projects: ${err.message || err}`);
+    return;
+  }
+  records.sort((a, b) => b.savedAt - a.savedAt);
+
+  els.projectList.replaceChildren();
+  els.projectsEmpty.hidden = records.length > 0;
+
+  for (const record of records) {
+    const li = document.createElement("li");
+    li.className = "project-row";
+
+    const text = document.createElement("div");
+    text.className = "project-text";
+    const name = document.createElement("p");
+    name.className = "project-name";
+    name.textContent = record.name;
+    const meta = document.createElement("p");
+    meta.className = "project-meta";
+    const described = record.jobs.filter((j) => j.state === "done").length;
+    const bits = [
+      `${record.jobs.length} slide${record.jobs.length === 1 ? "" : "s"}`,
+      `${described} described`,
+      new Date(record.savedAt).toLocaleString(),
+    ];
+    if (record.id === currentProjectId) bits.push("open now");
+    meta.textContent = bits.join(" · ");
+    text.append(name, meta);
+
+    const openBtn = document.createElement("button");
+    openBtn.type = "button";
+    openBtn.className = "btn btn-small";
+    openBtn.textContent = "Open";
+    openBtn.addEventListener("click", () => openProject(record.id));
+
+    const deleteBtn = document.createElement("button");
+    deleteBtn.type = "button";
+    deleteBtn.className = "btn btn-small btn-ghost";
+    deleteBtn.textContent = "Delete";
+    deleteBtn.addEventListener("click", () => deleteProject(record.id, record.name));
+
+    li.append(text, openBtn, deleteBtn);
+    els.projectList.appendChild(li);
+  }
+}
+
+els.projectsBtn.addEventListener("click", async () => {
+  setProjectsError("");
+  els.saveProjectHint.textContent =
+    jobs.size === 0
+      ? "Add slides to have something to save."
+      : `Saves "${els.batchName.value.trim() || "Untitled batch"}" — ${jobs.size} slide${jobs.size === 1 ? "" : "s"} and every description.`;
+  els.projectsDialog.showModal();
+  await refreshProjectList();
+});
+els.projectsClose.addEventListener("click", () => els.projectsDialog.close());
+els.saveProjectBtn.addEventListener("click", saveCurrentProject);
 
 // ---------- Init ----------
 
