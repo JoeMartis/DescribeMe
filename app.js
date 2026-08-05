@@ -365,6 +365,12 @@ document
 els.apiKey.addEventListener("input", () => {
   persistSettings();
   updateControls();
+  // The no-key alert has exactly one cause, so the moment a key is typed
+  // the complaint is stale — clear it instead of leaving it up until the
+  // next describe attempt happens to overwrite it.
+  if (els.apiKey.value.trim() && els.errorMessage.textContent === NO_KEY_ERROR) {
+    setError("");
+  }
 });
 els.model.addEventListener("input", () => {
   persistSettings();
@@ -419,6 +425,8 @@ wireKeyVisibilityToggle(els.onboardKey, els.onboardKeyToggle);
 function setStatus(message) {
   els.statusMessage.textContent = message;
 }
+
+const NO_KEY_ERROR = "Add your MIT Parley API key in settings first.";
 
 function setError(message) {
   if (message) {
@@ -798,7 +806,7 @@ async function describeSingleJob(jobId) {
   if (!job || batchRunning) return;
   const apiKey = els.apiKey.value.trim();
   if (!apiKey) {
-    setError("Add your MIT Parley API key in settings first.");
+    setError(NO_KEY_ERROR);
     openSettings();
     return;
   }
@@ -1327,7 +1335,7 @@ async function runBatch() {
   if (batchRunning) return;
   const apiKey = els.apiKey.value.trim();
   if (!apiKey) {
-    setError("Add your MIT Parley API key in settings first.");
+    setError(NO_KEY_ERROR);
     openSettings();
     return;
   }
@@ -1383,7 +1391,7 @@ async function refineJob(jobId, revisionKey, overrideModel) {
   if (!job || batchRunning) return;
   const apiKey = els.apiKey.value.trim();
   if (!apiKey) {
-    setError("Add your MIT Parley API key in settings first.");
+    setError(NO_KEY_ERROR);
     openSettings();
     return;
   }
