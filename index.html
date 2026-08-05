@@ -113,12 +113,15 @@
     <aside class="rail" aria-labelledby="railHeading">
       <div class="rail-head">
         <h2 id="railHeading">Slides</h2>
-        <span class="btn btn-small rail-add">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-          Add
-          <input type="file" id="railFileInput" accept="image/png,image/jpeg,image/webp,image/gif" multiple
-                 aria-label="Add slide images" aria-describedby="uploadHint">
-        </span>
+        <div class="rail-head-actions">
+          <button type="button" class="btn btn-small btn-ghost" id="newBatchBtn" hidden>New batch</button>
+          <span class="btn btn-small rail-add">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            Add
+            <input type="file" id="railFileInput" accept="image/png,image/jpeg,image/webp,image/gif" multiple
+                   aria-label="Add slide images" aria-describedby="uploadHint">
+          </span>
+        </div>
       </div>
       <p class="rail-empty" id="railEmpty">Nothing queued yet. Drop a folder of slide exports on the right and they'll line up here.</p>
       <ul class="rail-list" id="railList"></ul>

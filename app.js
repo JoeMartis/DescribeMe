@@ -248,6 +248,7 @@ const els = {
   railList: document.getElementById("railList"),
   railEmpty: document.getElementById("railEmpty"),
   railFileInput: document.getElementById("railFileInput"),
+  newBatchBtn: document.getElementById("newBatchBtn"),
   progressCard: document.getElementById("progressCard"),
   progressLabel: document.getElementById("progressLabel"),
   progressFill: document.getElementById("progressFill"),
@@ -810,6 +811,30 @@ els.batchName.addEventListener("input", () => {
   els.batchName.dataset.userNamed = "1";
 });
 
+/** Clear every slide to start over — the batch-wide sibling of removeJob.
+    As destructive as a reload, so described slides warrant a confirm;
+    a batch of still-pending slides (nothing generated yet) doesn't. */
+function newBatch() {
+  if (jobs.size === 0 || batchRunning) return;
+  const described = jobList().some((j) => j.state === "done");
+  if (described) {
+    const ok = window.confirm(
+      "Start a new batch? The current slides and their descriptions go away unless you've saved or exported them."
+    );
+    if (!ok) return;
+  }
+  jobs.clear();
+  els.railList.replaceChildren();
+  selectedJobId = null;
+  editMode = null;
+  currentProjectId = null;
+  els.batchName.value = "Untitled batch";
+  delete els.batchName.dataset.userNamed;
+  setError("");
+  renderAll();
+  setStatus("Batch cleared — drop the next lecture's slides in.");
+}
+
 function removeJob(jobId) {
   const job = jobs.get(jobId);
   if (!job) return;
@@ -914,6 +939,10 @@ function updateControls() {
     c.approved === 0
       ? "Export as .zip"
       : `Export ${c.approved} approved as .zip`;
+
+  // Rail — head
+  els.newBatchBtn.hidden = jobs.size === 0;
+  els.newBatchBtn.disabled = batchRunning;
 
   // Rail — describe card
   els.describeCard.hidden = jobs.size === 0 || batchRunning;
@@ -1277,6 +1306,8 @@ function undoRevision(jobId) {
 }
 
 // ---------- File input / drag & drop ----------
+
+els.newBatchBtn.addEventListener("click", newBatch);
 
 [els.fileInput, els.railFileInput].forEach((input) => {
   input.addEventListener("change", (e) => {
