@@ -1022,7 +1022,7 @@ input[type="range"] {
   pointer-events: none;
   transform: translateY(105%);
 }
-.monkey-egg svg {
+.monkey-egg img {
   display: block;
   width: 100%;
   height: auto;
