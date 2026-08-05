@@ -35,8 +35,9 @@ fields in a settings dialog.
 selected slide's image plus its description on the right.
 
 1. Drop slide images anywhere in the workspace (or use **Add** in the rail) —
-   PNG, JPEG, WebP, or GIF, up to 5 MB each and 25 per batch. Large images
-   are resized in your browser before upload.
+   PNG, JPEG, WebP, or GIF, up to 25 per batch. Large images are resized
+   (and oversized files re-encoded) in your browser before upload, so
+   original file size barely matters — anything up to 50 MB is accepted.
 2. Click **Describe all**. A progress card tracks the batch; you can **Stop**
    mid-run. Each rail row shows that slide's status, and clicking one selects
    it in the detail pane.
@@ -87,7 +88,10 @@ A few things keep batches fast and cheap:
   `<canvas>`) to at most 1568px on the long edge before upload — Claude
   downsamples larger images internally anyway, so sending them at full
   resolution only adds tokens and upload time without improving the
-  description. Small images are sent unmodified.
+  description. Small images are sent unmodified — unless the file's payload
+  would exceed the API's ~5 MB per-image cap (say, a many-frame GIF), in
+  which case it's re-encoded as JPEG at the same dimensions instead of
+  being rejected.
 - **Bounded concurrency.** Slides in a batch are described in parallel, up to
   3 at a time, instead of either running one at a time (slow) or firing
   everything at once (likely to hit rate limits and waste retries).

@@ -56,7 +56,15 @@ OUTPUT: Return the HTML only — no code fences, no commentary — ready to embe
 
 // ---------- Tunables ----------
 
+// The Anthropic API rejects any single image over ~5 MB — but images are
+// optimized in-browser before upload, so this caps what gets *sent*, not
+// what the user may *pick*: an oversized file is downscaled or re-encoded
+// into range, not turned away at the door.
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
+// Intake sanity ceiling — the only outright rejection. Decoding a file this
+// size in a browser tab is a memory problem regardless of what the API
+// would say, and no real slide export comes close.
+const MAX_SOURCE_BYTES = 50 * 1024 * 1024;
 const MAX_BATCH_SIZE = 25;
 const ACCEPTED_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
 const ANTHROPIC_VERSION = "2023-06-01";
@@ -529,8 +537,12 @@ async function prepareImageForUpload(file) {
   const longestEdge = Math.max(img.naturalWidth, img.naturalHeight);
 
   const needsResize = longestEdge > MAX_IMAGE_EDGE;
+  // Even a small-dimension file can carry a payload over the API's
+  // per-image cap (a many-frame GIF, an uncompressed PNG). That's a reason
+  // to re-encode it at the same dimensions, not to reject it.
+  const needsRecompress = !needsResize && file.size > MAX_FILE_BYTES;
 
-  if (!needsResize) {
+  if (!needsResize && !needsRecompress) {
     return {
       dataUrl,
       base64: dataUrl.slice(dataUrl.indexOf(",") + 1),
@@ -541,7 +553,7 @@ async function prepareImageForUpload(file) {
     };
   }
 
-  const scale = MAX_IMAGE_EDGE / longestEdge;
+  const scale = needsResize ? MAX_IMAGE_EDGE / longestEdge : 1;
   const targetW = Math.max(1, Math.round(img.naturalWidth * scale));
   const targetH = Math.max(1, Math.round(img.naturalHeight * scale));
 
@@ -557,14 +569,28 @@ async function prepareImageForUpload(file) {
 
   const mediaType = "image/jpeg";
   const resizedDataUrl = canvas.toDataURL(mediaType, RESIZE_JPEG_QUALITY);
+  const base64 = resizedDataUrl.slice(resizedDataUrl.indexOf(",") + 1);
+
+  // A 1568px JPEG at this quality is well under the cap in practice; this
+  // is a backstop so a pathological case fails with a clear message here
+  // instead of an opaque API rejection later.
+  if (base64.length * 0.75 > MAX_FILE_BYTES) {
+    throw new Error(
+      `Still over the API's 5 MB per-image limit after re-encoding (${(
+        (base64.length * 0.75) /
+        (1024 * 1024)
+      ).toFixed(1)} MB).`
+    );
+  }
 
   return {
     dataUrl: resizedDataUrl,
-    base64: resizedDataUrl.slice(resizedDataUrl.indexOf(",") + 1),
+    base64,
     mediaType,
     width: targetW,
     height: targetH,
-    resized: true,
+    resized: needsResize,
+    recompressed: needsRecompress,
     originalWidth: img.naturalWidth,
     originalHeight: img.naturalHeight,
   };
@@ -703,9 +729,9 @@ async function addFiles(fileList) {
       messages.push(`Skipped "${file.name}": unsupported type "${file.type || "unknown"}".`);
       continue;
     }
-    if (file.size > MAX_FILE_BYTES) {
+    if (file.size > MAX_SOURCE_BYTES) {
       messages.push(
-        `Skipped "${file.name}": ${(file.size / (1024 * 1024)).toFixed(1)} MB is over the 5 MB limit.`
+        `Skipped "${file.name}": ${(file.size / (1024 * 1024)).toFixed(0)} MB is too large to decode in the browser (50 MB ceiling).`
       );
       continue;
     }
@@ -987,6 +1013,8 @@ function renderDetail() {
     metaBits.push(
       `Resized ${job.originalWidth}×${job.originalHeight} → ${job.width}×${job.height} before upload`
     );
+  } else if (job.recompressed) {
+    metaBits.push(`Re-encoded as JPEG before upload — the original was over the API's 5 MB image limit`);
   } else if (job.width) {
     metaBits.push(`${job.width}×${job.height}, sent unmodified`);
   }
@@ -2048,6 +2076,7 @@ function serializeProject() {
       width: job.width,
       height: job.height,
       resized: job.resized,
+      recompressed: job.recompressed,
       originalWidth: job.originalWidth,
       originalHeight: job.originalHeight,
     })),
@@ -2278,6 +2307,7 @@ function importedProjectRecord(raw) {
       width: num(saved.width),
       height: num(saved.height),
       resized: !!saved.resized,
+      recompressed: !!saved.recompressed,
       originalWidth: num(saved.originalWidth),
       originalHeight: num(saved.originalHeight),
     };
