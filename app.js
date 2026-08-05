@@ -763,10 +763,19 @@ function renderRail() {
   });
 }
 
-function selectJob(jobId, options) {
-  if (!jobs.has(jobId)) return;
+/** Land any in-progress edit before an action that re-renders or re-runs
+    the slide. renderDetail's editMode guard exists to protect an edit from
+    being clobbered mid-typing — but that same guard means any action taken
+    while editing plays out invisibly, and a later save would overwrite the
+    action's newer result with stale preview content. */
+function commitPendingEdit() {
   if (editMode === "preview") commitEdit();
   else if (editMode === "source") commitSourceEdit();
+}
+
+function selectJob(jobId, options) {
+  if (!jobs.has(jobId)) return;
+  commitPendingEdit();
   selectedJobId = jobId;
   renderRail();
   renderDetail();
@@ -919,6 +928,9 @@ function removeJob(jobId) {
   const job = jobs.get(jobId);
   if (!job) return;
   if (job.state === "describing") return; // don't remove mid-flight
+  // Removing the slide being edited discards the edit with it — otherwise
+  // editMode stays set and blocks renderDetail from ever updating again.
+  if (jobId === selectedJobId) editMode = null;
   const list = jobList();
   const idx = list.findIndex((j) => j.id === jobId);
   job.railEl?.closest("li")?.remove();
@@ -1292,6 +1304,7 @@ function renderDetail() {
 function toggleApprove(jobId) {
   const job = jobs.get(jobId);
   if (!job || job.state !== "done") return;
+  commitPendingEdit(); // approve what's on screen, not the pre-edit version
   job.approved = !job.approved;
   renderRailRow(job);
   updateControls();
@@ -1307,11 +1320,15 @@ function toggleApprove(jobId) {
 function toggleEdit(jobId) {
   const job = jobs.get(jobId);
   if (!job) return;
+
+  // Commit the other surface FIRST: its commit rebuilds the whole detail
+  // pane, so any node captured before it would be detached from the DOM
+  // and setting contenteditable on it would do nothing visible.
+  if (editMode === "source") commitSourceEdit();
+
   const preview = els.detailPane.querySelector(".js-preview");
   const label = els.detailPane.querySelector(".js-edit-label");
   if (!preview) return;
-
-  if (editMode === "source") commitSourceEdit();
 
   if (editMode !== "preview") {
     editMode = "preview";
@@ -1356,11 +1373,14 @@ function commitEdit() {
 function toggleSourceEdit(jobId) {
   const job = jobs.get(jobId);
   if (!job) return;
+
+  // Commit the other surface FIRST — its commit rebuilds the pane, so the
+  // textarea must be queried after, or readOnly lands on a detached node.
+  if (editMode === "preview") commitEdit();
+
   const textarea = els.detailPane.querySelector(".js-source-code");
   const label = els.detailPane.querySelector(".js-edit-source-label");
   if (!textarea) return;
-
-  if (editMode === "preview") commitEdit();
 
   if (editMode !== "source") {
     editMode = "source";
@@ -1399,6 +1419,10 @@ function commitSourceEdit() {
 function undoRevision(jobId) {
   const job = jobs.get(jobId);
   if (!job || job.history.length === 0) return;
+  // An uncommitted edit commits first (pushing onto history), so "undo"
+  // then pops that same entry — i.e. undoing mid-edit undoes the edit,
+  // instead of invisibly reverting underneath the editor.
+  commitPendingEdit();
   const previous = job.history.pop();
   job.resultHtml = previous.html;
   job.resultText = previous.text;
@@ -1555,6 +1579,9 @@ async function refineJob(jobId, revisionKey, overrideModel) {
     openSettings();
     return;
   }
+  // Otherwise the editMode guard hides the whole revision run, and saving
+  // afterward would overwrite the fresh revision with stale preview text.
+  commitPendingEdit();
   job.history.push({ html: job.resultHtml, text: job.resultText });
   job.attempt = 0;
   job.error = null;
