@@ -2452,6 +2452,11 @@ const AUTOSAVE_ID = "__autosave";
 const AUTOSAVE_DEBOUNCE_MS = 1500;
 let autosaveTimer = null;
 let autosaveDirty = false;
+// Writes are gated until the load-time restore attempt settles: init's
+// first renderAll marks dirty with an EMPTY batch, and if the restore's
+// read were slower than the debounce, that empty write would destroy the
+// very record it was about to restore.
+let autosaveReady = false;
 
 function markDirty() {
   autosaveDirty = true;
@@ -2461,7 +2466,7 @@ function markDirty() {
 
 async function writeAutosave() {
   clearTimeout(autosaveTimer);
-  if (!autosaveDirty) return;
+  if (!autosaveReady || !autosaveDirty) return;
   // Mid-batch state is churn — the batch's final renderAll re-marks dirty,
   // so the settled result is what gets written.
   if (batchRunning) return;
@@ -2489,20 +2494,33 @@ document.addEventListener("visibilitychange", () => {
 window.addEventListener("pagehide", () => writeAutosave());
 
 async function restoreAutosave() {
-  let record;
   try {
-    record = await projectStoreRequest("readonly", (store) => store.get(AUTOSAVE_ID));
-  } catch (_err) {
-    return; // no storage, no restore — same as before autosave existed
+    let record;
+    try {
+      record = await projectStoreRequest("readonly", (store) => store.get(AUTOSAVE_ID));
+    } catch (_err) {
+      return; // no storage, no restore — same as before autosave existed
+    }
+    if (!record || !Array.isArray(record.jobs) || record.jobs.length === 0) return;
+    if (jobs.size > 0) return; // the user already started something this load
+    loadProjectRecord(record);
+    // loadProjectRecord treats the record as a named project — undo the two
+    // assumptions that don't hold for the shadow record.
+    currentProjectId = record.projectId || null;
+    // The linked project may have been deleted after this autosave was
+    // written — a dangling id would make "Save current batch" silently
+    // resurrect the deleted project.
+    if (currentProjectId) {
+      const exists = await projectStoreRequest("readonly", (store) =>
+        store.get(currentProjectId)
+      ).catch(() => null);
+      if (!exists) currentProjectId = null;
+    }
+    if (record.userNamed !== true) delete els.batchName.dataset.userNamed;
+    setStatus("Restored your last session — everything is as you left it.");
+  } finally {
+    autosaveReady = true;
   }
-  if (!record || !Array.isArray(record.jobs) || record.jobs.length === 0) return;
-  if (jobs.size > 0) return; // the user already started something this load
-  loadProjectRecord(record);
-  // loadProjectRecord treats the record as a named project — undo the two
-  // assumptions that don't hold for the shadow record.
-  currentProjectId = record.projectId || null;
-  if (record.userNamed !== true) delete els.batchName.dataset.userNamed;
-  setStatus("Restored your last session — everything is as you left it.");
 }
 
 /** Confirmations that fire while the projects dialog is open must land in
@@ -2644,7 +2662,10 @@ async function deleteProject(id, name) {
     setProjectsError(`Couldn't delete: ${err.message || err}`);
     return;
   }
-  if (currentProjectId === id) currentProjectId = null;
+  if (currentProjectId === id) {
+    currentProjectId = null;
+    markDirty(); // the autosave's stored link to this project is now stale
+  }
   await refreshProjectList();
 }
 
