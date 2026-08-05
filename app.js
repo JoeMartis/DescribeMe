@@ -288,6 +288,8 @@ const els = {
   importProjectInput: document.getElementById("importProjectInput"),
   saveProjectHint: document.getElementById("saveProjectHint"),
   projectsError: document.getElementById("projectsError"),
+  projectsStatus: document.getElementById("projectsStatus"),
+  settingsStatus: document.getElementById("settingsStatus"),
   projectList: document.getElementById("projectList"),
   projectsEmpty: document.getElementById("projectsEmpty"),
 
@@ -300,6 +302,10 @@ const els = {
 const jobs = new Map();
 let jobSeq = 0;
 let batchRunning = false;
+// What kind of run set batchRunning: "batch" (Describe all) or "single" (one
+// slide's describe/retry/refine). Other pending slides are only genuinely
+// "queued behind" a batch run — a single run leaves them untouched.
+let runScope = null;
 let cancelRequested = false;
 let selectedJobId = null;
 let editMode = null; // null | "preview" | "source" — which edit surface, if any, is live
@@ -399,6 +405,9 @@ els.clearStoredKey.addEventListener("click", () => {
   localStorage.removeItem(STORAGE_KEYS.persistence);
   els.apiKey.value = "";
   document.querySelector('input[name="keyPersistence"][value="none"]').checked = true;
+  // Announced inside the dialog: showModal() makes the page's status region
+  // inert, so a message there would be neither heard nor seen right now.
+  els.settingsStatus.textContent = "Stored API key cleared.";
   setStatus("Stored API key cleared.");
   updateControls();
 });
@@ -617,9 +626,9 @@ function jobStatusMeta(job) {
   switch (job.state) {
     case "pending":
       // "Queued" only means something once a batch is actually running and
-      // waiting to reach this job — otherwise it's just sitting there ready
-      // to go, same as a slide added moments ago with no batch in progress.
-      return batchRunning
+      // waiting to reach this job — a single-slide run doesn't touch other
+      // pending slides, so they stay "Ready".
+      return batchRunning && runScope === "batch"
         ? { state: "pending", text: "Queued", dot: "" }
         : { state: "pending", text: "Ready", dot: "" };
     case "describing":
@@ -633,7 +642,7 @@ function jobStatusMeta(job) {
         ? { state: "approved", text: "Approved", dot: "dot-approved" }
         : { state: "done", text: "Described · needs review", dot: "dot-done" };
     case "error":
-      return batchRunning
+      return batchRunning && runScope === "batch"
         ? { state: "error", text: "Failed · retry once this batch finishes", dot: "dot-error" }
         : { state: "error", text: "Failed · needs a retry", dot: "dot-error" };
     case "canceled":
@@ -681,15 +690,40 @@ function moveJobTo(jobId, targetIndex) {
   if (from === -1) return;
   const to = Math.max(0, Math.min(entries.length - 1, targetIndex));
   if (to === from) return;
+  // Otherwise renderAll below is blocked by the editMode guard and the
+  // kicker/prev-next state goes stale until the edit is saved.
+  commitPendingEdit();
   const [entry] = entries.splice(from, 1);
   entries.splice(to, 0, entry);
   jobs.clear();
   for (const [id, job] of entries) jobs.set(id, job);
+  // Re-appending a connected <li> removes and re-inserts it, which evicts
+  // keyboard focus from the chevron that was just pressed — remember it so
+  // repeated moves don't dump focus to <body> after every press.
+  const active = document.activeElement;
+  const focusSel = active?.classList?.contains("js-move-up")
+    ? ".js-move-up"
+    : active?.classList?.contains("js-move-down")
+      ? ".js-move-down"
+      : null;
+  const focusLi = focusSel ? active.closest("li") : null;
   for (const [, job] of entries) {
     const li = job.railEl?.closest("li");
     if (li) els.railList.appendChild(li);
   }
   renderAll();
+  if (focusLi) {
+    const preferred = focusLi.querySelector(focusSel);
+    const sibling = focusLi.querySelector(
+      focusSel === ".js-move-up" ? ".js-move-down" : ".js-move-up"
+    );
+    // The pressed chevron may have just become disabled (row reached an
+    // end) — land on its sibling so the keyboard user stays in place.
+    (preferred && !preferred.disabled ? preferred : sibling)?.focus();
+  }
+  // After renderAll: updateOverallStatus writes the batch summary to the
+  // same live region, so announce the move last to win the region.
+  setStatus(`${jobs.get(jobId).name} moved to position ${to + 1} of ${jobs.size}.`);
 }
 
 /** Move a job one step up (-1) or down (+1). */
@@ -801,8 +835,7 @@ async function addFiles(fileList) {
   const files = Array.from(fileList);
   if (files.length === 0) return;
 
-  let room = MAX_BATCH_SIZE - jobs.size;
-  if (room <= 0) {
+  if (jobs.size >= MAX_BATCH_SIZE) {
     setError(`You already have the maximum of ${MAX_BATCH_SIZE} images queued.`);
     return;
   }
@@ -825,11 +858,13 @@ async function addFiles(fileList) {
       );
       continue;
     }
-    if (room <= 0) {
+    // Checked live against jobs.size (not a pre-captured budget): this loop
+    // awaits per file, so a second drop can interleave with this one — a
+    // stale local counter would let the two together blow past the cap.
+    if (jobs.size >= MAX_BATCH_SIZE) {
       skippedForRoom += 1;
       continue;
     }
-    room -= 1;
 
     const job = {
       id: makeJobId(),
@@ -921,6 +956,9 @@ function newBatch() {
   delete els.batchName.dataset.userNamed;
   setError("");
   renderAll();
+  // The New batch button itself just hid (no slides left) — without a new
+  // focus target a keyboard user is dumped at the top of the document.
+  els.railFileInput.focus();
   setStatus("Batch cleared — drop the next lecture's slides in.");
 }
 
@@ -940,6 +978,9 @@ function removeJob(jobId) {
     selectedJobId = remaining.length ? (remaining[Math.min(idx, remaining.length - 1)].id) : null;
   }
   renderAll();
+  setStatus(
+    `${job.name} removed — ${jobs.size} slide${jobs.size === 1 ? "" : "s"} left.`
+  );
 }
 
 /** Describe (or re-describe) exactly this one slide — never pulls in any
@@ -960,14 +1001,16 @@ async function describeSingleJob(jobId) {
   job.attempt = 0;
   job.error = null;
   batchRunning = true;
+  runScope = "single";
   // Stale from a previous batch's Stop — only runBatch resets it, so without
   // this, describeOne would instantly re-cancel the slide instead of running.
   cancelRequested = false;
-  updateControls();
+  renderAll();
 
   await describeOne(job, { apiKey, model, verbosity });
 
   batchRunning = false;
+  runScope = null;
   renderAll();
 }
 
@@ -983,8 +1026,12 @@ function counts() {
 }
 
 function runnableJobs() {
+  // base64 is set once prepareImageForUpload resolves — a job still mid-decode
+  // is in the Map (holding its batch slot) but has nothing to send yet, and
+  // including it would fire a request with an undefined image payload.
   return jobList().filter(
-    (j) => j.state === "pending" || j.state === "error" || j.state === "canceled"
+    (j) =>
+      (j.state === "pending" || j.state === "error" || j.state === "canceled") && j.base64
   );
 }
 
@@ -1052,7 +1099,9 @@ function updateControls() {
         : "The key lives in your browser only — open settings from the header.";
       els.describeBtn.textContent = `Describe ${runnable.length === jobs.size ? "all" : runnable.length}`;
     } else {
-      els.describeCardTitle.textContent = `All ${jobs.size} described.`;
+      els.describeCardTitle.textContent = c.invalid
+        ? `All ${c.done} readable slides described.`
+        : `All ${c.done} described.`;
       els.describeCardBody.textContent = `${c.approved} approved, ${
         c.done - c.approved
       } waiting on you. Approving is what puts a slide in the export.`;
@@ -1203,6 +1252,7 @@ function renderDetail() {
         document.execCommand(tool.dataset.cmd, false, null);
       }
       els.detailPane.querySelector(".js-preview")?.focus();
+      updateToolbarPressed();
     });
 
     const undoBtn = q(".js-undo");
@@ -1264,23 +1314,32 @@ function renderDetail() {
       detail.hidden = false;
       detail.textContent = job.error || "unknown error";
       primary.hidden = true;
-    } else if (batchRunning) {
-      title.textContent = "Queued.";
-      body.textContent = "Waiting for other slides in this batch to finish first.";
-      primary.hidden = true;
     } else if (job.state === "error") {
+      // Checked before the queued/waiting branch: a slide that already
+      // failed mid-batch should show its error, not claim to be queued.
       title.textContent = "This one didn't come back.";
       body.textContent =
         "MIT Parley returned an error after four tries. Waiting a moment and retrying usually clears a rate limit.";
       detail.hidden = false;
       detail.textContent = job.error || "unknown error";
       primary.textContent = "Retry this slide";
+      primary.hidden = batchRunning; // retry is a no-op while a run owns the shared state
       primary.addEventListener("click", () => describeSingleJob(job.id));
-    } else if (job.state === "canceled") {
+    } else if (job.state === "canceled" && !batchRunning) {
       title.textContent = "Stopped before this one ran.";
       body.textContent = "Nothing was sent for this slide, so nothing was charged.";
       primary.textContent = "Describe this slide";
       primary.addEventListener("click", () => describeSingleJob(job.id));
+    } else if (batchRunning) {
+      if (runScope === "batch") {
+        title.textContent = "Queued.";
+        body.textContent = "Waiting for other slides in this batch to finish first.";
+      } else {
+        title.textContent = "Waiting.";
+        body.textContent =
+          "Another slide is being described right now — this one can run when it finishes.";
+      }
+      primary.hidden = true;
     } else {
       title.textContent = "Not described yet.";
       body.textContent = job.resized
@@ -1298,8 +1357,32 @@ function renderDetail() {
   const newSource = frag.querySelector(".js-source");
   if (newSource && sourceWasOpen) newSource.open = true;
 
+  // Same problem for keyboard focus: replaceChildren discards the control
+  // the user just activated (Approve & next, Save changes, Retry…), dropping
+  // focus to <body> — a keyboard or screen-reader user would have to re-Tab
+  // from the top of the page after every single action. Restore focus to the
+  // rebuilt pane's equivalent control, or the pane itself as a fallback.
+  const active = document.activeElement;
+  let focusSel = null;
+  if (active && els.detailPane.contains(active)) {
+    const jsClass = [...active.classList].find((c) => c.startsWith("js-"));
+    // Focus in the editable preview means an edit was just saved — the Edit
+    // button (now reading "Edit" again) is the natural continuation; the
+    // preview div itself isn't focusable.
+    focusSel = jsClass === "js-preview" ? ".js-edit" : jsClass ? `.${jsClass}` : null;
+  }
+
   els.detailPane.replaceChildren(frag);
   els.detailPane.hidden = false;
+
+  if (focusSel) {
+    const target = els.detailPane.querySelector(focusSel);
+    if (target && !target.hidden && !target.disabled && !target.closest("[hidden]")) {
+      target.focus();
+    } else {
+      els.detail.focus();
+    }
+  }
 }
 
 // ---------- Approve & edit ----------
@@ -1317,8 +1400,24 @@ function toggleApprove(jobId) {
     selectNextUnapproved();
   } else {
     renderDetail();
+    setStatus(`${job.name} un-approved.`);
   }
 }
+
+/** Reflect whether the current selection is bold/italic on the toggle
+    buttons — without this a screen-reader user can't tell the state. */
+function updateToolbarPressed() {
+  if (editMode !== "preview") return;
+  const toolbar = els.detailPane.querySelector(".js-edit-toolbar");
+  if (!toolbar || toolbar.hidden) return;
+  toolbar
+    .querySelector('[data-cmd="bold"]')
+    ?.setAttribute("aria-pressed", String(document.queryCommandState("bold")));
+  toolbar
+    .querySelector('[data-cmd="italic"]')
+    ?.setAttribute("aria-pressed", String(document.queryCommandState("italic")));
+}
+document.addEventListener("selectionchange", updateToolbarPressed);
 
 function toggleEdit(jobId) {
   const job = jobs.get(jobId);
@@ -1507,6 +1606,9 @@ els.describeBtn.addEventListener("click", () => {
 
 els.stopBtn.addEventListener("click", () => {
   cancelRequested = true;
+  // The button is about to disable (and later hide) while focused, which
+  // would silently drop keyboard focus to <body>.
+  if (document.activeElement === els.stopBtn) els.detail.focus();
   els.stopBtn.disabled = true;
   setStatus("Stopping — finishing in-flight requests…");
   inFlightControllers.forEach((c) => c.abort());
@@ -1535,6 +1637,7 @@ async function runBatch() {
 
   setError("");
   batchRunning = true;
+  runScope = "batch";
   cancelRequested = false;
   els.stopBtn.disabled = false;
   els.progressCard.hidden = false;
@@ -1556,6 +1659,7 @@ async function runBatch() {
   );
 
   batchRunning = false;
+  runScope = null;
   els.progressCard.hidden = true;
   renderAll();
 
@@ -1589,10 +1693,11 @@ async function refineJob(jobId, revisionKey, overrideModel) {
   job.attempt = 0;
   job.error = null;
   batchRunning = true;
+  runScope = "single";
   // Stale from a previous batch's Stop — only runBatch resets it, so without
   // this, describeOne would instantly re-cancel instead of running.
   cancelRequested = false;
-  updateControls();
+  renderAll();
 
   await describeOne(job, {
     apiKey,
@@ -1602,6 +1707,7 @@ async function refineJob(jobId, revisionKey, overrideModel) {
   });
 
   batchRunning = false;
+  runScope = null;
   if (job.state !== "done") {
     // The revision failed — put the previous (still good) description back
     // instead of hiding it behind an error pane, whose Retry button wouldn't
@@ -1654,8 +1760,9 @@ async function runWithConcurrency(items, limit, worker) {
 async function describeOne(job, { apiKey, model, verbosity, revision }) {
   // The job may have been removed from the queue while it was still waiting
   // for a concurrency slot — don't spend an API call describing something the
-  // user already took off the list.
-  if (!jobs.has(job.id)) return;
+  // user already took off the list. A job with no base64 hasn't finished
+  // decoding; a request for it would carry an undefined image payload.
+  if (!jobs.has(job.id) || !job.base64) return;
 
   job.state = "describing";
   job.attempt = 1;
@@ -1709,9 +1816,11 @@ async function describeOne(job, { apiKey, model, verbosity, revision }) {
         }),
       });
 
-      inFlightControllers.delete(controller);
-
+      // Read the body before releasing the controller — Stop's abort() must
+      // still be able to reach a request whose headers have arrived but
+      // whose body is mid-stream, or that request silently completes.
       const { raw, json: payload } = await readResponseBody(response);
+      inFlightControllers.delete(controller);
       const errorMessage = () =>
         payload ? apiErrorMessage(payload, response.status) : nonJsonDiagnostic(response, raw);
 
@@ -1902,6 +2011,8 @@ function sanitizeHtmlFragment(html) {
     el.removeAttribute(attrName);
   }
 
+  const MATHML_NS = "http://www.w3.org/1998/Math/MathML";
+
   const walk = (node) => {
     [...node.querySelectorAll("*")].forEach((el) => {
       // Foreign-content elements (SVG/MathML, e.g. an <svg><script>) keep
@@ -1909,6 +2020,18 @@ function sanitizeHtmlFragment(html) {
       // gets — normalize before checking, or a namespaced element with the
       // same local name silently skips this check.
       if (DISALLOWED_TAGS.has(el.tagName.toUpperCase())) {
+        el.remove();
+        return;
+      }
+      // MathML stays (it's the product), but only genuinely-MathML content.
+      // An HTML element smuggled into a math subtree through an HTML
+      // integration point (<mtext>, <annotation-xml>…) parses inert here,
+      // but this sanitizer's output is serialized to a string and later
+      // reparsed in contexts outside a math element (zip export, Copy
+      // HTML) — where the element boundaries re-segment and previously
+      // inert text can come back as live markup (the namespace-confusion
+      // "mXSS" family). No legitimate equation needs HTML inside it.
+      if (el.namespaceURI !== MATHML_NS && el.closest("math")) {
         el.remove();
         return;
       }
@@ -1920,6 +2043,10 @@ function sanitizeHtmlFragment(html) {
         // The editable preview is contenteditable; don't let that attribute
         // survive into a saved description or an export.
         if (name === "contenteditable") el.removeAttribute(attr.name);
+        // srcset is a URL-carrying attribute src's scheme check never sees;
+        // the model has no legitimate image URLs, so drop it outright rather
+        // than parse its comma-separated candidate list.
+        if (name === "srcset" || name === "imagesrcset") el.removeAttribute(attr.name);
       });
       if (el.hasAttribute("href")) sanitizeUrlAttribute(el, "href", SAFE_HREF_SCHEME_RE);
       if (el.hasAttribute("src")) sanitizeUrlAttribute(el, "src", SAFE_SRC_SCHEME_RE);
@@ -1987,6 +2114,7 @@ async function copyToClipboard(text, button, label) {
   if (!text) return;
   try {
     await navigator.clipboard.writeText(text);
+    setStatus(`Copied ${label} to clipboard.`);
     const original = button.textContent;
     button.textContent = "Copied!";
     setTimeout(() => {
@@ -2112,11 +2240,16 @@ function safeFileStem(name, taken) {
 // themselves carry no classes beyond .sr-note and no inline styles, so they
 // inherit the host page's typography unless someone opts into this.
 function exportApproved() {
+  // What's exported must be what's on screen — including an edit that
+  // hasn't been explicitly saved yet.
+  commitPendingEdit();
   const approved = jobList().filter((j) => j.state === "done" && j.approved);
   if (approved.length === 0) return;
 
   const batch = els.batchName.value.trim() || "Untitled batch";
-  const taken = new Set();
+  // "index" is reserved up front: a slide file named index.png would
+  // otherwise produce a second zip entry colliding with the listing page.
+  const taken = new Set(["index"]);
   const entries = approved.map((job) => ({ job, stem: safeFileStem(job.name, taken) }));
 
   const files = entries.map(({ job, stem }) => ({
@@ -2257,6 +2390,15 @@ async function projectStoreRequest(mode, run) {
   }
 }
 
+/** Confirmations that fire while the projects dialog is open must land in
+    an in-dialog live region — showModal() makes the page's main status line
+    inert (unannounced) and the backdrop hides it visually. The page-level
+    status is still set so the state is there after the dialog closes. */
+function announceProjects(message) {
+  els.projectsStatus.textContent = message;
+  setStatus(message);
+}
+
 function setProjectsError(message) {
   els.projectsError.textContent = message;
   els.projectsError.hidden = !message;
@@ -2331,6 +2473,8 @@ async function saveCurrentProject() {
     setProjectsError("Wait for the current batch to finish before saving.");
     return;
   }
+  // What's saved must be what's on screen — including an unsaved edit.
+  commitPendingEdit();
   setProjectsError("");
   const record = serializeProject();
   try {
@@ -2340,7 +2484,7 @@ async function saveCurrentProject() {
     return;
   }
   currentProjectId = record.id;
-  setStatus(`Project "${record.name}" saved.`);
+  announceProjects(`Project "${record.name}" saved.`);
   await refreshProjectList();
 }
 
@@ -2361,7 +2505,10 @@ async function openProject(id) {
     await refreshProjectList();
     return;
   }
-  if (jobs.size > 0 && currentProjectId !== record.id) {
+  // Confirm whenever any batch is loaded — including re-opening the project
+  // that's already open, which still discards unsaved changes made since the
+  // last save (the id matching doesn't mean the content matches).
+  if (jobs.size > 0) {
     const ok = window.confirm(
       "Opening a project replaces the current batch. Anything unsaved is lost. Continue?"
     );
@@ -2419,22 +2566,28 @@ async function refreshProjectList() {
     meta.textContent = bits.join(" · ");
     text.append(name, meta);
 
+    // Visible labels repeat identically on every row; the aria-label carries
+    // the project name so a screen reader's button list isn't just
+    // "Open, Open, Open".
     const openBtn = document.createElement("button");
     openBtn.type = "button";
     openBtn.className = "btn btn-small";
     openBtn.textContent = "Open";
+    openBtn.setAttribute("aria-label", `Open project ${record.name}`);
     openBtn.addEventListener("click", () => openProject(record.id));
 
     const exportBtn = document.createElement("button");
     exportBtn.type = "button";
     exportBtn.className = "btn btn-small";
     exportBtn.textContent = "Export";
+    exportBtn.setAttribute("aria-label", `Export project ${record.name}`);
     exportBtn.addEventListener("click", () => exportProjectRecord(record));
 
     const deleteBtn = document.createElement("button");
     deleteBtn.type = "button";
     deleteBtn.className = "btn btn-small btn-ghost";
     deleteBtn.textContent = "Delete";
+    deleteBtn.setAttribute("aria-label", `Delete project ${record.name}`);
     deleteBtn.addEventListener("click", () => deleteProject(record.id, record.name));
 
     li.append(text, openBtn, exportBtn, deleteBtn);
@@ -2468,7 +2621,7 @@ function exportProjectRecord(record) {
   link.click();
   link.remove();
   setTimeout(() => URL.revokeObjectURL(url), 10000);
-  setStatus(`Exported "${record.name}" as a project file.`);
+  announceProjects(`Exported "${record.name}" as a project file.`);
 }
 
 /** Validate + sanitize a parsed project file into a fresh storable record.
@@ -2551,12 +2704,13 @@ async function importProjectFile(file) {
     setProjectsError(`Couldn't store the imported project: ${err.message || err}`);
     return;
   }
-  setStatus(`Imported "${record.name}" — it's in the list, ready to open.`);
+  announceProjects(`Imported "${record.name}" — it's in the list, ready to open.`);
   await refreshProjectList();
 }
 
 els.projectsBtn.addEventListener("click", async () => {
   setProjectsError("");
+  els.projectsStatus.textContent = "";
   els.saveProjectHint.textContent =
     jobs.size === 0
       ? "Add slides to have something to save."

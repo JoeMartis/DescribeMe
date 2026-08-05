@@ -64,7 +64,9 @@
   --raised: #ffffff;
   --fg: var(--ink-brown);
   --muted: #6b5a45;
-  --faint: rgba(36, 26, 18, 0.62);
+  /* 0.62 composited over the header's parchment surface lands at 4.49:1 —
+     a hair under the 4.5:1 AA minimum; 0.66 clears it on every surface. */
+  --faint: rgba(36, 26, 18, 0.66);
   --border: var(--ink-brown);
 
   --accent: var(--poster-red);
@@ -390,6 +392,9 @@ button.chip:hover { background: var(--swamp-parchment); }
 .model-note { font-size: 12px; color: var(--muted); line-height: 1.4; margin-bottom: 8px; }
 .model-cost { font-family: var(--font-accent); font-size: 15px; color: var(--muted); }
 .model-option:has(input:checked) .model-cost { color: var(--accent-700); }
+/* --muted on the checked card's mustard is ~3.95:1 — under AA. The selected
+   model's note shouldn't be the least readable of the three. */
+.model-option:has(input:checked) .model-note { color: var(--ink-brown); }
 
 /* ---------- app shell ---------- */
 
@@ -586,6 +591,10 @@ button.chip:hover { background: var(--swamp-parchment); }
 [data-state="describing"] .rail-status,
 [data-state="error"] .rail-status { color: var(--accent-700); }
 [data-state="approved"] .rail-status { color: var(--sage-700); }
+/* On the selected row's mustard background the faint/sage status colors drop
+   under 4.5:1 — the current slide's status is the one that most needs to be
+   readable, so it goes full ink there. */
+.rail-row[aria-current="true"] .rail-status { color: var(--ink-brown); }
 
 .rail-foot { padding: 12px; display: flex; flex-direction: column; gap: 10px; }
 .rail-card {

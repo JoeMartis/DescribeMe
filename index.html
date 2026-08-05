@@ -253,6 +253,9 @@
       <button type="button" class="btn" id="clearStoredKey">Clear any stored key</button>
       <button type="button" class="btn btn-primary" id="settingsDone">Done</button>
     </div>
+    <!-- In-dialog live region: showModal() makes the page's main status line
+         inert, so confirmations announced there would be lost. -->
+    <p class="status" id="settingsStatus" role="status" aria-live="polite"></p>
   </div>
 </dialog>
 
@@ -281,6 +284,9 @@
     </div>
 
     <p class="error" id="projectsError" role="alert" hidden></p>
+    <!-- In-dialog live region: showModal() makes the page's main status line
+         inert, so save/import confirmations announced there would be lost. -->
+    <p class="status" id="projectsStatus" role="status" aria-live="polite"></p>
 
     <ul class="project-list" id="projectList"></ul>
     <p class="hint" id="projectsEmpty">No saved projects yet.</p>
@@ -358,9 +364,11 @@
         </div>
       </div>
 
-      <div class="edit-toolbar js-edit-toolbar" role="toolbar" aria-label="Formatting" hidden>
-        <button type="button" class="edit-tool" data-cmd="bold" aria-label="Bold"><strong>B</strong></button>
-        <button type="button" class="edit-tool" data-cmd="italic" aria-label="Italic"><em>I</em></button>
+      <!-- role="group", not "toolbar": toolbar implies arrow-key roving focus,
+           which these plain tab stops don't implement. -->
+      <div class="edit-toolbar js-edit-toolbar" role="group" aria-label="Formatting" hidden>
+        <button type="button" class="edit-tool" data-cmd="bold" aria-label="Bold" aria-pressed="false"><strong>B</strong></button>
+        <button type="button" class="edit-tool" data-cmd="italic" aria-label="Italic" aria-pressed="false"><em>I</em></button>
         <span class="edit-toolbar-sep" aria-hidden="true"></span>
         <button type="button" class="edit-tool" data-block="h2" aria-label="Heading">H2</button>
         <button type="button" class="edit-tool" data-block="h3" aria-label="Subheading">H3</button>
