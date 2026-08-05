@@ -282,7 +282,7 @@ let jobSeq = 0;
 let batchRunning = false;
 let cancelRequested = false;
 let selectedJobId = null;
-let editing = false;
+let editMode = null; // null | "preview" | "source" — which edit surface, if any, is live
 const inFlightControllers = new Set();
 
 // ---------- Settings persistence ----------
@@ -638,7 +638,8 @@ function renderRail() {
 
 function selectJob(jobId, options) {
   if (!jobs.has(jobId)) return;
-  if (editing) commitEdit();
+  if (editMode === "preview") commitEdit();
+  else if (editMode === "source") commitSourceEdit();
   selectedJobId = jobId;
   renderRail();
   renderDetail();
@@ -942,7 +943,7 @@ function renderDetail() {
     els.detailPane.hidden = true;
     return;
   }
-  if (editing) return; // never clobber an in-progress edit
+  if (editMode) return; // never clobber an in-progress edit
 
   const list = jobList();
   const idx = list.findIndex((j) => j.id === job.id);
@@ -1032,7 +1033,8 @@ function renderDetail() {
 
     const source = q(".js-source");
     source.hidden = false;
-    q(".js-source-code").textContent = job.resultHtml;
+    q(".js-source-code").value = job.resultHtml;
+    q(".js-edit-source").addEventListener("click", () => toggleSourceEdit(job.id));
 
     const bar = q(".js-approve-bar");
     bar.hidden = false;
@@ -1101,6 +1103,13 @@ function renderDetail() {
     }
   }
 
+  // renderDetail rebuilds the whole template, so <details> would snap shut on
+  // every re-render — including right after saving a source edit, where the
+  // panel is exactly what the user is looking at.
+  const sourceWasOpen = els.detailPane.querySelector(".js-source")?.open;
+  const newSource = frag.querySelector(".js-source");
+  if (newSource && sourceWasOpen) newSource.open = true;
+
   els.detailPane.replaceChildren(frag);
   els.detailPane.hidden = false;
 }
@@ -1129,8 +1138,10 @@ function toggleEdit(jobId) {
   const label = els.detailPane.querySelector(".js-edit-label");
   if (!preview) return;
 
-  if (!editing) {
-    editing = true;
+  if (editMode === "source") commitSourceEdit();
+
+  if (editMode !== "preview") {
+    editMode = "preview";
     preview.setAttribute("contenteditable", "true");
     preview.focus();
     if (label) label.textContent = "Save changes";
@@ -1144,7 +1155,7 @@ function commitEdit() {
   const job = selectedJob();
   const preview = els.detailPane.querySelector(".js-preview");
   if (!job || !preview) {
-    editing = false;
+    editMode = null;
     return;
   }
   const fragment = sanitizeHtmlFragment(preview.innerHTML);
@@ -1154,8 +1165,54 @@ function commitEdit() {
   job.resultHtml = holder.innerHTML;
   job.resultText = domFragmentToText(fragment);
   job.edited = true;
-  editing = false;
+  editMode = null;
   preview.removeAttribute("contenteditable");
+  renderDetail();
+  updateControls();
+  setStatus(`Your edits to ${job.name} were saved.`);
+}
+
+/** Raw-source counterpart to toggleEdit/commitEdit — the only way to fix a
+    mistagged element, since contenteditable on the rendered preview can
+    change text and formatting but never a tag name. */
+function toggleSourceEdit(jobId) {
+  const job = jobs.get(jobId);
+  if (!job) return;
+  const textarea = els.detailPane.querySelector(".js-source-code");
+  const label = els.detailPane.querySelector(".js-edit-source-label");
+  if (!textarea) return;
+
+  if (editMode === "preview") commitEdit();
+
+  if (editMode !== "source") {
+    editMode = "source";
+    textarea.readOnly = false;
+    textarea.focus();
+    if (label) label.textContent = "Save source";
+  } else {
+    commitSourceEdit();
+  }
+}
+
+/** Re-sanitize the raw HTML the user typed before it becomes the stored
+    result — the browser's own HTML parser (inside sanitizeHtmlFragment)
+    tolerates the same malformed/unclosed markup it always would. */
+function commitSourceEdit() {
+  const job = selectedJob();
+  const textarea = els.detailPane.querySelector(".js-source-code");
+  if (!job || !textarea) {
+    editMode = null;
+    return;
+  }
+  const fragment = sanitizeHtmlFragment(textarea.value);
+  job.history.push({ html: job.resultHtml, text: job.resultText });
+  const holder = document.createElement("div");
+  holder.appendChild(fragment.cloneNode(true));
+  job.resultHtml = holder.innerHTML;
+  job.resultText = domFragmentToText(fragment);
+  job.edited = true;
+  editMode = null;
+  textarea.readOnly = true;
   renderDetail();
   updateControls();
   setStatus(`Your edits to ${job.name} were saved.`);

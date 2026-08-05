@@ -818,7 +818,17 @@ button.chip:hover { background: var(--swamp-parchment); }
   font-size: 12px;
   padding: 8px 0;
 }
+.source-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 6px;
+}
 .source-code {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
   white-space: pre-wrap;
   word-break: break-word;
   background: var(--swamp-sunken);
@@ -828,9 +838,17 @@ button.chip:hover { background: var(--swamp-parchment); }
   font-family: var(--font-mono);
   font-size: 12px;
   color: var(--neutral-700);
-  max-height: 280px;
+  height: 280px;
+  resize: vertical;
   overflow: auto;
-  margin: 6px 0 0;
+  margin: 10px 0 0;
+}
+.source-code:read-only { cursor: default; }
+.source-code:not(:read-only) {
+  background: var(--paper-white);
+  color: var(--fg);
+  outline: var(--border-width) dashed var(--grape);
+  outline-offset: 4px;
 }
 
 .approve-bar {

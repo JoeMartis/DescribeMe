@@ -43,14 +43,18 @@ selected slide's image plus its description on the right.
 3. For the selected slide, once described: read the rendered description,
    check **HTML source** for the raw markup, or use **Copy HTML** / **Copy
    text**.
-4. **Edit** turns the description directly editable in place; saving runs it
-   back through the same sanitizer before it's kept. If a description needs
-   more work instead, **More detail**, **Shorter**, **Text only** (for title
-   or section-divider slides that are just on-screen text — skips the
-   narrative description and returns a plain transcription instead), or
-   **Redo with a stronger model** re-run just that slide with an adjusted
-   prompt — the
-   previous version is kept so **Undo revision** can restore it.
+4. **Edit** turns the description directly editable in place. For structural
+   fixes that editing the rendered text can't reach — a heading at the wrong
+   level, a list that should be a table, a `<p>` that should be a
+   `<figcaption>` — open **HTML source** and use **Edit source** to change
+   the markup directly. Either way, saving runs the result back through the
+   same sanitizer before it's kept, and pushes the previous version onto the
+   undo stack. If a description needs more work instead, **More detail**,
+   **Shorter**, **Text only** (for title or section-divider slides that are
+   just on-screen text — skips the narrative description and returns a plain
+   transcription instead), or **Redo with a stronger model** re-run just that
+   slide with an adjusted prompt — the previous version is kept so **Undo
+   revision** can restore it.
 5. **Approve & next** (or press <kbd>A</kbd>) marks the slide ready for
    export and jumps to the next unapproved one; <kbd>←</kbd>/<kbd>→</kbd>
    move between slides at any time. Only approved slides go into the export.
