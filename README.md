@@ -174,7 +174,8 @@ is entered by whoever uses the page, in their own browser.
 MIT Parley proxies requests to the Anthropic API. This app talks to it at a
 fixed base URL (`https://parley.api.mit.edu`) and sends requests to
 `/v1/messages` exactly as the Anthropic SDK would, using the key you enter
-during setup or in **Settings**.
+during setup or in **Settings**. API keys are issued at
+[platform.parley.mit.edu/my-keys](https://platform.parley.mit.edu/my-keys).
 
 ## Security notes
 

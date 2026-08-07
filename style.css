@@ -362,6 +362,11 @@ button.chip:hover { background: var(--swamp-parchment); }
 .onboard-card .field > label,
 .onboard-card fieldset.field > legend { color: var(--paper-white); }
 .onboard-card .hint { color: var(--bubblegum); }
+/* The global grape link color is tuned for light surfaces — on this dark
+   card it lands ~2.4:1. Bubblegum matches the surrounding hint text (the
+   underline still marks it as a link) and clears AA at ~9.4:1. */
+.onboard-card a { color: var(--bubblegum); }
+.onboard-card a:hover { color: var(--paper-white); }
 .onboard-actions { display: flex; align-items: center; gap: 14px; margin-top: 28px; }
 
 .model-grid {
