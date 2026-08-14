@@ -604,6 +604,11 @@ async function prepareImageForUpload(file) {
     recompressed: needsRecompress,
     originalWidth: img.naturalWidth,
     originalHeight: img.naturalHeight,
+    // The API only ever sees the resized/recompressed version above — but
+    // exporting for Studio needs the untouched original bytes, since the
+    // export references the image by its original filename.
+    originalBase64: dataUrl.slice(dataUrl.indexOf(",") + 1),
+    originalMediaType: file.type,
   };
 }
 
@@ -2174,13 +2179,6 @@ async function copyToClipboard(text, button, label) {
 // the source slide images); storing them uncompressed keeps the writer to a
 // CRC table and three record layouts.
 
-const MEDIA_TYPE_EXT = {
-  "image/png": "png",
-  "image/jpeg": "jpg",
-  "image/webp": "webp",
-  "image/gif": "gif",
-};
-
 function base64ToBytes(base64) {
   const binary = atob(base64);
   const bytes = new Uint8Array(binary.length);
@@ -2293,9 +2291,27 @@ function safeFileStem(name, taken) {
   return candidate;
 }
 
-// Optional styling for whoever embeds these fragments. The fragments
-// themselves carry no classes beyond .sr-note and no inline styles, so they
-// inherit the host page's typography unless someone opts into this.
+// Every approved slide in the batch becomes one <img> + description block in
+// a single HTML fragment, in rail order — meant to be pasted whole into one
+// Studio HTML component below the video(s) it describes. The <img> points at
+// /static/<original filename>, matching how Studio names a file uploaded
+// through Files & Uploads; alt is left empty because the description text
+// immediately follows it on the page, so a screen reader isn't given the
+// same content twice.
+function uniqueName(name, taken) {
+  const dot = name.lastIndexOf(".");
+  const stem = dot > 0 ? name.slice(0, dot) : name;
+  const ext = dot > 0 ? name.slice(dot) : "";
+  let candidate = name;
+  let n = 2;
+  while (taken.has(candidate)) {
+    candidate = `${stem}-${n}${ext}`;
+    n += 1;
+  }
+  taken.add(candidate);
+  return candidate;
+}
+
 function exportApproved() {
   // What's exported must be what's on screen — including an edit that
   // hasn't been explicitly saved yet.
@@ -2304,43 +2320,21 @@ function exportApproved() {
   if (approved.length === 0) return;
 
   const batch = els.batchName.value.trim() || "Untitled batch";
-  // "index" is reserved up front: a slide file named index.png would
-  // otherwise produce a second zip entry colliding with the listing page.
-  const taken = new Set(["index"]);
-  const entries = approved.map((job) => {
-    const stem = safeFileStem(job.name, taken);
-    const ext = MEDIA_TYPE_EXT[job.mediaType] || "jpg";
-    return { job, stem, imagePath: `images/${stem}.${ext}` };
-  });
+  const imageNames = new Set();
+  const entries = approved.map((job) => ({ job, imageName: uniqueName(job.name, imageNames) }));
 
-  const files = entries.map(({ job, stem }) => ({
-    name: `${stem}.html`,
-    content: `${job.resultHtml}\n`,
-  }));
+  const html =
+    entries
+      .map(
+        ({ job, imageName }) =>
+          `<img src="/static/${escapeHtml(imageName)}" alt="">\n${job.resultHtml}`
+      )
+      .join("\n\n") + "\n";
 
-  for (const { job, imagePath } of entries) {
-    files.push({ name: imagePath, bytes: base64ToBytes(job.base64) });
+  const files = [{ name: "description.html", content: html }];
+  for (const { job, imageName } of entries) {
+    files.push({ name: imageName, bytes: base64ToBytes(job.originalBase64 || job.base64) });
   }
-
-  files.push({
-    name: "index.html",
-    content:
-      `<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n` +
-      `<title>${escapeHtml(batch)} — slide descriptions</title>\n</head>\n<body>\n` +
-      `<h1>${escapeHtml(batch)}</h1>\n` +
-      `<p>${approved.length} approved slide description${approved.length === 1 ? "" : "s"}, ` +
-      `generated with DescribeMe. Each is also in this folder as its own HTML fragment, ` +
-      `ready to paste beside the slide. Source slide images are in the images/ folder.</p>\n` +
-      entries
-        .map(
-          ({ job, stem, imagePath }) =>
-            `<section>\n<h2>${escapeHtml(job.name)} <small>(<a href="${stem}.html">${stem}.html</a>)</small></h2>\n` +
-            `<p><img src="${imagePath}" alt="${escapeHtml(job.name)}"></p>\n` +
-            `${job.resultHtml}\n</section>`
-        )
-        .join("\n") +
-      `\n</body>\n</html>\n`,
-  });
 
   const blob = buildZipBlob(files);
   const url = URL.createObjectURL(blob);
@@ -2587,6 +2581,8 @@ function serializeProject() {
       recompressed: job.recompressed,
       originalWidth: job.originalWidth,
       originalHeight: job.originalHeight,
+      originalBase64: job.originalBase64,
+      originalMediaType: job.originalMediaType,
     })),
   };
 }
