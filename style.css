@@ -298,6 +298,8 @@ button.chip:hover { background: var(--swamp-parchment); }
   color: var(--ink-brown);
 }
 .chip-cost strong { font-family: var(--font-heading); font-weight: 400; }
+.chip-toggle { cursor: pointer; user-select: none; }
+.chip-toggle input { margin: 0; }
 
 .tag {
   display: inline-flex;

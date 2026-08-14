@@ -67,12 +67,16 @@ selected slide's image plus its description on the right.
    rail clears all of them to start over (always behind a confirm — the
    warning is sharper when descriptions would be lost).
 7. **Export as .zip** combines every approved slide, in rail order, into a
-   single `description.html` — one `<img src="/static/…">` (using each
-   slide's original filename) followed by its description, ready to paste
-   whole into a Studio HTML component under the video(s) it describes. The
-   zip also includes each slide's original image file under a `static/`
-   folder, to upload into Studio's Files & Uploads under that same name so
-   the `/static/` reference resolves.
+   single `description.html` — one `<img src="./static/…">` (using each
+   slide's original filename, unless resized — see below) followed by its
+   description, ready to paste whole into a Studio HTML component under the
+   video(s) it describes. The zip also includes each slide's image file
+   under a `static/` folder, to upload into Studio's Files & Uploads under
+   that same name so the reference resolves. **Resize to 800px wide**,
+   next to the export button, downscales and recompresses (as JPEG) any
+   exported image wider than that; narrower images are left untouched. This
+   runs against each slide's original bytes, not whatever was resized for
+   the API call.
 
 Nothing is uploaded to any server other than the MIT Parley endpoint. There is
 no backend for this site — GitHub Pages only serves the static files.

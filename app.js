@@ -81,6 +81,11 @@ const API_BASE_URL = "https://parley.api.mit.edu";
 const MAX_IMAGE_EDGE = 1568;
 const RESIZE_JPEG_QUALITY = 0.85;
 
+// Width target for the optional "Resize to ~800px wide" export option —
+// unrelated to MAX_IMAGE_EDGE above, which governs what gets sent to the
+// API. This is about keeping the exported images page-friendly in Studio.
+const EXPORT_RESIZE_WIDTH = 800;
+
 const MAX_ATTEMPTS = 4; // 1 initial try + 3 retries
 const RETRY_BASE_DELAY_MS = 1000;
 const RETRY_MAX_DELAY_MS = 15000;
@@ -243,6 +248,7 @@ const els = {
   settingsBtn: document.getElementById("settingsBtn"),
   exportBtn: document.getElementById("exportBtn"),
   exportBtnLabel: document.getElementById("exportBtnLabel"),
+  exportResize: document.getElementById("exportResize"),
 
   // rail
   railList: document.getElementById("railList"),
@@ -2294,8 +2300,8 @@ function safeFileStem(name, taken) {
 // Every approved slide in the batch becomes one <img> + description block in
 // a single HTML fragment, in rail order — meant to be pasted whole into one
 // Studio HTML component below the video(s) it describes. The <img> points at
-// /static/<original filename>, matching how Studio names a file uploaded
-// through Files & Uploads; alt is left empty because the description text
+// ./static/<filename>, matching how Studio names a file uploaded through
+// Files & Uploads; alt is left empty because the description text
 // immediately follows it on the page, so a screen reader isn't given the
 // same content twice.
 function uniqueName(name, taken) {
@@ -2312,7 +2318,39 @@ function uniqueName(name, taken) {
   return candidate;
 }
 
-function exportApproved() {
+function renameExtension(name, ext) {
+  const dot = name.lastIndexOf(".");
+  const stem = dot > 0 ? name.slice(0, dot) : name;
+  return `${stem}.${ext}`;
+}
+
+// Downscales to EXPORT_RESIZE_WIDTH only when the image is wider than that
+// (never upscales); returns the original bytes untouched otherwise. Runs
+// against the true original bytes, not whatever was resized for the API.
+async function resizeImageForExport(base64, mediaType) {
+  const img = await loadImageElement(`data:${mediaType};base64,${base64}`);
+  if (img.naturalWidth <= EXPORT_RESIZE_WIDTH) {
+    return { bytes: base64ToBytes(base64), ext: null };
+  }
+
+  const scale = EXPORT_RESIZE_WIDTH / img.naturalWidth;
+  const targetW = EXPORT_RESIZE_WIDTH;
+  const targetH = Math.max(1, Math.round(img.naturalHeight * scale));
+
+  const canvas = document.createElement("canvas");
+  canvas.width = targetW;
+  canvas.height = targetH;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, targetW, targetH);
+  ctx.drawImage(img, 0, 0, targetW, targetH);
+
+  const resizedDataUrl = canvas.toDataURL("image/jpeg", RESIZE_JPEG_QUALITY);
+  const resizedBase64 = resizedDataUrl.slice(resizedDataUrl.indexOf(",") + 1);
+  return { bytes: base64ToBytes(resizedBase64), ext: "jpg" };
+}
+
+async function exportApproved() {
   // What's exported must be what's on screen — including an edit that
   // hasn't been explicitly saved yet.
   commitPendingEdit();
@@ -2320,20 +2358,41 @@ function exportApproved() {
   if (approved.length === 0) return;
 
   const batch = els.batchName.value.trim() || "Untitled batch";
+  const shouldResize = els.exportResize.checked;
+
+  const prepared = [];
+  for (const job of approved) {
+    const base64 = job.originalBase64 || job.base64;
+    const mediaType = job.originalMediaType || job.mediaType;
+    if (!shouldResize) {
+      prepared.push({ job, name: job.name, bytes: base64ToBytes(base64) });
+      continue;
+    }
+    try {
+      const { bytes, ext } = await resizeImageForExport(base64, mediaType);
+      prepared.push({ job, name: ext ? renameExtension(job.name, ext) : job.name, bytes });
+    } catch (err) {
+      // A slide that resized fine for upload should always resize fine here
+      // too — but if decoding somehow fails, exporting the original is
+      // better than dropping the image from the zip entirely.
+      prepared.push({ job, name: job.name, bytes: base64ToBytes(base64) });
+    }
+  }
+
   const imageNames = new Set();
-  const entries = approved.map((job) => ({ job, imageName: uniqueName(job.name, imageNames) }));
+  const entries = prepared.map((p) => ({ ...p, imageName: uniqueName(p.name, imageNames) }));
 
   const html =
     entries
       .map(
         ({ job, imageName }) =>
-          `<img src="/static/${escapeHtml(imageName)}" alt="">\n${job.resultHtml}`
+          `<img src="./static/${escapeHtml(imageName)}" alt="">\n${job.resultHtml}`
       )
       .join("\n\n") + "\n";
 
   const files = [{ name: "description.html", content: html }];
-  for (const { job, imageName } of entries) {
-    files.push({ name: `static/${imageName}`, bytes: base64ToBytes(job.originalBase64 || job.base64) });
+  for (const { imageName, bytes } of entries) {
+    files.push({ name: `static/${imageName}`, bytes });
   }
 
   const blob = buildZipBlob(files);
