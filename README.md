@@ -67,7 +67,8 @@ selected slide's image plus its description on the right.
    rail clears all of them to start over (always behind a confirm — the
    warning is sharper when descriptions would be lost).
 7. **Export as .zip** bundles every approved slide's description into one
-   HTML fragment each, plus a combined `index.html`.
+   HTML fragment each, plus its source image (under `images/`) and a combined
+   `index.html`.
 
 Nothing is uploaded to any server other than the MIT Parley endpoint. There is
 no backend for this site — GitHub Pages only serves the static files.

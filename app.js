@@ -2170,8 +2170,23 @@ async function copyToClipboard(text, button, label) {
 // ---------- Export: a store-only .zip, built by hand ----------
 //
 // The page's CSP forbids third-party scripts, so there's no JSZip to reach
-// for — and there's no need for one. These are small HTML text files; storing
-// them uncompressed keeps the writer to a CRC table and three record layouts.
+// for — and there's no need for one. These are small HTML text files (plus
+// the source slide images); storing them uncompressed keeps the writer to a
+// CRC table and three record layouts.
+
+const MEDIA_TYPE_EXT = {
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/webp": "webp",
+  "image/gif": "gif",
+};
+
+function base64ToBytes(base64) {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
 
 const CRC_TABLE = (() => {
   const table = new Uint32Array(256);
@@ -2203,7 +2218,7 @@ function buildZipBlob(files) {
 
   for (const file of files) {
     const nameBytes = encoder.encode(file.name);
-    const data = encoder.encode(file.content);
+    const data = file.bytes || encoder.encode(file.content);
     const crc = crc32(data);
 
     const local = new Uint8Array(30 + nameBytes.length);
@@ -2292,12 +2307,20 @@ function exportApproved() {
   // "index" is reserved up front: a slide file named index.png would
   // otherwise produce a second zip entry colliding with the listing page.
   const taken = new Set(["index"]);
-  const entries = approved.map((job) => ({ job, stem: safeFileStem(job.name, taken) }));
+  const entries = approved.map((job) => {
+    const stem = safeFileStem(job.name, taken);
+    const ext = MEDIA_TYPE_EXT[job.mediaType] || "jpg";
+    return { job, stem, imagePath: `images/${stem}.${ext}` };
+  });
 
   const files = entries.map(({ job, stem }) => ({
     name: `${stem}.html`,
     content: `${job.resultHtml}\n`,
   }));
+
+  for (const { job, imagePath } of entries) {
+    files.push({ name: imagePath, bytes: base64ToBytes(job.base64) });
+  }
 
   files.push({
     name: "index.html",
@@ -2307,11 +2330,12 @@ function exportApproved() {
       `<h1>${escapeHtml(batch)}</h1>\n` +
       `<p>${approved.length} approved slide description${approved.length === 1 ? "" : "s"}, ` +
       `generated with DescribeMe. Each is also in this folder as its own HTML fragment, ` +
-      `ready to paste beside the slide.</p>\n` +
+      `ready to paste beside the slide. Source slide images are in the images/ folder.</p>\n` +
       entries
         .map(
-          ({ job, stem }) =>
+          ({ job, stem, imagePath }) =>
             `<section>\n<h2>${escapeHtml(job.name)} <small>(<a href="${stem}.html">${stem}.html</a>)</small></h2>\n` +
+            `<p><img src="${imagePath}" alt="${escapeHtml(job.name)}"></p>\n` +
             `${job.resultHtml}\n</section>`
         )
         .join("\n") +
