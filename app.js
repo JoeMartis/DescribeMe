@@ -85,6 +85,10 @@ const RESIZE_JPEG_QUALITY = 0.85;
 // unrelated to MAX_IMAGE_EDGE above, which governs what gets sent to the
 // API. This is about keeping the exported images page-friendly in Studio.
 const EXPORT_RESIZE_WIDTH = 800;
+// Higher than RESIZE_JPEG_QUALITY: that one trades quality for a cheaper,
+// smaller API upload, but a learner-facing export should look as close to
+// the original as reasonably possible.
+const EXPORT_JPEG_QUALITY = 0.95;
 
 const MAX_ATTEMPTS = 4; // 1 initial try + 3 retries
 const RETRY_BASE_DELAY_MS = 1000;
@@ -2327,6 +2331,8 @@ function renameExtension(name, ext) {
 // Downscales to EXPORT_RESIZE_WIDTH only when the image is wider than that
 // (never upscales); returns the original bytes untouched otherwise. Runs
 // against the true original bytes, not whatever was resized for the API.
+// PNGs stay PNG — lossless, no compression artifacts on the text and line
+// art typical of slides; other formats re-encode as high-quality JPEG.
 async function resizeImageForExport(base64, mediaType) {
   const img = await loadImageElement(`data:${mediaType};base64,${base64}`);
   if (img.naturalWidth <= EXPORT_RESIZE_WIDTH) {
@@ -2341,13 +2347,19 @@ async function resizeImageForExport(base64, mediaType) {
   canvas.width = targetW;
   canvas.height = targetH;
   const ctx = canvas.getContext("2d");
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(0, 0, targetW, targetH);
+  const keepPng = mediaType === "image/png";
+  if (!keepPng) {
+    // JPEG has no alpha channel; flatten onto white first.
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, targetW, targetH);
+  }
   ctx.drawImage(img, 0, 0, targetW, targetH);
 
-  const resizedDataUrl = canvas.toDataURL("image/jpeg", RESIZE_JPEG_QUALITY);
+  const resizedDataUrl = keepPng
+    ? canvas.toDataURL("image/png")
+    : canvas.toDataURL("image/jpeg", EXPORT_JPEG_QUALITY);
   const resizedBase64 = resizedDataUrl.slice(resizedDataUrl.indexOf(",") + 1);
-  return { bytes: base64ToBytes(resizedBase64), ext: "jpg" };
+  return { bytes: base64ToBytes(resizedBase64), ext: keepPng ? null : "jpg" };
 }
 
 async function exportApproved() {

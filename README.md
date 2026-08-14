@@ -73,10 +73,10 @@ selected slide's image plus its description on the right.
    video(s) it describes. The zip also includes each slide's image file
    under a `static/` folder, to upload into Studio's Files & Uploads under
    that same name so the reference resolves. **Resize to 800px wide**,
-   next to the export button, downscales and recompresses (as JPEG) any
-   exported image wider than that; narrower images are left untouched. This
-   runs against each slide's original bytes, not whatever was resized for
-   the API call.
+   next to the export button, downscales any exported image wider than
+   that; narrower images are left untouched. PNGs stay lossless PNG; other
+   formats re-encode as high-quality JPEG. This runs against each slide's
+   original bytes, not whatever was resized for the API call.
 
 Nothing is uploaded to any server other than the MIT Parley endpoint. There is
 no backend for this site — GitHub Pages only serves the static files.
