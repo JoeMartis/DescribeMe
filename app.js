@@ -2364,18 +2364,21 @@ async function exportApproved() {
   for (const job of approved) {
     const base64 = job.originalBase64 || job.base64;
     const mediaType = job.originalMediaType || job.mediaType;
+    // Spaces in a filename survive a zip fine but are a common source of
+    // broken /static/ links once pasted into Studio, so strip them here.
+    const name = job.name.replace(/ /g, "_");
     if (!shouldResize) {
-      prepared.push({ job, name: job.name, bytes: base64ToBytes(base64) });
+      prepared.push({ job, name, bytes: base64ToBytes(base64) });
       continue;
     }
     try {
       const { bytes, ext } = await resizeImageForExport(base64, mediaType);
-      prepared.push({ job, name: ext ? renameExtension(job.name, ext) : job.name, bytes });
+      prepared.push({ job, name: ext ? renameExtension(name, ext) : name, bytes });
     } catch (err) {
       // A slide that resized fine for upload should always resize fine here
       // too — but if decoding somehow fails, exporting the original is
       // better than dropping the image from the zip entirely.
-      prepared.push({ job, name: job.name, bytes: base64ToBytes(base64) });
+      prepared.push({ job, name, bytes: base64ToBytes(base64) });
     }
   }
 
