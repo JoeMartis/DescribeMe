@@ -2300,7 +2300,7 @@ function safeFileStem(name, taken) {
 // Every approved slide in the batch becomes one <img> + description block in
 // a single HTML fragment, in rail order — meant to be pasted whole into one
 // Studio HTML component below the video(s) it describes. The <img> points at
-// ./static/<filename>, matching how Studio names a file uploaded through
+// /static/<filename>, matching how Studio serves a file uploaded through
 // Files & Uploads; alt is left empty because the description text
 // immediately follows it on the page, so a screen reader isn't given the
 // same content twice.
@@ -2386,7 +2386,7 @@ async function exportApproved() {
     entries
       .map(
         ({ job, imageName }) =>
-          `<img src="./static/${escapeHtml(imageName)}" alt="">\n${job.resultHtml}`
+          `<img src="/static/${escapeHtml(imageName)}" alt="">\n${job.resultHtml}`
       )
       .join("\n\n") + "\n";
 

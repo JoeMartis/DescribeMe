@@ -67,7 +67,7 @@ selected slide's image plus its description on the right.
    rail clears all of them to start over (always behind a confirm — the
    warning is sharper when descriptions would be lost).
 7. **Export as .zip** combines every approved slide, in rail order, into a
-   single `description.html` — one `<img src="./static/…">` (using each
+   single `description.html` — one `<img src="/static/…">` (using each
    slide's original filename, unless resized — see below) followed by its
    description, ready to paste whole into a Studio HTML component under the
    video(s) it describes. The zip also includes each slide's image file
