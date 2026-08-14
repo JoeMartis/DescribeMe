@@ -2333,7 +2333,7 @@ function exportApproved() {
 
   const files = [{ name: "description.html", content: html }];
   for (const { job, imageName } of entries) {
-    files.push({ name: imageName, bytes: base64ToBytes(job.originalBase64 || job.base64) });
+    files.push({ name: `static/${imageName}`, bytes: base64ToBytes(job.originalBase64 || job.base64) });
   }
 
   const blob = buildZipBlob(files);

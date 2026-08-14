@@ -70,9 +70,9 @@ selected slide's image plus its description on the right.
    single `description.html` — one `<img src="/static/…">` (using each
    slide's original filename) followed by its description, ready to paste
    whole into a Studio HTML component under the video(s) it describes. The
-   zip also includes each slide's original image file, to upload into
-   Studio's Files & Uploads under that same name so the `/static/` reference
-   resolves.
+   zip also includes each slide's original image file under a `static/`
+   folder, to upload into Studio's Files & Uploads under that same name so
+   the `/static/` reference resolves.
 
 Nothing is uploaded to any server other than the MIT Parley endpoint. There is
 no backend for this site — GitHub Pages only serves the static files.
