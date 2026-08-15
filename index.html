@@ -5,7 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>DescribeMe — STEM Slide Accessibility Descriptions</title>
 <meta name="description" content="Upload STEM lecture slides and generate screen-reader-friendly extended descriptions using Claude.">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src https://parley.api.mit.edu; object-src 'none'; base-uri 'none'; form-action 'none';">
+<!-- media-src allows blob: so a locally-picked video can be played for frame
+     capture. Without it the <video> falls back to default-src 'self', which
+     refuses object URLs outright. It grants no network origin — the video
+     never leaves the browser, and connect-src remains the only way out. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self' blob:; font-src 'self'; connect-src https://parley.api.mit.edu; object-src 'none'; base-uri 'none'; form-action 'none';">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -95,6 +99,10 @@
       <p class="chip chip-cost" id="costChip">
         <span id="costChipLabel">Est. per slide</span> <strong id="costChipValue">—</strong>
       </p>
+      <button type="button" class="btn" id="videoBtn" aria-haspopup="dialog">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" width="16" height="16"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
+        From video
+      </button>
       <button type="button" class="btn btn-icon" id="projectsBtn" aria-haspopup="dialog" aria-label="Projects">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
       </button>
@@ -294,6 +302,66 @@
 
     <ul class="project-list" id="projectList"></ul>
     <p class="hint" id="projectsEmpty">No saved projects yet.</p>
+  </div>
+</dialog>
+
+<!-- ══════════════════════════════════════════════════════════════════════
+     Capture from video — play a local lecture recording, pause on a slide,
+     and add that frame to the batch. The video is only ever read in this
+     browser; nothing but the captured frames goes anywhere.
+     ══════════════════════════════════════════════════════════════════ -->
+<dialog class="sheet sheet-wide" id="videoDialog" aria-labelledby="videoTitle">
+  <div class="sheet-body">
+    <div class="sheet-head">
+      <h2 id="videoTitle">Capture from video</h2>
+      <button type="button" class="btn btn-icon" id="videoClose" aria-label="Close video capture">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+      </button>
+    </div>
+    <p class="sheet-lede">Play a lecture recording from this device and pause wherever a slide needs describing. Each captured frame joins the batch named after its timestamp, and that timestamp is carried through to the exported HTML. The video itself is never uploaded — only the frames you capture.</p>
+
+    <div class="project-save-row">
+      <span class="btn file-btn">
+        Choose a video
+        <input type="file" id="videoInput" accept="video/*" aria-label="Choose a video file">
+      </span>
+      <span class="hint" id="videoFileName">No video chosen yet.</span>
+    </div>
+
+    <div id="videoStage" hidden>
+      <div class="slide-frame video-frame">
+        <video id="videoEl" playsinline preload="metadata"></video>
+      </div>
+
+      <div class="video-transport">
+        <button type="button" class="btn btn-icon" id="videoPlayPause" aria-label="Play">
+          <svg viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true" id="videoPlayIcon"><polygon points="6 4 20 12 6 20 6 4"></polygon></svg>
+          <svg viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true" id="videoPauseIcon" hidden><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
+        </button>
+        <button type="button" class="btn btn-icon" id="videoBack" aria-label="Back 5 seconds">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="11 17 6 12 11 7"></polyline><polyline points="18 17 13 12 18 7"></polyline></svg>
+        </button>
+        <button type="button" class="btn btn-icon" id="videoFwd" aria-label="Forward 5 seconds">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="13 17 18 12 13 7"></polyline><polyline points="6 17 11 12 6 7"></polyline></svg>
+        </button>
+        <input type="range" id="videoScrub" min="0" max="0" step="0.01" value="0" aria-label="Seek through the video">
+        <!-- aria-live is off deliberately: this updates many times a second
+             during playback and would flood a screen reader. Capture
+             confirmations are announced through #videoStatus instead. -->
+        <p class="chip video-time" aria-live="off"><strong id="videoTimeLabel">0:00</strong></p>
+      </div>
+
+      <div class="approve-bar">
+        <button type="button" class="btn btn-primary" id="videoCapture">Capture frame</button>
+        <button type="button" class="btn" id="videoCaptureDescribe">Capture &amp; describe</button>
+        <span class="hint" id="videoCaptureCount"></span>
+      </div>
+    </div>
+
+    <p class="error" id="videoError" role="alert" hidden></p>
+    <!-- In-dialog live region: showModal() makes the page's main status line
+         inert, so capture confirmations announced there would be lost. -->
+    <p class="status" id="videoStatus" role="status" aria-live="polite"></p>
   </div>
 </dialog>
 

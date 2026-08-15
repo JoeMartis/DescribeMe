@@ -90,6 +90,17 @@ const EXPORT_RESIZE_WIDTH = 800;
 // the original as reasonably possible.
 const EXPORT_JPEG_QUALITY = 0.95;
 
+// Video frames are captured at MAX_IMAGE_EDGE as JPEG rather than at the
+// video's native resolution as PNG, which matters more than it looks.
+// Capturing at native 1080p PNG would leave prepareImageForUpload with work
+// to do, so every job would hold TWO copies — the original plus the
+// downscaled upload — at roughly 0.9-1.9 MB each. Capturing at the size the
+// API wants means it takes the no-op path and stores one copy, and since
+// autosave rewrites every slide's bytes on a 1.5s debounce, that difference
+// is the difference between a ~7 MB record and a ~45 MB one.
+const CAPTURE_JPEG_QUALITY = 0.92;
+const VIDEO_SKIP_SECONDS = 5;
+
 const MAX_ATTEMPTS = 4; // 1 initial try + 3 retries
 const RETRY_BASE_DELAY_MS = 1000;
 const RETRY_MAX_DELAY_MS = 15000;
@@ -289,6 +300,27 @@ const els = {
   verbosityHint: document.getElementById("verbosityHint"),
   systemPromptPreview: document.getElementById("systemPromptPreview"),
   clearStoredKey: document.getElementById("clearStoredKey"),
+
+  // video capture dialog
+  videoBtn: document.getElementById("videoBtn"),
+  videoDialog: document.getElementById("videoDialog"),
+  videoClose: document.getElementById("videoClose"),
+  videoInput: document.getElementById("videoInput"),
+  videoFileName: document.getElementById("videoFileName"),
+  videoStage: document.getElementById("videoStage"),
+  videoEl: document.getElementById("videoEl"),
+  videoPlayPause: document.getElementById("videoPlayPause"),
+  videoPlayIcon: document.getElementById("videoPlayIcon"),
+  videoPauseIcon: document.getElementById("videoPauseIcon"),
+  videoBack: document.getElementById("videoBack"),
+  videoFwd: document.getElementById("videoFwd"),
+  videoScrub: document.getElementById("videoScrub"),
+  videoTimeLabel: document.getElementById("videoTimeLabel"),
+  videoCapture: document.getElementById("videoCapture"),
+  videoCaptureDescribe: document.getElementById("videoCaptureDescribe"),
+  videoCaptureCount: document.getElementById("videoCaptureCount"),
+  videoError: document.getElementById("videoError"),
+  videoStatus: document.getElementById("videoStatus"),
 
   // projects dialog
   projectsBtn: document.getElementById("projectsBtn"),
@@ -846,7 +878,12 @@ function selectNextUnapproved() {
   else selectRelative(1);
 }
 
-async function addFiles(fileList) {
+/**
+ * @param meta extra fields merged onto every job created from this call —
+ *   how a captured video frame carries its timestamp in. Applied at job
+ *   creation so it survives the Object.assign of the prepared image below.
+ */
+async function addFiles(fileList, meta) {
   setError("");
   const files = Array.from(fileList);
   if (files.length === 0) return;
@@ -896,6 +933,9 @@ async function addFiles(fileList) {
       durationMs: null,
       usedModel: null,
       railEl: null,
+      videoName: null,
+      captureSeconds: null,
+      ...meta,
     };
     jobs.set(job.id, job);
 
@@ -1213,6 +1253,12 @@ function renderDetail() {
   img.alt = "";
 
   const metaBits = [];
+  // Number.isFinite, not truthiness — a frame captured at 0:00 has a real
+  // timestamp of 0. Pushed into metaBits rather than appended to the element:
+  // the line below overwrites its textContent wholesale.
+  if (Number.isFinite(job.captureSeconds)) {
+    metaBits.push(`Captured at ${formatClock(job.captureSeconds)}`);
+  }
   if (job.resized) {
     metaBits.push(
       `Resized ${job.originalWidth}×${job.originalHeight} → ${job.width}×${job.height} before upload`
@@ -1626,7 +1672,11 @@ function typingInFormField(target) {
 
 document.addEventListener("keydown", (e) => {
   if (e.metaKey || e.ctrlKey || e.altKey) return;
-  if (els.settingsDialog.open || els.projectsDialog.open || !els.onboarding.hidden) return;
+  // Any open dialog, not a list of specific ones: showModal() makes the page
+  // inert to focus and pointers but does nothing to keydown, which still
+  // bubbles from inside the dialog to this listener. A named allow-list means
+  // every dialog added later silently inherits the review shortcuts.
+  if (document.querySelector("dialog[open]") || !els.onboarding.hidden) return;
   if (typingInFormField(e.target)) return;
   if (jobs.size === 0) return;
 
@@ -2165,6 +2215,305 @@ function applyResult(job, rawHtml) {
   job.resultText = domFragmentToText(fragment);
 }
 
+// ---------- Capture from video ----------
+//
+// A second way to get slides in: play a local recording, pause on a slide,
+// and hand that frame to the same pipeline an uploaded image goes through.
+// The video is read via an object URL and never uploaded or persisted —
+// only the frames become jobs.
+
+let videoObjectUrl = null;
+let videoStem = "";
+let videoCaptureCount = 0;
+// Whole seconds already captured from the loaded video. Two grabs in the same
+// second are the same frame to the nearest timestamp, and would produce two
+// slides with an identical name and an identical "Slide shown at 4:32"
+// caption — indistinguishable in the export.
+let videoCapturedSeconds = new Set();
+
+/** "4:32", or "1:04:32" once the hour matters. For people to read. */
+function formatClock(totalSeconds) {
+  const s = Math.max(0, Math.floor(totalSeconds || 0));
+  const hours = Math.floor(s / 3600);
+  const minutes = Math.floor((s % 3600) / 60);
+  const seconds = s % 60;
+  const pad = (n) => String(n).padStart(2, "0");
+  return hours > 0 ? `${hours}:${pad(minutes)}:${pad(seconds)}` : `${minutes}:${pad(seconds)}`;
+}
+
+/** "00-04-32". Always padded, always hyphens — a colon is illegal in a
+ *  Windows filename and would break extracting the exported zip. */
+function formatStampForName(totalSeconds) {
+  const s = Math.max(0, Math.floor(totalSeconds || 0));
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${pad(Math.floor(s / 3600))}-${pad(Math.floor((s % 3600) / 60))}-${pad(s % 60)}`;
+}
+
+/**
+ * Normalises the video's filename into a filename-safe stem at capture time,
+ * so the name shown in the rail is byte-for-byte the name that ends up in
+ * the zip and in the /static/ reference. Characters like "#" are stripped
+ * rather than escaped: the zip entry would survive them, but Studio
+ * truncates the URL at the fragment and the image silently 404s.
+ */
+function safeVideoStem(fileName) {
+  const stem = fileName.replace(/\.[^.]+$/, "");
+  const cleaned = stem
+    .replace(/\s+/g, "_")
+    .replace(/[^a-zA-Z0-9._-]+/g, "")
+    .replace(/^[-_.]+|[-_.]+$/g, "");
+  return cleaned || "video";
+}
+
+function setVideoError(message) {
+  els.videoError.textContent = message;
+  els.videoError.hidden = !message;
+}
+
+function setVideoStatus(message) {
+  els.videoStatus.textContent = message;
+}
+
+function updateVideoTime() {
+  const video = els.videoEl;
+  els.videoTimeLabel.textContent = formatClock(video.currentTime);
+  if (Number.isFinite(video.duration)) els.videoScrub.value = String(video.currentTime);
+}
+
+function updatePlayPauseIcon() {
+  const playing = !els.videoEl.paused && !els.videoEl.ended;
+  els.videoPlayIcon.hidden = playing;
+  els.videoPauseIcon.hidden = !playing;
+  els.videoPlayPause.setAttribute("aria-label", playing ? "Pause" : "Play");
+}
+
+function releaseVideo() {
+  const video = els.videoEl;
+  video.pause();
+  video.removeAttribute("src");
+  // Without the reload the element keeps decoding and holds the file handle
+  // open even after the src is gone.
+  video.load();
+  if (videoObjectUrl) {
+    URL.revokeObjectURL(videoObjectUrl);
+    videoObjectUrl = null;
+  }
+}
+
+function loadVideoFile(file) {
+  setVideoError("");
+  releaseVideo();
+  videoStem = safeVideoStem(file.name);
+  videoCaptureCount = 0;
+  videoCapturedSeconds = new Set();
+  els.videoCaptureCount.textContent = "";
+  els.videoFileName.textContent = file.name;
+
+  videoObjectUrl = URL.createObjectURL(file);
+  els.videoEl.src = videoObjectUrl;
+  els.videoStage.hidden = false;
+  setVideoStatus("Loading video…");
+}
+
+/**
+ * Resolves once the video is actually showing the frame for its current
+ * position. Without this, capturing straight after a scrub reads the pixels
+ * of the frame still on screen while currentTime already reports the new
+ * position — a correctly-named file containing the wrong slide, which is
+ * far worse than an obvious failure. Falls through after a moment rather
+ * than hanging if the events never arrive.
+ */
+function whenFrameReady(video) {
+  const HAVE_CURRENT_DATA = 2;
+  if (!video.seeking && video.readyState >= HAVE_CURRENT_DATA) return Promise.resolve();
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      video.removeEventListener("seeked", finish);
+      video.removeEventListener("loadeddata", finish);
+      clearTimeout(timer);
+      resolve();
+    };
+    const timer = setTimeout(finish, 2000);
+    video.addEventListener("seeked", finish);
+    video.addEventListener("loadeddata", finish);
+  });
+}
+
+/**
+ * Draws the frame currently on screen into a canvas and hands it to addFiles
+ * as an ordinary File, so nothing downstream needs to know it came from a
+ * video. Capped at MAX_IMAGE_EDGE rather than the video's native size — see
+ * CAPTURE_JPEG_QUALITY for why that one choice halves what autosave writes.
+ */
+function captureCurrentFrame() {
+  const video = els.videoEl;
+  if (!video.videoWidth || !video.videoHeight) {
+    setVideoError("The video has not loaded a frame yet.");
+    return null;
+  }
+
+  const scale = Math.min(1, MAX_IMAGE_EDGE / Math.max(video.videoWidth, video.videoHeight));
+  const width = Math.max(1, Math.round(video.videoWidth * scale));
+  const height = Math.max(1, Math.round(video.videoHeight * scale));
+
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  canvas.getContext("2d").drawImage(video, 0, 0, width, height);
+
+  return {
+    dataUrl: canvas.toDataURL("image/jpeg", CAPTURE_JPEG_QUALITY),
+    seconds: Math.floor(video.currentTime),
+  };
+}
+
+function dataUrlToFile(dataUrl, name, type) {
+  const base64 = dataUrl.slice(dataUrl.indexOf(",") + 1);
+  return new File([base64ToBytes(base64)], name, { type });
+}
+
+async function captureFrame(describeAfter) {
+  setVideoError("");
+  if (jobs.size >= MAX_BATCH_SIZE) {
+    setVideoError(`This batch is full at ${MAX_BATCH_SIZE} slides — export or start a new batch.`);
+    return;
+  }
+
+  // Settle any in-flight seek first, so the pixels and the timestamp that
+  // names them describe the same moment.
+  await whenFrameReady(els.videoEl);
+
+  const frame = captureCurrentFrame();
+  if (!frame) return;
+
+  if (videoCapturedSeconds.has(frame.seconds)) {
+    setVideoError(`You already captured the frame at ${formatClock(frame.seconds)}.`);
+    return;
+  }
+
+  const name = `${videoStem}_${formatStampForName(frame.seconds)}.jpg`;
+  const file = dataUrlToFile(frame.dataUrl, name, "image/jpeg");
+
+  // Name the batch after the video before the first frame lands. Left alone,
+  // maybeNameBatch() takes the longest common prefix of the filenames, and
+  // timestamped names share most of their stamp — three captures collapse to
+  // something like "My_Lecture_3_00-0". Only when the batch is otherwise
+  // empty, so a video never renames a batch of uploaded slides.
+  if (jobs.size === 0 && els.batchName.dataset.userNamed !== "1") {
+    els.batchName.value = videoStem;
+    els.batchName.dataset.userNamed = "1";
+  }
+
+  const before = new Set(jobs.keys());
+  await addFiles([file], { videoName: videoStem, captureSeconds: frame.seconds });
+  videoCapturedSeconds.add(frame.seconds);
+
+  videoCaptureCount += 1;
+  els.videoCaptureCount.textContent = `${videoCaptureCount} frame${
+    videoCaptureCount === 1 ? "" : "s"
+  } captured`;
+  // addFiles writes to the page's error line, which showModal() has made
+  // inert — mirror it into the dialog so a rejected capture is visible.
+  const pageError = els.errorMessage.hidden ? "" : els.errorMessage.textContent;
+  if (pageError) setVideoError(pageError);
+  else setVideoStatus(`Captured the frame at ${formatClock(frame.seconds)} as ${name}.`);
+
+  if (!describeAfter) return;
+
+  const added = jobList().find((job) => !before.has(job.id));
+  // A job holds its batch slot before its image data is ready; describing it
+  // that early would skip it silently. addFiles has already awaited the
+  // decode by this point, so base64 is the check that it actually succeeded.
+  // describeSingleJob (not describeOne) because it owns the API-key lookup,
+  // the cancel flag and the re-render that a bare describeOne would skip.
+  if (added && added.base64 && !batchRunning) describeSingleJob(added.id);
+}
+
+function openVideoDialog() {
+  // renderDetail() bails out entirely while an edit is open, so a capture
+  // made with one in progress would land in the rail but never appear in the
+  // detail pane. Settle the edit on the way in.
+  commitPendingEdit();
+  setVideoError("");
+  setVideoStatus("");
+  els.videoDialog.showModal();
+}
+
+els.videoBtn.addEventListener("click", openVideoDialog);
+els.videoClose.addEventListener("click", () => els.videoDialog.close());
+
+// Fires for the close button and for Escape alike, so the object URL and the
+// decoder are released down every path out of the dialog.
+els.videoDialog.addEventListener("close", () => {
+  releaseVideo();
+  els.videoStage.hidden = true;
+  els.videoFileName.textContent = "No video chosen yet.";
+  els.videoInput.value = "";
+});
+
+els.videoInput.addEventListener("change", () => {
+  const file = els.videoInput.files && els.videoInput.files[0];
+  if (file) loadVideoFile(file);
+});
+
+els.videoEl.addEventListener("loadedmetadata", () => {
+  els.videoScrub.max = String(els.videoEl.duration || 0);
+  updateVideoTime();
+  setVideoStatus(`Loaded — ${formatClock(els.videoEl.duration)} long. Pause on a slide, then capture.`);
+});
+els.videoEl.addEventListener("error", () => {
+  els.videoStage.hidden = true;
+  setVideoError("That video could not be played. Try an MP4 (H.264) or WebM file.");
+});
+els.videoEl.addEventListener("timeupdate", updateVideoTime);
+els.videoEl.addEventListener("seeked", updateVideoTime);
+els.videoEl.addEventListener("play", updatePlayPauseIcon);
+els.videoEl.addEventListener("pause", updatePlayPauseIcon);
+
+els.videoPlayPause.addEventListener("click", () => {
+  if (els.videoEl.paused) els.videoEl.play();
+  else els.videoEl.pause();
+});
+els.videoBack.addEventListener("click", () => {
+  els.videoEl.currentTime = Math.max(0, els.videoEl.currentTime - VIDEO_SKIP_SECONDS);
+});
+els.videoFwd.addEventListener("click", () => {
+  const end = Number.isFinite(els.videoEl.duration) ? els.videoEl.duration : Infinity;
+  els.videoEl.currentTime = Math.min(end, els.videoEl.currentTime + VIDEO_SKIP_SECONDS);
+});
+els.videoScrub.addEventListener("input", () => {
+  els.videoEl.currentTime = Number(els.videoScrub.value);
+});
+
+els.videoCapture.addEventListener("click", () => captureFrame(false));
+els.videoCaptureDescribe.addEventListener("click", () => captureFrame(true));
+
+// Space would otherwise activate whichever button has focus, and the arrows
+// are handled here so they scrub instead of stepping the range widget by its
+// tiny 0.01 step. The global review shortcuts already stand down for any open
+// dialog, so this only has to cover the dialog's own controls.
+els.videoDialog.addEventListener("keydown", (e) => {
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (typingInFormField(e.target) && e.target !== els.videoScrub) return;
+  if (els.videoStage.hidden) return;
+
+  if (e.key === " " || e.key === "Spacebar") {
+    e.preventDefault();
+    if (els.videoEl.paused) els.videoEl.play();
+    else els.videoEl.pause();
+  } else if (e.key === "ArrowLeft") {
+    e.preventDefault();
+    els.videoEl.currentTime = Math.max(0, els.videoEl.currentTime - VIDEO_SKIP_SECONDS);
+  } else if (e.key === "ArrowRight") {
+    e.preventDefault();
+    const end = Number.isFinite(els.videoEl.duration) ? els.videoEl.duration : Infinity;
+    els.videoEl.currentTime = Math.min(end, els.videoEl.currentTime + VIDEO_SKIP_SECONDS);
+  }
+});
+
 // ---------- Copy buttons ----------
 
 async function copyToClipboard(text, button, label) {
@@ -2307,7 +2656,8 @@ function safeFileStem(name, taken) {
 // /static/<filename>, matching how Studio serves a file uploaded through
 // Files & Uploads; alt is left empty because the description text
 // immediately follows it on the page, so a screen reader isn't given the
-// same content twice.
+// same content twice. A slide captured from a video gets a <figure> wrapper
+// carrying its timestamp instead — see exportBlockFor.
 function uniqueName(name, taken) {
   const dot = name.lastIndexOf(".");
   const stem = dot > 0 ? name.slice(0, dot) : name;
@@ -2326,6 +2676,41 @@ function renameExtension(name, ext) {
   const dot = name.lastIndexOf(".");
   const stem = dot > 0 ? name.slice(0, dot) : name;
   return `${stem}.${ext}`;
+}
+
+/** ISO 8601 duration ("PT4M32S") — the only form <time datetime> accepts for
+ *  an offset into a recording. */
+function isoDuration(totalSeconds) {
+  const s = Math.max(0, Math.floor(totalSeconds || 0));
+  return `PT${Math.floor(s / 3600)}H${Math.floor((s % 3600) / 60)}M${s % 60}S`;
+}
+
+/**
+ * One slide's block in the exported fragment. A frame captured from a video
+ * is wrapped in a <figure> so its timestamp is a <figcaption> tied to the
+ * image — the association a bare <p> would not carry to a screen reader —
+ * while an uploaded slide keeps the plain <img> it has always had.
+ *
+ * The caption is derived from job.captureSeconds rather than parsed back out
+ * of the filename: the name is user-editable and gets rewritten on the way
+ * out (spaces, extension, de-duplication suffix), so it is not a reliable
+ * carrier. Built by string concatenation onto already-sanitized resultHtml —
+ * running this through the app's own sanitizer would strip the /static/ src
+ * and then drop the <img> entirely.
+ */
+function exportBlockFor({ job, imageName }) {
+  const img = `<img src="/static/${escapeHtml(imageName)}" alt="">`;
+  // Number.isFinite, not truthiness: a frame captured at 0:00 is legitimate
+  // and its timestamp is 0.
+  if (!Number.isFinite(job.captureSeconds)) return `${img}\n${job.resultHtml}`;
+
+  const clock = formatClock(job.captureSeconds);
+  const source = job.videoName ? ` in ${escapeHtml(job.videoName)}` : "";
+  return (
+    `<figure>\n${img}\n` +
+    `<figcaption>Slide shown at <time datetime="${isoDuration(job.captureSeconds)}">${clock}</time>${source}</figcaption>\n` +
+    `</figure>\n${job.resultHtml}`
+  );
 }
 
 // Downscales to EXPORT_RESIZE_WIDTH only when the image is wider than that
@@ -2397,13 +2782,7 @@ async function exportApproved() {
   const imageNames = new Set();
   const entries = prepared.map((p) => ({ ...p, imageName: uniqueName(p.name, imageNames) }));
 
-  const html =
-    entries
-      .map(
-        ({ job, imageName }) =>
-          `<img src="/static/${escapeHtml(imageName)}" alt="">\n${job.resultHtml}`
-      )
-      .join("\n\n") + "\n";
+  const html = entries.map(exportBlockFor).join("\n\n") + "\n";
 
   const files = [{ name: "description.html", content: html }];
   for (const { imageName, bytes } of entries) {
@@ -2657,6 +3036,8 @@ function serializeProject() {
       originalHeight: job.originalHeight,
       originalBase64: job.originalBase64,
       originalMediaType: job.originalMediaType,
+      videoName: job.videoName,
+      captureSeconds: job.captureSeconds,
     })),
   };
 }
@@ -2904,6 +3285,10 @@ function importedProjectRecord(raw) {
       recompressed: !!saved.recompressed,
       originalWidth: num(saved.originalWidth),
       originalHeight: num(saved.originalHeight),
+      videoName: typeof saved.videoName === "string" ? saved.videoName : null,
+      // num() maps a non-finite value to null, so a frame captured at 0:00
+      // keeps its legitimate 0 while junk is discarded.
+      captureSeconds: num(saved.captureSeconds),
     };
   });
 

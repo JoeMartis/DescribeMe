@@ -38,6 +38,17 @@ selected slide's image plus its description on the right.
    PNG, JPEG, WebP, or GIF, up to 25 per batch. Large images are resized
    (and oversized files re-encoded) in your browser before upload, so
    original file size barely matters — anything up to 50 MB is accepted.
+
+   Or use **From video** in the header to pull slides out of a lecture
+   recording: pick a video file from this computer, scrub to a slide, and
+   **Capture frame** adds it to the batch named `<video>_HH-MM-SS.jpg` after
+   the point it came from. **Capture & describe** does the same and starts
+   describing it immediately. The timestamp is kept with the slide and shows
+   up again in the export (see step 7). The video is read straight off your
+   disk through a `blob:` URL and is never uploaded, never persisted, and
+   released as soon as the dialog closes — only the frames you capture
+   become slides. Frames are grabbed at the same 1568px ceiling the API
+   uses, which also keeps a batch of captures from bloating autosave.
 2. Click **Describe all**. A progress card tracks the batch; you can **Stop**
    mid-run. Each rail row shows that slide's status, and clicking one selects
    it in the detail pane. The arrow buttons beside each row (or dragging a
@@ -77,6 +88,12 @@ selected slide's image plus its description on the right.
    that; narrower images are left untouched. PNGs stay lossless PNG; other
    formats re-encode as high-quality JPEG. This runs against each slide's
    original bytes, not whatever was resized for the API call.
+
+   A slide captured from a video carries its timestamp into the export: it
+   is wrapped in a `<figure>` whose `<figcaption>` reads *Slide shown at
+   4:32 in lecture_03*, so the caption is tied to the image for a screen
+   reader rather than floating beside it. Uploaded slides keep the plain
+   `<img>` they have always had.
 
 Nothing is uploaded to any server other than the MIT Parley endpoint. There is
 no backend for this site — GitHub Pages only serves the static files.
@@ -240,6 +257,12 @@ during setup or in **Settings**. API keys are issued at
   host. The `.zip` and project-file exports are plain `<a download>` links
   to in-browser blobs — downloads aren't governed by `img-src`, so the CSP
   needs no allowance for them, and those exports never leave the browser.
+- `media-src 'self' blob:` is the one place the policy admits a `blob:` URL,
+  and it exists solely so **From video** can play a file you picked off your
+  own disk. It grants no network origin, so it cannot be used to load remote
+  media, and it is deliberately scoped to `media-src` alone — `default-src`
+  and `img-src` still refuse `blob:`, which is why slide previews go on
+  using `data:` URLs.
 
 ## Version number
 

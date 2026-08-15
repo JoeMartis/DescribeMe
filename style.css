@@ -1079,6 +1079,53 @@ input[type="range"] {
   color: var(--faint);
 }
 
+/* ---------- capture from video ---------- */
+
+/* Only the video dialog needs the extra width — Settings and Projects share
+   dialog.sheet and are text forms that read better narrow. */
+dialog.sheet-wide { max-width: min(880px, 94vw); }
+
+/* .slide-frame pins its grid track to 100% so a percentage height resolves
+   (see the note on .slide-frame). Its img rule is element-scoped, so a
+   <video> child needs its own. An explicit height rather than the frame's
+   16/10 aspect-ratio: a definite height is what that grid track resolves
+   against, and it keeps a tall video from pushing the transport controls
+   out of the scrolling .sheet-body. */
+.video-frame {
+  aspect-ratio: auto;
+  height: min(44vh, 420px);
+  background: var(--ink-brown);
+}
+.video-frame video { width: 100%; height: 100%; object-fit: contain; }
+
+.video-transport {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+/* The global range rule is written for the stacked settings slider; inside a
+   flex row its margin breaks centring against the icon buttons, and without
+   min-width: 0 it refuses to shrink below its intrinsic width. */
+.video-transport input[type="range"] {
+  flex: 1 1 200px;
+  min-width: 0;
+  width: auto;
+  margin: 0;
+}
+/* Tabular figures and a fixed min-width keep the row from reflowing as the
+   readout ticks, including when it grows past 10 minutes or an hour. */
+.video-time {
+  font-variant-numeric: tabular-nums;
+  min-width: 9ch;
+  justify-content: center;
+  background: var(--mustard);
+  /* --muted on mustard is under AA; the ink brown clears it. */
+  color: var(--ink-brown);
+}
+.video-time strong { font-family: var(--font-heading); font-weight: 400; }
+
 /* ---------- easter egg ---------- */
 /* Summoned by app.js (five quick clicks on the header wordmark). Fixed to
    the viewport edge, aria-hidden, pointer-events: none — he can't block a
