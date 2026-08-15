@@ -2235,9 +2235,13 @@ let videoCaptureCount = 0;
 // slides with an identical name and an identical "Slide shown at 4:32"
 // caption — indistinguishable in the export.
 let videoCapturedSeconds = new Set();
+let captureInFlight = false;
 
 /** "4:32", or "1:04:32" once the hour matters. For people to read. */
 function formatClock(totalSeconds) {
+  // A video with no declared length reports Infinity, which would otherwise
+  // render as "Infinity:NaN:NaN".
+  if (!Number.isFinite(totalSeconds)) return "0:00";
   const s = Math.max(0, Math.floor(totalSeconds || 0));
   const hours = Math.floor(s / 3600);
   const minutes = Math.floor((s % 3600) / 60);
@@ -2295,10 +2299,21 @@ function updateVideoTime() {
   if (Number.isFinite(video.duration)) els.videoScrub.value = String(video.currentTime);
 }
 
+/**
+ * These icons are <svg>, and `hidden` is an HTMLElement property that
+ * SVGElement does not reflect — assigning el.hidden on one sets a plain JS
+ * property, leaves the attribute alone, and changes nothing on screen.
+ * toggleAttribute works on any element, which is what the [hidden] rule in
+ * the UA stylesheet actually keys off.
+ */
+function showIcon(el, visible) {
+  el.toggleAttribute("hidden", !visible);
+}
+
 function updatePlayPauseIcon() {
   const playing = !els.videoEl.paused && !els.videoEl.ended;
-  els.videoPlayIcon.hidden = playing;
-  els.videoPauseIcon.hidden = !playing;
+  showIcon(els.videoPlayIcon, !playing);
+  showIcon(els.videoPauseIcon, playing);
   els.videoPlayPause.setAttribute("aria-label", playing ? "Pause" : "Play");
 }
 
@@ -2306,8 +2321,8 @@ function updatePlayPauseIcon() {
  *  to zero — so the icon never claims sound is playing when it is not. */
 function updateVolumeUi() {
   const silent = els.videoEl.muted || els.videoEl.volume === 0;
-  els.videoSoundOnIcon.hidden = silent;
-  els.videoSoundOffIcon.hidden = !silent;
+  showIcon(els.videoSoundOnIcon, !silent);
+  showIcon(els.videoSoundOffIcon, silent);
   els.videoMute.setAttribute("aria-label", silent ? "Unmute" : "Mute");
   els.videoMute.setAttribute("aria-pressed", silent ? "true" : "false");
 }
@@ -2349,8 +2364,8 @@ function loadVideoFile(file) {
  * than hanging if the events never arrive.
  */
 function whenFrameReady(video) {
-  const HAVE_CURRENT_DATA = 2;
-  if (!video.seeking && video.readyState >= HAVE_CURRENT_DATA) return Promise.resolve();
+  const isReady = () => !video.seeking && video.readyState >= 2; // HAVE_CURRENT_DATA
+  if (isReady()) return Promise.resolve(true);
   return new Promise((resolve) => {
     let settled = false;
     const finish = () => {
@@ -2359,7 +2374,10 @@ function whenFrameReady(video) {
       video.removeEventListener("seeked", finish);
       video.removeEventListener("loadeddata", finish);
       clearTimeout(timer);
-      resolve();
+      // Reports whether the frame really did settle. Resolving true on the
+      // timeout would hand back exactly the mislabelled capture this exists
+      // to prevent, so a slow seek is refused rather than guessed at.
+      resolve(isReady());
     };
     const timer = setTimeout(finish, 2000);
     video.addEventListener("seeked", finish);
@@ -2375,7 +2393,9 @@ function whenFrameReady(video) {
  */
 function captureCurrentFrame() {
   const video = els.videoEl;
-  if (!video.videoWidth || !video.videoHeight) {
+  // readyState too, not just the dimensions: those are set at HAVE_METADATA,
+  // before there are any pixels to draw.
+  if (!video.videoWidth || !video.videoHeight || video.readyState < 2) {
     setVideoError("The video has not loaded a frame yet.");
     return null;
   }
@@ -2401,6 +2421,19 @@ function dataUrlToFile(dataUrl, name, type) {
 }
 
 async function captureFrame(describeAfter) {
+  // Both awaits below yield to the event loop, so without this a quick
+  // double-click runs two captures concurrently — each passing the
+  // already-captured check before the other records its second.
+  if (captureInFlight) return;
+  captureInFlight = true;
+  try {
+    await runCapture(describeAfter);
+  } finally {
+    captureInFlight = false;
+  }
+}
+
+async function runCapture(describeAfter) {
   setVideoError("");
   if (jobs.size >= MAX_BATCH_SIZE) {
     setVideoError(`This batch is full at ${MAX_BATCH_SIZE} slides — export or start a new batch.`);
@@ -2409,7 +2442,11 @@ async function captureFrame(describeAfter) {
 
   // Settle any in-flight seek first, so the pixels and the timestamp that
   // names them describe the same moment.
-  await whenFrameReady(els.videoEl);
+  const ready = await whenFrameReady(els.videoEl);
+  if (!ready) {
+    setVideoError("The video is still seeking — give it a moment and capture again.");
+    return;
+  }
 
   const frame = captureCurrentFrame();
   if (!frame) return;
@@ -2434,27 +2471,38 @@ async function captureFrame(describeAfter) {
 
   const before = new Set(jobs.keys());
   await addFiles([file], { videoName: videoStem, captureSeconds: frame.seconds });
-  videoCapturedSeconds.add(frame.seconds);
+  const added = jobList().find((job) => !before.has(job.id));
 
+  // addFiles reports refusals on the page's error line, which showModal() has
+  // made inert — mirror it in here, and do not claim a capture that did not
+  // happen. Recording the second regardless would also lock the user out of
+  // ever retrying that moment.
+  const pageError = els.errorMessage.hidden ? "" : els.errorMessage.textContent;
+  if (!added) {
+    setVideoError(pageError || "That frame could not be added to the batch.");
+    return;
+  }
+
+  videoCapturedSeconds.add(frame.seconds);
   videoCaptureCount += 1;
   els.videoCaptureCount.textContent = `${videoCaptureCount} frame${
     videoCaptureCount === 1 ? "" : "s"
   } captured`;
-  // addFiles writes to the page's error line, which showModal() has made
-  // inert — mirror it into the dialog so a rejected capture is visible.
-  const pageError = els.errorMessage.hidden ? "" : els.errorMessage.textContent;
+
+  if (added.state === "invalid") {
+    setVideoError(added.error || "That frame could not be decoded.");
+    return;
+  }
   if (pageError) setVideoError(pageError);
   else setVideoStatus(`Captured the frame at ${formatClock(frame.seconds)} as ${name}.`);
 
   if (!describeAfter) return;
-
-  const added = jobList().find((job) => !before.has(job.id));
   // A job holds its batch slot before its image data is ready; describing it
   // that early would skip it silently. addFiles has already awaited the
   // decode by this point, so base64 is the check that it actually succeeded.
   // describeSingleJob (not describeOne) because it owns the API-key lookup,
   // the cancel flag and the re-render that a bare describeOne would skip.
-  if (added && added.base64 && !batchRunning) describeSingleJob(added.id);
+  if (added.base64 && !batchRunning) describeSingleJob(added.id);
 }
 
 function openVideoDialog() {
@@ -2484,8 +2532,23 @@ els.videoInput.addEventListener("change", () => {
   if (file) loadVideoFile(file);
 });
 
+/**
+ * A recording whose header carries no length — anything from MediaRecorder,
+ * a fragmented MP4 — reports duration as Infinity, sometimes only until the
+ * browser works it out and fires durationchange. "Infinity" is not a valid
+ * value for the range's max (it silently falls back to 100, leaving all but
+ * the first minute and a half unreachable), so the scrubber stands down
+ * until there is a real length to scrub against.
+ */
+function syncVideoDuration() {
+  const known = Number.isFinite(els.videoEl.duration) && els.videoEl.duration > 0;
+  els.videoScrub.max = String(known ? els.videoEl.duration : 0);
+  els.videoScrub.disabled = !known;
+  return known;
+}
+
 els.videoEl.addEventListener("loadedmetadata", () => {
-  els.videoScrub.max = String(els.videoEl.duration || 0);
+  const known = syncVideoDuration();
   // Loading a source resets playbackRate to 1, so the chosen speed has to be
   // reapplied or it silently reverts on the next video. Volume and muted are
   // properties of the element and do survive, but are set here too so the
@@ -2494,8 +2557,13 @@ els.videoEl.addEventListener("loadedmetadata", () => {
   els.videoEl.volume = Number(els.videoVolume.value);
   updateVideoTime();
   updateVolumeUi();
-  setVideoStatus(`Loaded — ${formatClock(els.videoEl.duration)} long. Pause on a slide, then capture.`);
+  setVideoStatus(
+    known
+      ? `Loaded — ${formatClock(els.videoEl.duration)} long. Pause on a slide, then capture.`
+      : "Loaded. This file does not report its length, so use play and the skip buttons to move through it."
+  );
 });
+els.videoEl.addEventListener("durationchange", syncVideoDuration);
 els.videoEl.addEventListener("error", () => {
   els.videoStage.hidden = true;
   setVideoError("That video could not be played. Try an MP4 (H.264) or WebM file.");
@@ -2525,13 +2593,20 @@ els.videoRate.addEventListener("change", () => {
 });
 
 els.videoMute.addEventListener("click", () => {
-  // Unmuting something whose volume was dragged to zero would stay silent
-  // and read as a broken button, so give it something audible to return to.
-  if (els.videoEl.muted && els.videoEl.volume === 0) {
+  // A silent/audible toggle, not a muted-flag toggle. Those differ once the
+  // slider is at zero: the flag is still false, so flipping it would mute an
+  // already-silent video, leaving the button labelled "Unmute" both before
+  // and after and needing a second press to produce any sound.
+  const silent = els.videoEl.muted || els.videoEl.volume === 0;
+  if (!silent) {
+    els.videoEl.muted = true;
+    return;
+  }
+  if (els.videoEl.volume === 0) {
     els.videoEl.volume = 1;
     els.videoVolume.value = "1";
   }
-  els.videoEl.muted = !els.videoEl.muted;
+  els.videoEl.muted = false;
 });
 
 els.videoVolume.addEventListener("input", () => {
