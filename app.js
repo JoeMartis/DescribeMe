@@ -2270,13 +2270,23 @@ function safeVideoStem(fileName) {
   return cleaned || "video";
 }
 
+// The two lines are alternatives, not companions: leaving the last success
+// message under a failure reads as a contradiction ("Captured the frame at
+// 0:00" directly beneath "You already captured the frame at 0:00"), and the
+// pair together take enough height to push the whole lot out of a short
+// window. Whichever fires last is the one that is true.
 function setVideoError(message) {
   els.videoError.textContent = message;
   els.videoError.hidden = !message;
+  if (message) els.videoStatus.textContent = "";
 }
 
 function setVideoStatus(message) {
   els.videoStatus.textContent = message;
+  if (message) {
+    els.videoError.textContent = "";
+    els.videoError.hidden = true;
+  }
 }
 
 function updateVideoTime() {

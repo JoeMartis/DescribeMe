@@ -318,7 +318,7 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
       </button>
     </div>
-    <p class="sheet-lede">Pause wherever a slide needs describing and capture the frame — it joins the batch named after its timestamp, which carries through to the exported HTML. The video is read from this device and never uploaded.</p>
+    <p class="sheet-lede">Pause on a slide and capture it — frames carry their timestamp into the export. The video never leaves this device.</p>
 
     <div class="project-save-row">
       <span class="btn file-btn">
@@ -329,7 +329,7 @@
     </div>
 
     <div id="videoStage" hidden>
-      <div class="slide-frame video-frame">
+      <div class="video-frame">
         <video id="videoEl" playsinline preload="metadata"></video>
       </div>
 
@@ -349,9 +349,7 @@
              during playback and would flood a screen reader. Capture
              confirmations are announced through #videoStatus instead. -->
         <p class="chip video-time" aria-live="off"><strong id="videoTimeLabel">0:00</strong></p>
-      </div>
 
-      <div class="video-transport video-transport-secondary">
         <select class="input video-rate" id="videoRate" aria-label="Playback speed">
           <option value="0.5">0.5&times;</option>
           <option value="0.75">0.75&times;</option>

@@ -1084,22 +1084,40 @@ input[type="range"] {
 /* Only the video dialog needs the extra width — Settings and Projects share
    dialog.sheet and are text forms that read better narrow. */
 dialog.sheet-wide { max-width: min(880px, 94vw); }
+/* Every row above the video is overhead competing with it for height, so
+   this dialog runs tighter than the text-form sheets it shares styles with. */
+#videoDialog .sheet-lede { margin-bottom: 14px; }
+#videoDialog .project-save-row { margin-bottom: 14px; }
+#videoDialog .approve-bar { margin-top: 14px; }
 
-/* .slide-frame pins its grid track to 100% so a percentage height resolves
-   (see the note on .slide-frame). Its img rule is element-scoped, so a
-   <video> child needs its own. An explicit height rather than the frame's
-   16/10 aspect-ratio: a definite height is what that grid track resolves
-   against, and it keeps a tall video from pushing the transport controls
-   out of the scrolling .sheet-body. */
-.video-frame {
-  aspect-ratio: auto;
-  /* Deliberately modest: .sheet-body scrolls at 90vh, and the capture button
-     below must stay on screen while you scrub. A taller frame pushes it
-     under the fold, which is where this control is least useful. */
-  height: min(38vh, 340px);
+/* Deliberately NOT .slide-frame: that one pins a 16/10 box and letterboxes
+   whatever it holds, which spends a good part of the dialog on black bars
+   around a 16/9 recording — and the slide is the thing you are squinting at
+   to decide whether to capture. Here the border hugs the video itself, so
+   the frame is always exactly the shape of the footage. */
+.video-frame { text-align: center; }
+.video-frame video {
+  display: inline-block;
+  vertical-align: middle;
+  /* Both dimensions auto under two maximums: the browser scales the footage
+     to fit inside the box while keeping its own proportions, so the border
+     hugs the picture and there is nothing left over to show as a bar.
+     Percentages are no use for the height here — a percentage max-height
+     resolves to none unless the containing block's height is definite, and
+     the video then renders full size and gets cropped. */
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  /* Measured, not guessed: the rest of the dialog runs to 434px in its
+     tallest state (an error line showing after a capture), so this keeps the
+     status line — where capture confirmations land — on screen rather than
+     under the fold. Clamped at each end; below the floor the sheet body
+     scrolls, as it always did. Re-measure this if a row is added. */
+  max-height: clamp(120px, calc(90vh - 450px), 520px);
   background: var(--ink-brown);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-lg);
 }
-.video-frame video { width: 100%; height: 100%; object-fit: contain; }
 
 .video-transport {
   display: flex;
@@ -1112,7 +1130,10 @@ dialog.sheet-wide { max-width: min(880px, 94vw); }
    flex row its margin breaks centring against the icon buttons, and without
    min-width: 0 it refuses to shrink below its intrinsic width. */
 .video-transport input[type="range"] {
-  flex: 1 1 200px;
+  /* Small basis on purpose: the row carries eight controls, and a large one
+     makes the total exceed the dialog so the volume silently wraps to a
+     second line. It grows into whatever is left over anyway. */
+  flex: 1 1 120px;
   min-width: 0;
   width: auto;
   margin: 0;
@@ -1120,6 +1141,9 @@ dialog.sheet-wide { max-width: min(880px, 94vw); }
 /* Tabular figures and a fixed min-width keep the row from reflowing as the
    readout ticks, including when it grows past 10 minutes or an hour. */
 .video-time {
+  /* It is a <p>, so it arrives with default vertical margins that make the
+     whole transport row 26px taller than the controls in it. */
+  margin: 0;
   font-variant-numeric: tabular-nums;
   min-width: 9ch;
   justify-content: center;
@@ -1129,9 +1153,6 @@ dialog.sheet-wide { max-width: min(880px, 94vw); }
 }
 .video-time strong { font-family: var(--font-heading); font-weight: 400; }
 
-/* Speed and volume sit on their own row so neither competes with the scrub
-   bar for the flexible space. */
-.video-transport-secondary { margin-top: 10px; }
 /* .input is width: 100% for stacked form fields; in a flex row it must size
    to its content instead. */
 .video-rate {
@@ -1143,7 +1164,7 @@ dialog.sheet-wide { max-width: min(880px, 94vw); }
 /* Fixed basis, unlike the scrub bar: a volume control stretched across the
    dialog reads as a second progress bar. Needs to out-specify the
    .video-transport range rule above, which this row also matches. */
-.video-transport input[type="range"].video-volume { flex: 0 1 140px; }
+.video-transport input[type="range"].video-volume { flex: 0 1 104px; }
 
 /* ---------- easter egg ---------- */
 /* Summoned by app.js (five quick clicks on the header wordmark). Fixed to
