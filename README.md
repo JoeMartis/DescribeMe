@@ -43,7 +43,9 @@ selected slide's image plus its description on the right.
    recording: pick a video file from this computer, scrub to a slide, and
    **Capture frame** adds it to the batch named `<video>_HH-MM-SS.jpg` after
    the point it came from. **Capture & describe** does the same and starts
-   describing it immediately. The timestamp is kept with the slide and shows
+   describing it immediately. Playback speed (up to 3×) and volume sit under
+   the scrub bar — speed in particular makes skimming a long lecture for the
+   next slide much quicker. The timestamp is kept with the slide and shows
    up again in the export (see step 7). The video is read straight off your
    disk through a `blob:` URL and is never uploaded, never persisted, and
    released as soon as the dialog closes — only the frames you capture

@@ -316,6 +316,11 @@ const els = {
   videoFwd: document.getElementById("videoFwd"),
   videoScrub: document.getElementById("videoScrub"),
   videoTimeLabel: document.getElementById("videoTimeLabel"),
+  videoRate: document.getElementById("videoRate"),
+  videoMute: document.getElementById("videoMute"),
+  videoSoundOnIcon: document.getElementById("videoSoundOnIcon"),
+  videoSoundOffIcon: document.getElementById("videoSoundOffIcon"),
+  videoVolume: document.getElementById("videoVolume"),
   videoCapture: document.getElementById("videoCapture"),
   videoCaptureDescribe: document.getElementById("videoCaptureDescribe"),
   videoCaptureCount: document.getElementById("videoCaptureCount"),
@@ -2287,6 +2292,16 @@ function updatePlayPauseIcon() {
   els.videoPlayPause.setAttribute("aria-label", playing ? "Pause" : "Play");
 }
 
+/** Silent covers both routes to it — the mute toggle and a volume dragged
+ *  to zero — so the icon never claims sound is playing when it is not. */
+function updateVolumeUi() {
+  const silent = els.videoEl.muted || els.videoEl.volume === 0;
+  els.videoSoundOnIcon.hidden = silent;
+  els.videoSoundOffIcon.hidden = !silent;
+  els.videoMute.setAttribute("aria-label", silent ? "Unmute" : "Mute");
+  els.videoMute.setAttribute("aria-pressed", silent ? "true" : "false");
+}
+
 function releaseVideo() {
   const video = els.videoEl;
   video.pause();
@@ -2461,7 +2476,14 @@ els.videoInput.addEventListener("change", () => {
 
 els.videoEl.addEventListener("loadedmetadata", () => {
   els.videoScrub.max = String(els.videoEl.duration || 0);
+  // Loading a source resets playbackRate to 1, so the chosen speed has to be
+  // reapplied or it silently reverts on the next video. Volume and muted are
+  // properties of the element and do survive, but are set here too so the
+  // controls and the media agree from the first frame.
+  els.videoEl.playbackRate = Number(els.videoRate.value) || 1;
+  els.videoEl.volume = Number(els.videoVolume.value);
   updateVideoTime();
+  updateVolumeUi();
   setVideoStatus(`Loaded — ${formatClock(els.videoEl.duration)} long. Pause on a slide, then capture.`);
 });
 els.videoEl.addEventListener("error", () => {
@@ -2487,6 +2509,30 @@ els.videoFwd.addEventListener("click", () => {
 els.videoScrub.addEventListener("input", () => {
   els.videoEl.currentTime = Number(els.videoScrub.value);
 });
+
+els.videoRate.addEventListener("change", () => {
+  els.videoEl.playbackRate = Number(els.videoRate.value) || 1;
+});
+
+els.videoMute.addEventListener("click", () => {
+  // Unmuting something whose volume was dragged to zero would stay silent
+  // and read as a broken button, so give it something audible to return to.
+  if (els.videoEl.muted && els.videoEl.volume === 0) {
+    els.videoEl.volume = 1;
+    els.videoVolume.value = "1";
+  }
+  els.videoEl.muted = !els.videoEl.muted;
+});
+
+els.videoVolume.addEventListener("input", () => {
+  els.videoEl.volume = Number(els.videoVolume.value);
+  // Dragging up from silence is an unmute in everything but name.
+  if (els.videoEl.volume > 0 && els.videoEl.muted) els.videoEl.muted = false;
+});
+
+// Covers changes made anywhere — the buttons above, or the media element
+// itself — so the icon can never drift out of step with what you hear.
+els.videoEl.addEventListener("volumechange", updateVolumeUi);
 
 els.videoCapture.addEventListener("click", () => captureFrame(false));
 els.videoCaptureDescribe.addEventListener("click", () => captureFrame(true));
