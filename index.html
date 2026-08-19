@@ -375,10 +375,12 @@
         <input type="range" class="video-volume" id="videoVolume" min="0" max="1" step="0.05" value="1" aria-label="Volume">
       </div>
 
+      <!-- Crop leads: it is set up once before capturing, so the buttons
+           read in the order the workflow runs. -->
       <div class="approve-bar">
+        <button type="button" class="btn" id="videoCropBtn" aria-pressed="false">Crop</button>
         <button type="button" class="btn btn-primary" id="videoCapture">Capture frame</button>
         <button type="button" class="btn" id="videoCaptureDescribe">Capture &amp; describe</button>
-        <button type="button" class="btn" id="videoCropBtn" aria-pressed="false">Crop</button>
         <span class="hint" id="videoCaptureCount"></span>
       </div>
     </div>
