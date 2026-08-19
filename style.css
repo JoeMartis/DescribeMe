@@ -1096,15 +1096,29 @@ dialog.sheet-wide { max-width: min(880px, 94vw); }
    to decide whether to capture. Here the border hugs the video itself, so
    the frame is always exactly the shape of the footage. */
 .video-frame { text-align: center; }
-.video-frame video {
+/* The chrome (border, matte, rounded corners) lives on this wrapper rather
+   than the <video> so the crop overlay's inset: 0 lands exactly on the
+   video's pixels — an overlay inside a bordered video would be offset by the
+   border width and every crop would be a few pixels off. */
+.video-box {
+  position: relative;
   display: inline-block;
   vertical-align: middle;
+  line-height: 0; /* kill the baseline gap under the inline video */
+  background: var(--ink-brown);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden; /* clip the video and marquee to the rounded corners */
+  max-width: 100%;
+}
+.video-frame video {
+  display: block;
   /* Both dimensions auto under two maximums: the browser scales the footage
-     to fit inside the box while keeping its own proportions, so the border
-     hugs the picture and there is nothing left over to show as a bar.
-     Percentages are no use for the height here — a percentage max-height
-     resolves to none unless the containing block's height is definite, and
-     the video then renders full size and gets cropped. */
+     to fit while keeping its own proportions, so the box hugs the picture
+     and there is nothing left over to show as a bar. Percentages are no use
+     for the height — a percentage max-height resolves to none unless the
+     containing block's height is definite, and the video then renders full
+     size and gets cropped. */
   width: auto;
   height: auto;
   max-width: 100%;
@@ -1114,9 +1128,27 @@ dialog.sheet-wide { max-width: min(880px, 94vw); }
      under the fold. Clamped at each end; below the floor the sheet body
      scrolls, as it always did. Re-measure this if a row is added. */
   max-height: clamp(120px, calc(90vh - 450px), 520px);
-  background: var(--ink-brown);
-  border: var(--border-width) solid var(--border);
-  border-radius: var(--radius-lg);
+}
+
+.video-crop-overlay {
+  position: absolute;
+  inset: 0;
+  cursor: crosshair;
+  touch-action: none; /* the drag IS the gesture — don't scroll the sheet */
+}
+.video-crop-rect {
+  position: absolute;
+  display: block;
+  border: 2px solid var(--mustard);
+  /* One giant spread shadow dims everything outside the selection; the
+     wrapper's overflow: hidden clips it to the video. Cheaper and simpler
+     than four mask panels. */
+  box-shadow: 0 0 0 9999px rgba(36, 26, 18, 0.55);
+  pointer-events: none;
+}
+#videoCropBtn[aria-pressed="true"] {
+  background: var(--mustard);
+  color: var(--ink-brown);
 }
 
 .video-transport {

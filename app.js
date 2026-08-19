@@ -323,6 +323,9 @@ const els = {
   videoVolume: document.getElementById("videoVolume"),
   videoCapture: document.getElementById("videoCapture"),
   videoCaptureDescribe: document.getElementById("videoCaptureDescribe"),
+  videoCropBtn: document.getElementById("videoCropBtn"),
+  videoCropOverlay: document.getElementById("videoCropOverlay"),
+  videoCropRect: document.getElementById("videoCropRect"),
   videoCaptureCount: document.getElementById("videoCaptureCount"),
   videoError: document.getElementById("videoError"),
   videoStatus: document.getElementById("videoStatus"),
@@ -2236,6 +2239,11 @@ let videoCaptureCount = 0;
 // caption — indistinguishable in the export.
 let videoCapturedSeconds = new Set();
 let captureInFlight = false;
+// The crop region, as fractions of the video's own width/height (0..1), so
+// it stays pinned to the same picture region however the dialog is sized.
+// null = no crop; captures take the full frame.
+let videoCropRegion = null;
+let videoCropDraft = null; // {startX, startY} in fractions, while dragging
 
 /** "4:32", or "1:04:32" once the hour matters. For people to read. */
 function formatClock(totalSeconds) {
@@ -2347,6 +2355,9 @@ function loadVideoFile(file) {
   videoCaptureCount = 0;
   videoCapturedSeconds = new Set();
   els.videoCaptureCount.textContent = "";
+  // A different recording almost certainly has a different layout, so a
+  // remembered region would silently crop the wrong part of it.
+  setCropMode(false);
   els.videoFileName.textContent = file.name;
 
   videoObjectUrl = URL.createObjectURL(file);
@@ -2385,11 +2396,64 @@ function whenFrameReady(video) {
   });
 }
 
+// ----- Crop: capture a region of the frame instead of all of it -----
+//
+// For recordings where the slide shares the frame with a webcam strip, a
+// player border, or pillarboxing. The region is set once by dragging on the
+// paused (or playing) video and then applies to every capture until cleared,
+// since the slide area of a lecture recording stays put for the whole video.
+
+function setCropRegion(region) {
+  videoCropRegion = region;
+  if (region) {
+    els.videoCropRect.style.left = `${region.x * 100}%`;
+    els.videoCropRect.style.top = `${region.y * 100}%`;
+    els.videoCropRect.style.width = `${region.w * 100}%`;
+    els.videoCropRect.style.height = `${region.h * 100}%`;
+  }
+  els.videoCropRect.hidden = !region;
+}
+
+function cropModeOn() {
+  return els.videoCropBtn.getAttribute("aria-pressed") === "true";
+}
+
+function setCropMode(on) {
+  els.videoCropBtn.setAttribute("aria-pressed", on ? "true" : "false");
+  els.videoCropOverlay.hidden = !on;
+  if (!on) {
+    setCropRegion(null);
+    videoCropDraft = null;
+  }
+}
+
+/** Pointer position as fractions of the video box, clamped to it. */
+function cropPointFromEvent(e) {
+  const rect = els.videoCropOverlay.getBoundingClientRect();
+  if (!rect.width || !rect.height) return null;
+  return {
+    x: Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width)),
+    y: Math.min(1, Math.max(0, (e.clientY - rect.top) / rect.height)),
+  };
+}
+
+function cropRegionFromDraft(point) {
+  const x = Math.min(videoCropDraft.startX, point.x);
+  const y = Math.min(videoCropDraft.startY, point.y);
+  return {
+    x,
+    y,
+    w: Math.abs(point.x - videoCropDraft.startX),
+    h: Math.abs(point.y - videoCropDraft.startY),
+  };
+}
+
 /**
  * Draws the frame currently on screen into a canvas and hands it to addFiles
  * as an ordinary File, so nothing downstream needs to know it came from a
- * video. Capped at MAX_IMAGE_EDGE rather than the video's native size — see
- * CAPTURE_JPEG_QUALITY for why that one choice halves what autosave writes.
+ * video. Honors the crop region when one is set. Capped at MAX_IMAGE_EDGE
+ * rather than the video's native size — see CAPTURE_JPEG_QUALITY for why
+ * that one choice halves what autosave writes.
  */
 function captureCurrentFrame() {
   const video = els.videoEl;
@@ -2400,18 +2464,28 @@ function captureCurrentFrame() {
     return null;
   }
 
-  const scale = Math.min(1, MAX_IMAGE_EDGE / Math.max(video.videoWidth, video.videoHeight));
-  const width = Math.max(1, Math.round(video.videoWidth * scale));
-  const height = Math.max(1, Math.round(video.videoHeight * scale));
+  // Source rectangle: the crop region mapped onto the video's real pixels,
+  // or the whole frame. Rounded once, here, so the canvas and drawImage
+  // agree exactly.
+  const region = videoCropRegion || { x: 0, y: 0, w: 1, h: 1 };
+  const sx = Math.round(region.x * video.videoWidth);
+  const sy = Math.round(region.y * video.videoHeight);
+  const sw = Math.max(1, Math.round(region.w * video.videoWidth));
+  const sh = Math.max(1, Math.round(region.h * video.videoHeight));
+
+  const scale = Math.min(1, MAX_IMAGE_EDGE / Math.max(sw, sh));
+  const width = Math.max(1, Math.round(sw * scale));
+  const height = Math.max(1, Math.round(sh * scale));
 
   const canvas = document.createElement("canvas");
   canvas.width = width;
   canvas.height = height;
-  canvas.getContext("2d").drawImage(video, 0, 0, width, height);
+  canvas.getContext("2d").drawImage(video, sx, sy, sw, sh, 0, 0, width, height);
 
   return {
     dataUrl: canvas.toDataURL("image/jpeg", CAPTURE_JPEG_QUALITY),
     seconds: Math.floor(video.currentTime),
+    cropped: !!videoCropRegion,
   };
 }
 
@@ -2494,7 +2568,10 @@ async function runCapture(describeAfter) {
     return;
   }
   if (pageError) setVideoError(pageError);
-  else setVideoStatus(`Captured the frame at ${formatClock(frame.seconds)} as ${name}.`);
+  else
+    setVideoStatus(
+      `Captured the ${frame.cropped ? "cropped " : ""}frame at ${formatClock(frame.seconds)} as ${name}.`
+    );
 
   if (!describeAfter) return;
   // A job holds its batch slot before its image data is ready; describing it
@@ -2522,6 +2599,7 @@ els.videoClose.addEventListener("click", () => els.videoDialog.close());
 // decoder are released down every path out of the dialog.
 els.videoDialog.addEventListener("close", () => {
   releaseVideo();
+  setCropMode(false);
   els.videoStage.hidden = true;
   els.videoFileName.textContent = "No video chosen yet.";
   els.videoInput.value = "";
@@ -2621,6 +2699,69 @@ els.videoEl.addEventListener("volumechange", updateVolumeUi);
 
 els.videoCapture.addEventListener("click", () => captureFrame(false));
 els.videoCaptureDescribe.addEventListener("click", () => captureFrame(true));
+
+// ----- Crop wiring -----
+
+els.videoCropBtn.addEventListener("click", () => {
+  const on = !cropModeOn();
+  setCropMode(on);
+  setVideoStatus(
+    on
+      ? "Crop is on — drag across the video to pick the region to capture. Drag again to redraw; press Crop again to clear."
+      : "Crop cleared — captures take the full frame again."
+  );
+});
+
+els.videoCropOverlay.addEventListener("pointerdown", (e) => {
+  if (!cropModeOn() || !e.isPrimary) return;
+  const point = cropPointFromEvent(e);
+  if (!point) return;
+  els.videoCropOverlay.setPointerCapture(e.pointerId);
+  videoCropDraft = { startX: point.x, startY: point.y };
+  setCropRegion({ x: point.x, y: point.y, w: 0, h: 0 });
+  e.preventDefault();
+});
+
+els.videoCropOverlay.addEventListener("pointermove", (e) => {
+  if (!videoCropDraft) return;
+  const point = cropPointFromEvent(e);
+  if (point) setCropRegion(cropRegionFromDraft(point));
+});
+
+els.videoCropOverlay.addEventListener("pointerup", (e) => {
+  if (!videoCropDraft) return;
+  const point = cropPointFromEvent(e);
+  const region = point ? cropRegionFromDraft(point) : null;
+  videoCropDraft = null;
+  // A sub-2% drag is a click or a slip, not a selection — a region that
+  // tiny would capture a handful of source pixels and describe nothing.
+  if (!region || region.w < 0.02 || region.h < 0.02) {
+    setCropRegion(null);
+    setVideoStatus("Crop selection was too small — drag across the video to pick a larger region.");
+    return;
+  }
+  setCropRegion(region);
+  const video = els.videoEl;
+  const pw = Math.round(region.w * video.videoWidth);
+  const ph = Math.round(region.h * video.videoHeight);
+  setVideoStatus(`Cropping captures to a ${pw}×${ph} region. Drag again to redraw; press Crop again to clear.`);
+});
+
+els.videoCropOverlay.addEventListener("pointercancel", () => {
+  videoCropDraft = null;
+  setCropRegion(videoCropRegion);
+});
+
+// Inside the dialog Escape means "back out of crop mode" before it means
+// "close the dialog" — cancel fires on Escape for a modal dialog, and
+// preventing it keeps the dialog open for that press.
+els.videoDialog.addEventListener("cancel", (e) => {
+  if (cropModeOn()) {
+    e.preventDefault();
+    setCropMode(false);
+    setVideoStatus("Crop cleared — captures take the full frame again.");
+  }
+});
 
 // Space would otherwise activate whichever button has focus, and the arrows
 // are handled here so they scrub instead of stepping the range widget by its
@@ -2913,7 +3054,11 @@ async function exportApproved() {
   const imageNames = new Set();
   const entries = prepared.map((p) => ({ ...p, imageName: uniqueName(p.name, imageNames) }));
 
-  const html = entries.map(exportBlockFor).join("\n\n") + "\n";
+  // The batch name opens the document as its <h1>: the fragment lands in a
+  // Studio HTML component where slide sections start at <h2>, so the page
+  // keeps a proper heading outline for screen-reader navigation.
+  const html =
+    `<h1>${escapeHtml(batch)}</h1>\n\n` + entries.map(exportBlockFor).join("\n\n") + "\n";
 
   const files = [{ name: "description.html", content: html }];
   for (const { imageName, bytes } of entries) {

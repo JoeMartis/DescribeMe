@@ -330,7 +330,16 @@
 
     <div id="videoStage" hidden>
       <div class="video-frame">
-        <video id="videoEl" playsinline preload="metadata"></video>
+        <span class="video-box" id="videoBox">
+          <video id="videoEl" playsinline preload="metadata"></video>
+          <!-- Crop marquee: sits exactly over the video's pixels and takes
+               pointer input only while crop mode is on. The rect is drawn in
+               percentages of the video box, so it stays glued to the same
+               region of the picture when the dialog resizes. -->
+          <span class="video-crop-overlay" id="videoCropOverlay" hidden>
+            <span class="video-crop-rect" id="videoCropRect" hidden></span>
+          </span>
+        </span>
       </div>
 
       <div class="video-transport">
@@ -369,6 +378,7 @@
       <div class="approve-bar">
         <button type="button" class="btn btn-primary" id="videoCapture">Capture frame</button>
         <button type="button" class="btn" id="videoCaptureDescribe">Capture &amp; describe</button>
+        <button type="button" class="btn" id="videoCropBtn" aria-pressed="false">Crop</button>
         <span class="hint" id="videoCaptureCount"></span>
       </div>
     </div>
