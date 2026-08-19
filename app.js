@@ -128,13 +128,18 @@ const MODEL_SHORT_NAMES = {
 const VERBOSITY_LEVELS = [
   {
     label: "Concise",
-    hint: "The default. Just the essentials — the fewest sentences that still convey the same instructional takeaway.",
-    estimatedOutputTokens: 350,
+    hint: "The default. Deliberately tight — the fewest sentences that still convey the same instructional takeaway.",
+    estimatedOutputTokens: 250,
+    // Deliberately harder-edged than the old wording: in practice every model
+    // still came back a notch too long and needed one "Shorter" pass, so the
+    // operative language from that revision lives here now.
     promptAddendum:
-      "VERBOSITY: Concise. Cover only what's necessary to give the same instructional takeaway a " +
-      "sighted student gets, in as few sentences as accomplishes that. Combine related points instead " +
-      "of listing them separately where nothing is lost. Don't restate in prose what structure already " +
-      "conveys — e.g. don't narrate a table's contents if the table itself is included.",
+      "VERBOSITY: Concise. A screen reader delivers this linearly, so extra length is a real cost — " +
+      "brevity is part of the accessibility. Convey the instructional takeaway in noticeably fewer " +
+      "sentences than feels natural: combine related points where nothing is lost, prefer one plain " +
+      "sentence per element over several, and cut any sentence a listener could lose without losing " +
+      "information. Never restate in prose what structure already conveys — a table, list, or MathML " +
+      "block that is included speaks for itself. When unsure whether a sentence earns its place, cut it.",
   },
   {
     label: "Standard",
@@ -164,13 +169,16 @@ const REVISIONS = {
   less:
     "REVISION: A previous description of this slide was longer than it needed to be. Convey the same " +
     "instructional takeaway in noticeably fewer sentences, combining related points where nothing is lost.",
+  // Unlike the two above, this one is not phrased as a revision of a previous
+  // attempt: it is also used as the FIRST run for a slide the user has marked
+  // OCR-only, where no previous description exists.
   textOnly:
-    "REVISION: This slide's only content is on-screen text (e.g. a title or section-divider slide) — " +
-    "there is nothing to describe visually. Override the instructions above: skip the opening summary " +
-    "sentence and any narrative description, and return only a semantic transcription of the text " +
-    "exactly as it appears, in reading order (a heading for a title, paragraphs or a list for any " +
-    "subtitle or supporting lines). Do not add framing like \"This slide reads\" or restate that it's a " +
-    "title slide.",
+    "TEXT ONLY: This slide's content is on-screen text and math — there is nothing to describe " +
+    "visually. Override the instructions above: skip the opening summary sentence and any narrative " +
+    "description, and return only a semantic transcription of what is written, exactly as it appears " +
+    "and in reading order — a heading for a title, paragraphs or a list for supporting lines, and " +
+    "MathML (with its plain-language reading) for any equation or expression. Do not add framing like " +
+    "\"This slide reads\" or restate that it's a title slide.",
 };
 
 function currentVerbosity() {
@@ -303,6 +311,7 @@ const els = {
 
   // video capture dialog
   videoBtn: document.getElementById("videoBtn"),
+  videoBtnEmpty: document.getElementById("videoBtnEmpty"),
   videoDialog: document.getElementById("videoDialog"),
   videoClose: document.getElementById("videoClose"),
   videoInput: document.getElementById("videoInput"),
@@ -943,6 +952,7 @@ async function addFiles(fileList, meta) {
       railEl: null,
       videoName: null,
       captureSeconds: null,
+      textOnly: false,
       ...meta,
     };
     jobs.set(job.id, job);
@@ -1050,7 +1060,7 @@ function removeJob(jobId) {
 
 /** Describe (or re-describe) exactly this one slide — never pulls in any
  *  other queued job the way handing it to runBatch()'s runnableJobs() would. */
-async function describeSingleJob(jobId) {
+async function describeSingleJob(jobId, mode) {
   const job = jobs.get(jobId);
   if (!job || batchRunning) return;
   const apiKey = els.apiKey.value.trim();
@@ -1061,6 +1071,12 @@ async function describeSingleJob(jobId) {
   }
   const model = els.model.value.trim() || "claude-sonnet-5";
   const verbosity = currentVerbosity();
+
+  // "ocr" marks the slide text-only from here on (describeOne reads the flag,
+  // so retries and model redos stay OCR); "describe" clears it; undefined —
+  // the error pane's Retry — keeps whichever mode the slide already had.
+  if (mode === "ocr") job.textOnly = true;
+  else if (mode === "describe") job.textOnly = false;
 
   setError("");
   job.attempt = 0;
@@ -1376,8 +1392,10 @@ function renderDetail() {
     const body = q(".js-pending-body");
     const detail = q(".js-pending-detail");
     const primary = q(".js-pending-primary");
+    const ocrBtn = q(".js-pending-ocr");
     const remove = q(".js-pending-remove");
 
+    ocrBtn.addEventListener("click", () => describeSingleJob(job.id, "ocr"));
     remove.disabled = job.state === "describing";
     remove.addEventListener("click", () => removeJob(job.id));
 
@@ -1431,7 +1449,8 @@ function renderDetail() {
       }
       primary.textContent = "Describe this slide";
       primary.hidden = batchRunning;
-      primary.addEventListener("click", () => describeSingleJob(job.id));
+      primary.addEventListener("click", () => describeSingleJob(job.id, "describe"));
+      ocrBtn.hidden = batchRunning;
     } else if (batchRunning) {
       if (runScope === "batch") {
         title.textContent = "Queued.";
@@ -1448,7 +1467,8 @@ function renderDetail() {
         ? `Ready to go — resized to ${job.width}×${job.height} so the request stays small.`
         : "Ready to go.";
       primary.textContent = "Describe this slide";
-      primary.addEventListener("click", () => describeSingleJob(job.id));
+      primary.addEventListener("click", () => describeSingleJob(job.id, "describe"));
+      ocrBtn.hidden = false;
     }
   }
 
@@ -1873,6 +1893,12 @@ async function describeOne(job, { apiKey, model, verbosity, revision }) {
   // user already took off the list. A job with no base64 hasn't finished
   // decoding; a request for it would carry an undefined image payload.
   if (!jobs.has(job.id) || !job.base64) return;
+
+  // A slide marked OCR-only stays OCR-only down every path that reaches here
+  // — Describe all, Retry, Redo with a stronger model — without each caller
+  // having to know about the flag. An explicit revision (the refine buttons)
+  // still wins, so "More detail" on an OCR slide does what it says.
+  if (!revision && job.textOnly) revision = REVISIONS.textOnly;
 
   job.state = "describing";
   job.attempt = 1;
@@ -2593,6 +2619,7 @@ function openVideoDialog() {
 }
 
 els.videoBtn.addEventListener("click", openVideoDialog);
+els.videoBtnEmpty.addEventListener("click", openVideoDialog);
 els.videoClose.addEventListener("click", () => els.videoDialog.close());
 
 // Fires for the close button and for Escape alike, so the object URL and the
@@ -3314,6 +3341,7 @@ function serializeProject() {
       originalMediaType: job.originalMediaType,
       videoName: job.videoName,
       captureSeconds: job.captureSeconds,
+      textOnly: !!job.textOnly,
     })),
   };
 }
@@ -3565,6 +3593,7 @@ function importedProjectRecord(raw) {
       // num() maps a non-finite value to null, so a frame captured at 0:00
       // keeps its legitimate 0 while junk is discarded.
       captureSeconds: num(saved.captureSeconds),
+      textOnly: !!saved.textOnly,
     };
   });
 

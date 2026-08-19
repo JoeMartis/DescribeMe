@@ -39,14 +39,15 @@ selected slide's image plus its description on the right.
    (and oversized files re-encoded) in your browser before upload, so
    original file size barely matters — anything up to 50 MB is accepted.
 
-   Or use **From video** in the header to pull slides out of a lecture
+   Or use **From video** (in the header, or right on the empty workspace's
+   splash screen) to pull slides out of a lecture
    recording: pick a video file from this computer, scrub to a slide, and
    **Capture frame** adds it to the batch named `<video>_HH-MM-SS.jpg` after
    the point it came from. **Capture & describe** does the same and starts
    describing it immediately. Playback speed (up to 3×) and volume sit under
    the scrub bar — speed in particular makes skimming a long lecture for the
    next slide much quicker. The timestamp is kept with the slide and shows
-   up again in the export (see step 7). The video is read straight off your
+   up again in the export (see step 8). The video is read straight off your
    disk through a `blob:` URL and is never uploaded, never persisted, and
    released as soon as the dialog closes — only the frames you capture
    become slides. Frames are grabbed at the same 1568px ceiling the API
@@ -56,10 +57,16 @@ selected slide's image plus its description on the right.
    it in the detail pane. The arrow buttons beside each row (or dragging a
    row) reorder the batch — review order, <kbd>←</kbd>/<kbd>→</kbd>
    navigation, and the export all follow the rail's order.
-3. For the selected slide, once described: read the rendered description,
+3. For a slide that is just on-screen text and math — a title, a section
+   divider, a wall of bullets — **OCR text only** (next to **Describe this
+   slide**) skips the narrative description entirely and returns a semantic
+   transcription instead: headings, lists, and MathML for any equation. The
+   slide stays in OCR mode for retries and model redos until you re-describe
+   it.
+4. For the selected slide, once described: read the rendered description,
    check **HTML source** for the raw markup, or use **Copy HTML** / **Copy
    text**.
-4. **Edit** turns the description directly editable in place, with a
+5. **Edit** turns the description directly editable in place, with a
    formatting toolbar (bold, italic, heading level, lists) that applies to
    the selected text. For structural fixes beyond what the toolbar covers —
    a list that should be a table, a `<p>` that should be a `<figcaption>` —
@@ -72,14 +79,14 @@ selected slide's image plus its description on the right.
    transcription instead), or **Redo with a stronger model** re-run just that
    slide with an adjusted prompt — the previous version is kept so **Undo
    revision** can restore it.
-5. **Approve & next** (or press <kbd>A</kbd>) marks the slide ready for
+6. **Approve & next** (or press <kbd>A</kbd>) marks the slide ready for
    export and jumps to the next unapproved one; <kbd>←</kbd>/<kbd>→</kbd>
    move between slides at any time. Only approved slides go into the export.
-6. Failed slides show the error inline with a **Retry** button; any slide can
+7. Failed slides show the error inline with a **Retry** button; any slide can
    be removed from the batch from its detail pane, and **New batch** in the
    rail clears all of them to start over (always behind a confirm — the
    warning is sharper when descriptions would be lost).
-7. **Export as .zip** combines every approved slide, in rail order, into a
+8. **Export as .zip** combines every approved slide, in rail order, into a
    single `description.html` — one `<img src="/static/…">` (using each
    slide's original filename, unless resized — see below) followed by its
    description, ready to paste whole into a Studio HTML component under the
