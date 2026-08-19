@@ -58,7 +58,7 @@ selected slide's image plus its description on the right.
    row) reorder the batch — review order, <kbd>←</kbd>/<kbd>→</kbd>
    navigation, and the export all follow the rail's order.
 3. For a slide that is just on-screen text and math — a title, a section
-   divider, a wall of bullets — **OCR text only** (next to **Describe this
+   divider, a wall of bullets — **OCR text/math only** (next to **Describe this
    slide**) skips the narrative description entirely and returns a semantic
    transcription instead: headings, lists, and MathML for any equation. The
    slide stays in OCR mode for retries and model redos until you re-describe
