@@ -3820,6 +3820,67 @@ async function deleteProject(id, name) {
   await refreshProjectList();
 }
 
+/**
+ * Swaps a project row's name for an input, in place. Enter or leaving the
+ * field commits; Escape cancels — with the default prevented, since inside a
+ * modal dialog an unhandled Escape means "close the whole dialog", and
+ * backing out of a rename should cost exactly one press, not the dialog.
+ */
+function beginProjectRename(record, nameEl, renameBtn) {
+  const input = document.createElement("input");
+  input.className = "input project-rename-input";
+  input.value = record.name;
+  input.setAttribute("aria-label", `New name for project ${record.name}`);
+  renameBtn.hidden = true;
+
+  let settled = false;
+  const finish = async (commit) => {
+    if (settled) return;
+    settled = true;
+    const newName = input.value.trim();
+    if (commit && newName && newName !== record.name) {
+      try {
+        // Re-read rather than trusting the listing's copy — the record may
+        // have been resaved since the list rendered, and putting a stale
+        // copy back would quietly roll those slides over.
+        const stored = await projectStoreRequest("readonly", (store) => store.get(record.id));
+        if (stored) {
+          stored.name = newName;
+          // savedAt deliberately untouched: a rename is not new work, and
+          // bumping it would reshuffle the list mid-click.
+          await projectStoreRequest("readwrite", (store) => store.put(stored));
+          // If this project is the open batch, the header must follow — and
+          // stay followed across the autosave's reload restore.
+          if (record.id === currentProjectId) {
+            els.batchName.value = newName;
+            els.batchName.dataset.userNamed = "1";
+            markDirty();
+          }
+          announceProjects(`Renamed to "${newName}".`);
+        }
+      } catch (err) {
+        setProjectsError(`Couldn't rename: ${err.message || err}`);
+      }
+    }
+    refreshProjectList();
+  };
+
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      finish(true);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      finish(false);
+    }
+  });
+  input.addEventListener("blur", () => finish(true));
+
+  nameEl.replaceWith(input);
+  input.focus();
+  input.select();
+}
+
 async function refreshProjectList() {
   let records;
   try {
@@ -3840,9 +3901,19 @@ async function refreshProjectList() {
 
     const text = document.createElement("div");
     text.className = "project-text";
+    const nameRow = document.createElement("div");
+    nameRow.className = "project-name-row";
     const name = document.createElement("p");
     name.className = "project-name";
     name.textContent = record.name;
+    const renameBtn = document.createElement("button");
+    renameBtn.type = "button";
+    renameBtn.className = "btn btn-icon project-rename";
+    renameBtn.setAttribute("aria-label", `Rename project ${record.name}`);
+    renameBtn.innerHTML =
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"></path></svg>';
+    renameBtn.addEventListener("click", () => beginProjectRename(record, name, renameBtn));
+    nameRow.append(name, renameBtn);
     const meta = document.createElement("p");
     meta.className = "project-meta";
     const described = record.jobs.filter((j) => j.state === "done").length;
@@ -3853,7 +3924,7 @@ async function refreshProjectList() {
     ];
     if (record.id === currentProjectId) bits.push("open now");
     meta.textContent = bits.join(" · ");
-    text.append(name, meta);
+    text.append(nameRow, meta);
 
     // Visible labels repeat identically on every row; the aria-label carries
     // the project name so a screen reader's button list isn't just
