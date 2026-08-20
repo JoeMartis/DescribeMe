@@ -89,7 +89,12 @@ selected slide's image plus its description on the right.
    narrative description.
 4. For the selected slide, once described: read the rendered description,
    check **HTML source** for the raw markup, or use **Copy HTML** / **Copy
-   text**.
+   text**. Equation markup is validated the moment a description lands —
+   browsers render *something* even for misnested MathML (usually a
+   scrambled stack a sighted reviewer skims past), so a structurally broken
+   equation shows a warning naming the fix instead of hiding in plain
+   sight. The check reruns live, so an edit that repairs the markup clears
+   it.
 5. **Edit** turns the description directly editable in place, with a
    formatting toolbar (bold, italic, heading level, lists) that applies to
    the selected text. For structural fixes beyond what the toolbar covers —

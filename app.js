@@ -18,6 +18,10 @@ Structure and order
   in <ul>/<ol>.
 
 Equations and symbols
+- MathML must be well-formed: close every tag, and give <mfrac>, <msub>,
+  <msup>, <mover>, <munder> and <mroot> exactly two child elements each —
+  wrap multi-token numerators, denominators and bases in <mrow>. Misnested
+  markup renders as scrambled symbols for sighted readers.
 - Render every equation in MathML so screen readers can parse it, then
   immediately follow it with a plain-language reading in a <span class="sr-note">
   (e.g., "read as: the integral from 0 to infinity of e to the minus x squared, dx").
@@ -1385,6 +1389,20 @@ function renderDetail() {
     if (job.edited) features.push("edited by you");
     q(".js-desc-meta").textContent = [`${words} words`, ...features].join(" · ");
 
+    // Checked live on every render (so an edit that fixes the math clears
+    // it) and combined with the parse-time flag, which sees damage the
+    // parsed tree no longer shows.
+    const arityProblems = mathmlProblems(job.resultHtml);
+    const mathWarn = q(".js-math-warning");
+    if (job.mathWarning || arityProblems.length > 0) {
+      mathWarn.hidden = false;
+      const detail = arityProblems.length > 0 ? ` (${[...new Set(arityProblems)].slice(0, 3).join(", ")})` : "";
+      mathWarn.textContent =
+        (job.mathWarning || "This description's equation markup is malformed and will render scrambled.") +
+        detail +
+        " Try Redo with a stronger model, or re-describe this slide.";
+    }
+
     const desc = q(".js-desc");
     desc.hidden = false;
     const preview = q(".js-preview");
@@ -1640,6 +1658,7 @@ function commitEdit() {
   job.resultHtml = holder.innerHTML;
   job.resultText = domFragmentToText(fragment);
   job.edited = true;
+  job.mathWarning = null;
   editMode = null;
   preview.removeAttribute("contenteditable");
   renderDetail();
@@ -1690,6 +1709,7 @@ function commitSourceEdit() {
   job.resultHtml = holder.innerHTML;
   job.resultText = domFragmentToText(fragment);
   job.edited = true;
+  job.mathWarning = null;
   editMode = null;
   textarea.readOnly = true;
   renderDetail();
@@ -2323,12 +2343,71 @@ function domFragmentToText(fragment) {
     .trim();
 }
 
+// ---------- MathML validation ----------
+//
+// Malformed equation markup fails ugly: the browser's error recovery
+// renders SOMETHING — cascading fractions, operators stacked in a
+// staircase — which a sighted reviewer skims past as "math-looking" and a
+// screen reader garbles. The rules are strict enough to check mechanically,
+// so a broken equation gets flagged the moment it lands instead of sitting
+// there looking done.
+
+// Layout elements with a fixed child count in MathML Core.
+const MATHML_ARITY = {
+  mfrac: 2,
+  mover: 2,
+  munder: 2,
+  msub: 2,
+  msup: 2,
+  mroot: 2,
+  msubsup: 3,
+  munderover: 3,
+};
+
+/** Structural problems in the (already parsed) description HTML. */
+function mathmlProblems(html) {
+  const holder = document.createElement("div");
+  holder.innerHTML = html;
+  const problems = [];
+  holder.querySelectorAll("math *").forEach((el) => {
+    const tag = el.tagName.toLowerCase();
+    const need = MATHML_ARITY[tag];
+    if (need !== undefined && el.children.length !== need) {
+      problems.push(`<${tag}> with ${el.children.length} part${el.children.length === 1 ? "" : "s"} (needs ${need})`);
+    }
+  });
+  return problems;
+}
+
+/**
+ * Whether the model's RAW <math> markup was well-formed. The HTML parser
+ * silently repairs unclosed and misnested tags by moving content around —
+ * producing a structurally "valid" tree that renders scrambled, which the
+ * arity check above can no longer see. XML parsing is strict, so running
+ * each raw <math> block through it catches exactly that family. Checked
+ * against the raw string because the damage is invisible after parsing.
+ */
+function rawMathIsWellFormed(rawHtml) {
+  const blocks = rawHtml.match(/<math[\s\S]*?<\/math>/gi) || [];
+  return blocks.every((block) => {
+    // Numeric/character entities are fine either way; named HTML entities
+    // (&nbsp;) aren't defined in bare XML — neutralize so only STRUCTURE
+    // can fail the parse.
+    const neutral = block.replace(/&[a-zA-Z][a-zA-Z0-9]*;/g, "?");
+    const doc = new DOMParser().parseFromString(neutral, "application/xml");
+    return !doc.querySelector("parsererror");
+  });
+}
+
 function applyResult(job, rawHtml) {
   const fragment = sanitizeHtmlFragment(rawHtml);
   const holder = document.createElement("div");
   holder.appendChild(fragment.cloneNode(true));
   job.resultHtml = holder.innerHTML;
   job.resultText = domFragmentToText(fragment);
+  job.mathWarning = rawMathIsWellFormed(rawHtml)
+    ? null
+    : "The equation markup in this description came back misnested, so it will render scrambled.";
 }
 
 // ---------- Capture from video ----------
@@ -3717,6 +3796,7 @@ function serializeProject() {
       captureSeconds: job.captureSeconds,
       textOnly: !!job.textOnly,
       transcriptContext: job.transcriptContext,
+      mathWarning: typeof job.mathWarning === "string" ? job.mathWarning : null,
     })),
   };
 }
@@ -4049,6 +4129,7 @@ function importedProjectRecord(raw) {
         typeof saved.transcriptContext === "string" && saved.transcriptContext
           ? saved.transcriptContext
           : null,
+      mathWarning: typeof saved.mathWarning === "string" && saved.mathWarning ? saved.mathWarning : null,
     };
   });
 

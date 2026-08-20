@@ -493,6 +493,11 @@
         <span class="edit-toolbar-hint">Formatting applies to the selected text. Save with the Save changes button above.</span>
       </div>
 
+      <!-- Filled and shown by renderDetail when a description's MathML is
+           structurally broken — the browser still renders SOMETHING for bad
+           math, so without this the defect hides in plain sight. -->
+      <p class="error math-warning js-math-warning" hidden></p>
+
       <article class="desc js-desc" hidden>
         <div class="result-preview js-preview" role="region"></div>
       </article>

@@ -1047,6 +1047,9 @@ dialog.sheet::backdrop { background: rgba(36, 26, 18, 0.55); }
 /* Small enough to sit inside the name line without inflating the row. */
 .project-rename { width: 26px; height: 26px; flex-shrink: 0; }
 .project-rename svg { width: 12px; height: 12px; }
+/* Slightly separated from the preview it warns about. */
+.math-warning { margin: 10px 0 2px; }
+
 .project-rename-input {
   font-family: var(--font-heading);
   font-size: 13px;
