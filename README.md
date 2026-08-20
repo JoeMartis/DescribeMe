@@ -98,11 +98,15 @@ selected slide's image plus its description on the right.
    formats re-encode as high-quality JPEG. This runs against each slide's
    original bytes, not whatever was resized for the API call.
 
-   A slide captured from a video carries its timestamp into the export: it
-   is wrapped in a `<figure>` whose `<figcaption>` reads *Slide shown at
-   4:32 in lecture_03*, so the caption is tied to the image for a screen
-   reader rather than floating beside it. Uploaded slides keep the plain
-   `<img>` they have always had.
+   Each slide's block is shaped for reading order: the `<h2>` title (with
+   `tabindex="0"` so slide sections are keyboard-reachable), the opening
+   summary paragraph, then the image, then the rest of the description — so
+   a listener hears what the slide is before meeting it. A slide captured
+   from a video gets its image in a `<figure>` whose `<figcaption>` reads
+   *Slide in video at 4:32*, tying the timestamp to the image for a screen
+   reader; uploaded slides get a plain `<img>`. The `<figure>` element is
+   reserved for the slide image alone — any figure markup inside a
+   description is unwrapped to paragraphs on the way out.
 
 Nothing is uploaded to any server other than the MIT Parley endpoint. There is
 no backend for this site — GitHub Pages only serves the static files.

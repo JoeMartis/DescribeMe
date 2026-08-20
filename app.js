@@ -24,7 +24,9 @@ Equations and symbols
 - Spell out each symbol and abbreviation the first time it appears.
 
 Figures, diagrams, processes
-- Wrap each in <figure> with a <figcaption>.
+- Describe each in ordinary paragraphs (<p>). Do not use <figure> or
+  <figcaption> — the page this is embedded in reserves those for the slide
+  image itself.
 - Name the figure type first (graph, circuit, free-body diagram, reaction
   pathway…), then describe its components, their spatial or logical
   relationships, and the direction of any flow or sequence.
@@ -40,7 +42,7 @@ Color, emphasis, callouts
 Constraints
 - Do not include <img> elements. You have no URL for the original slide to
   reference, so any <img> you emit will render as a broken image — describe
-  everything visual in text, inside <figure>/<figcaption> where appropriate.
+  everything visual in text.
 - Include only what is present on the slide. Do not infer values, add outside
   facts, or editorialize. This includes summary framing: do not append a
   "Takeaways," "Key points," or similar synthesis section unless the slide
@@ -2985,31 +2987,66 @@ function isoDuration(totalSeconds) {
 }
 
 /**
- * One slide's block in the exported fragment. A frame captured from a video
- * is wrapped in a <figure> so its timestamp is a <figcaption> tied to the
- * image — the association a bare <p> would not carry to a screen reader —
- * while an uploaded slide keeps the plain <img> it has always had.
+ * One slide's block in the exported fragment, shaped as:
+ *
+ *   <h2 tabindex="0">title</h2>       (tabindex so the slide sections are
+ *   <p>opening summary</p>            keyboard-reachable in Studio)
+ *   <figure> img + timestamp </figure>  — or a bare <img> for uploads
+ *   ...rest of the description...
+ *
+ * The image sits after the title and opening sentence rather than in front
+ * of everything, so a listener hears what the slide is before meeting it.
+ * The <figure>/<figcaption> pair is reserved for the slide image and its
+ * timestamp: any figure the model wrote inside a description is unwrapped
+ * (its caption becoming a <p>) — the prompt now forbids them, but slides
+ * described before that change still carry some.
  *
  * The caption is derived from job.captureSeconds rather than parsed back out
  * of the filename: the name is user-editable and gets rewritten on the way
  * out (spaces, extension, de-duplication suffix), so it is not a reliable
- * carrier. Built by string concatenation onto already-sanitized resultHtml —
- * running this through the app's own sanitizer would strip the /static/ src
- * and then drop the <img> entirely.
+ * carrier. The DOM work here operates on already-sanitized resultHtml and
+ * our own image markup — nothing untrusted. Running the result through the
+ * app's own sanitizer instead would strip the /static/ src and then drop
+ * the <img> entirely.
  */
 function exportBlockFor({ job, imageName }) {
-  const img = `<img src="/static/${escapeHtml(imageName)}" alt="">`;
+  const container = document.createElement("div");
+  container.innerHTML = job.resultHtml;
+
+  container.querySelectorAll("h2").forEach((h) => h.setAttribute("tabindex", "0"));
+
+  container.querySelectorAll("figcaption").forEach((caption) => {
+    const p = document.createElement("p");
+    while (caption.firstChild) p.appendChild(caption.firstChild);
+    caption.replaceWith(p);
+  });
+  container.querySelectorAll("figure").forEach((figure) => {
+    while (figure.firstChild) figure.parentNode.insertBefore(figure.firstChild, figure);
+    figure.remove();
+  });
+
+  const holder = document.createElement("div");
   // Number.isFinite, not truthiness: a frame captured at 0:00 is legitimate
   // and its timestamp is 0.
-  if (!Number.isFinite(job.captureSeconds)) return `${img}\n${job.resultHtml}`;
+  holder.innerHTML = Number.isFinite(job.captureSeconds)
+    ? `<figure>\n<img src="/static/${escapeHtml(imageName)}" alt="">\n` +
+      `<figcaption>Slide in video at <time datetime="${isoDuration(job.captureSeconds)}">${formatClock(job.captureSeconds)}</time></figcaption>\n</figure>`
+    : `<img src="/static/${escapeHtml(imageName)}" alt="">`;
 
-  const clock = formatClock(job.captureSeconds);
-  const source = job.videoName ? ` in ${escapeHtml(job.videoName)}` : "";
-  return (
-    `<figure>\n${img}\n` +
-    `<figcaption>Slide shown at <time datetime="${isoDuration(job.captureSeconds)}">${clock}</time>${source}</figcaption>\n` +
-    `</figure>\n${job.resultHtml}`
-  );
+  // Placement anchor: a leading heading, then the summary paragraph right
+  // after it. A description that opens some other way gets the image first,
+  // as before.
+  let anchor = null;
+  const children = [...container.children];
+  let i = 0;
+  if (children[i] && /^H[1-4]$/.test(children[i].tagName)) anchor = children[i++];
+  if (children[i] && children[i].tagName === "P") anchor = children[i];
+
+  const imageNodes = [document.createTextNode("\n"), ...holder.childNodes, document.createTextNode("\n")];
+  if (anchor) imageNodes.reverse().forEach((node) => anchor.after(node));
+  else imageNodes.reverse().forEach((node) => container.prepend(node));
+
+  return container.innerHTML;
 }
 
 // Downscales to EXPORT_RESIZE_WIDTH only when the image is wider than that
