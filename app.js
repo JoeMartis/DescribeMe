@@ -907,8 +907,25 @@ function selectNextUnapproved() {
  */
 async function addFiles(fileList, meta) {
   setError("");
-  const files = Array.from(fileList);
-  if (files.length === 0) return;
+  const all = Array.from(fileList);
+  if (all.length === 0) return;
+
+  // Transcripts are peeled off before anything image-shaped happens: they
+  // don't occupy batch slots, and a full batch must not stop one attaching.
+  const files = all.filter((f) => !isTranscriptFile(f));
+  const transcriptNotes = [];
+  for (const f of all.filter(isTranscriptFile)) {
+    transcriptNotes.push(await registerWorkspaceTranscript(f));
+  }
+  if (files.length === 0) {
+    if (transcriptNotes.length > 0) {
+      // renderAll before the announcement, not after: updateOverallStatus
+      // blanks the status line for an empty batch and would eat the note.
+      renderAll();
+      setStatus(transcriptNotes.join(" "));
+    }
+    return;
+  }
 
   if (jobs.size >= MAX_BATCH_SIZE) {
     setError(`You already have the maximum of ${MAX_BATCH_SIZE} images queued.`);
@@ -961,6 +978,22 @@ async function addFiles(fileList, meta) {
       transcriptContext: null,
       ...meta,
     };
+
+    // An upload named on the capture convention — <stem>_HH-MM-SS.<ext> —
+    // carries its own timestamp, and pairs with a workspace transcript of
+    // that stem. Only when no meta supplied one: a dialog capture already
+    // knows its timestamp and its transcript, and they are authoritative.
+    if (!Number.isFinite(job.captureSeconds)) {
+      const stamp = timestampFromName(file.name);
+      if (stamp) {
+        job.captureSeconds = stamp.seconds;
+        job.videoName = normalizeStem(stamp.prefix);
+        const transcript = workspaceTranscripts.get(job.videoName);
+        if (transcript && !job.transcriptContext) {
+          job.transcriptContext = excerptFromCues(transcript.cues, stamp.seconds);
+        }
+      }
+    }
     jobs.set(job.id, job);
 
     try {
@@ -993,6 +1026,10 @@ async function addFiles(fileList, meta) {
 
   maybeNameBatch();
   renderAll();
+  // After renderAll for the same reason as the early return above — and it
+  // outranks the batch summary this once: the attachment is what just
+  // happened, and the summary is back on the next render anyway.
+  if (transcriptNotes.length > 0) setStatus(transcriptNotes.join(" "));
 }
 
 /** Default the batch name to whatever the filenames have in common. */
@@ -2325,13 +2362,12 @@ function parseSrt(raw) {
 }
 
 /**
- * The transcript within a minute either side of the capture — what the
+ * The transcript within a minute either side of a moment — what the
  * lecturer was saying while this slide was up. Trimmed from the edges when
  * over budget, so what survives is what was said closest to the moment.
  */
-function transcriptExcerpt(seconds) {
-  if (!videoTranscript) return null;
-  let picked = videoTranscript.cues.filter(
+function excerptFromCues(cues, seconds) {
+  let picked = cues.filter(
     (cue) =>
       cue.end >= seconds - TRANSCRIPT_WINDOW_SECONDS &&
       cue.start <= seconds + TRANSCRIPT_WINDOW_SECONDS
@@ -2345,6 +2381,84 @@ function transcriptExcerpt(seconds) {
   }
   const text = picked.map((cue) => cue.text).join(" ");
   return text ? text.slice(0, TRANSCRIPT_EXCERPT_MAX_CHARS) : null;
+}
+
+/** The excerpt against the video dialog's own loaded transcript. */
+function transcriptExcerpt(seconds) {
+  return videoTranscript ? excerptFromCues(videoTranscript.cues, seconds) : null;
+}
+
+// ---------- Transcripts dropped into the workspace ----------
+//
+// The other way a transcript gets in: dropped or picked alongside uploaded
+// images. Pairing is by name — "Lecture_3.srt" belongs to images named
+// "Lecture_3_HH-MM-SS.*", the exact convention the video capture writes.
+// Session-only like the dialog's transcript; what persists is the per-job
+// excerpt (and timestamp) stamped onto matching jobs.
+
+const workspaceTranscripts = new Map(); // normalized stem -> { name, cues }
+
+/**
+ * "Lecture_3_00-04-32.jpg" -> { prefix: "Lecture_3", seconds: 272 }, or null
+ * for a name without the trailing timestamp. Deliberately strict — exactly
+ * HH-MM-SS at the end of the stem — so ordinary filenames with digits don't
+ * get read as timestamps.
+ */
+function timestampFromName(name) {
+  const stem = name.replace(/\.[^.]+$/, "");
+  const m = stem.match(/[_\s-](\d{2})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  return {
+    prefix: stem.slice(0, m.index),
+    seconds: Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]),
+  };
+}
+
+function isTranscriptFile(file) {
+  return /\.(srt|vtt)$/i.test(file.name);
+}
+
+/**
+ * Parses and stores a transcript dropped into the workspace, then walks the
+ * existing batch attaching context to any job it pairs with — so the order
+ * you drop things in doesn't matter, and a batch captured earlier from the
+ * video dialog can pick its transcript up after the fact.
+ */
+async function registerWorkspaceTranscript(file) {
+  let cues = [];
+  try {
+    cues = parseSrt(await file.text());
+  } catch (err) {
+    cues = [];
+  }
+  if (cues.length === 0) return `No captions found in "${file.name}" — is it a valid .srt file?`;
+
+  const stem = safeVideoStem(file.name);
+  workspaceTranscripts.set(stem, { name: file.name, cues });
+
+  let attached = 0;
+  for (const job of jobs.values()) {
+    if (job.transcriptContext) continue; // already has context; don't clobber
+    const seconds = Number.isFinite(job.captureSeconds)
+      ? job.captureSeconds
+      : (() => {
+          const stamp = timestampFromName(job.name);
+          return stamp && normalizeStem(stamp.prefix) === stem ? stamp.seconds : null;
+        })();
+    if (seconds === null) continue;
+    // For name-derived matches the stem check happened above; for jobs that
+    // already carry a timestamp, pair on their recorded source video.
+    if (Number.isFinite(job.captureSeconds) && job.videoName !== stem) continue;
+    job.captureSeconds = seconds;
+    if (!job.videoName) job.videoName = stem;
+    job.transcriptContext = excerptFromCues(cues, seconds);
+    attached += job.transcriptContext ? 1 : 0;
+  }
+  if (attached > 0) markDirty();
+
+  return attached > 0
+    ? `Transcript "${file.name}" attached to ${attached} slide${attached === 1 ? "" : "s"}.`
+    : `Transcript "${file.name}" loaded — it will pair with images named ${stem}_HH-MM-SS.`;
 }
 
 function setTranscriptHint(message) {
@@ -2393,13 +2507,19 @@ function formatStampForName(totalSeconds) {
  * rather than escaped: the zip entry would survive them, but Studio
  * truncates the URL at the fragment and the image silently 404s.
  */
-function safeVideoStem(fileName) {
-  const stem = fileName.replace(/\.[^.]+$/, "");
+/** The cleaning half alone, for strings that are already extension-less —
+ *  an image name's prefix may legitimately contain a dot ("Lecture.v2"),
+ *  which extension-stripping would eat. */
+function normalizeStem(stem) {
   const cleaned = stem
     .replace(/\s+/g, "_")
     .replace(/[^a-zA-Z0-9._-]+/g, "")
     .replace(/^[-_.]+|[-_.]+$/g, "");
   return cleaned || "video";
+}
+
+function safeVideoStem(fileName) {
+  return normalizeStem(fileName.replace(/\.[^.]+$/, ""));
 }
 
 // The two lines are alternatives, not companions: leaving the last success

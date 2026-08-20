@@ -39,6 +39,17 @@ selected slide's image plus its description on the right.
    (and oversized files re-encoded) in your browser before upload, so
    original file size barely matters — anything up to 50 MB is accepted.
 
+   Uploads can carry timestamps and transcripts through their names. An
+   image named `<stem>_HH-MM-SS.<ext>` (the exact convention **From
+   video**'s captures use) is treated as a frame from `<stem>` at that
+   time: it gets the timestamped `<figure>` caption in the export, and if a
+   caption file named `<stem>.srt` is dropped in with the images — before
+   or after them, order doesn't matter, and it takes no batch slot — the
+   transcript from the minute around each image's timestamp is attached as
+   context for its description, exactly as with dialog captures. So a whole
+   lecture round-trips: capture frames, export, and later re-upload the
+   images plus the `.srt` with everything still lining up.
+
    Or use **From video** (in the header, or right on the empty workspace's
    splash screen) to pull slides out of a lecture
    recording: pick a video file from this computer, scrub to a slide, and
