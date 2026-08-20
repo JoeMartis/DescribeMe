@@ -441,17 +441,25 @@ button.chip:hover { background: var(--swamp-parchment); }
 .batch-name {
   font-family: var(--font-heading);
   font-size: 13px;
-  border: var(--border-width) solid transparent;
+  /* Visibly an input, not a label: this field spent its life styled as plain
+     text that only revealed itself on hover, and nobody discovered they
+     could rename the batch. The pencil is a background image so no markup
+     changes — it hides on focus, where the caret takes over the job. */
+  border: var(--border-width) solid rgba(36, 26, 18, 0.4);
   border-radius: 999px;
-  background: transparent;
+  background-color: var(--raised);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236b5a45' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 12px;
   color: inherit;
-  padding: 3px 10px;
+  padding: 3px 28px 3px 10px;
   margin-left: -10px;
-  width: 22ch;
+  width: 24ch;
   max-width: 100%;
 }
 .batch-name:hover { border-color: var(--border); }
-.batch-name:focus { border-color: var(--border); background: var(--paper-white); }
+.batch-name:focus { border-color: var(--border); background-color: var(--paper-white); background-image: none; }
 .batch-summary { font-family: var(--font-accent); font-size: 13px; color: var(--faint); padding: 0 10px; }
 .header-spacer { flex: 1; }
 .header-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
