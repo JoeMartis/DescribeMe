@@ -122,8 +122,9 @@ selected slide's image plus its description on the right.
    video(s) it describes. The zip also includes each slide's image file
    under a `static/` folder, to upload into Studio's Files & Uploads under
    that same name so the reference resolves. **Resize to 800px wide**,
-   next to the export button, downscales any exported image wider than
-   that; narrower images are left untouched. PNGs stay lossless PNG; other
+   next to the export button and on by default, downscales any exported
+   image wider than that; narrower images are left untouched — untick it
+   for full-resolution exports. PNGs stay lossless PNG; other
    formats re-encode as high-quality JPEG. This runs against each slide's
    original bytes, not whatever was resized for the API call.
 
