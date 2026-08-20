@@ -55,7 +55,9 @@ selected slide's image plus its description on the right.
    recording: pick a video file from this computer, scrub to a slide, and
    **Capture frame** adds it to the batch named `<video>_HH-MM-SS.jpg` after
    the point it came from. **Capture & describe** does the same and starts
-   describing it immediately. Playback speed (up to 3×) and volume sit under
+   describing it immediately, and **Capture & OCR** starts it in text/math
+   transcription mode instead — the same OCR mode as the workspace button,
+   for title and bullet slides spotted right in the player. Playback speed (up to 3×) and volume sit under
    the scrub bar — speed in particular makes skimming a long lecture for the
    next slide much quicker. **Add transcript (.srt)** optionally attaches
    the lecture's caption file — it must be named like the video, which is

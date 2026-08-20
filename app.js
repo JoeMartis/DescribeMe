@@ -337,6 +337,7 @@ const els = {
   videoVolume: document.getElementById("videoVolume"),
   videoCapture: document.getElementById("videoCapture"),
   videoCaptureDescribe: document.getElementById("videoCaptureDescribe"),
+  videoCaptureOcr: document.getElementById("videoCaptureOcr"),
   videoCropBtn: document.getElementById("videoCropBtn"),
   videoCropOverlay: document.getElementById("videoCropOverlay"),
   videoCropRect: document.getElementById("videoCropRect"),
@@ -2797,20 +2798,22 @@ function dataUrlToFile(dataUrl, name, type) {
   return new File([base64ToBytes(base64)], name, { type });
 }
 
-async function captureFrame(describeAfter) {
+/** runMode: null = just capture; "describe" or "ocr" = capture and start
+ *  that run immediately (the same modes describeSingleJob takes). */
+async function captureFrame(runMode) {
   // Both awaits below yield to the event loop, so without this a quick
   // double-click runs two captures concurrently — each passing the
   // already-captured check before the other records its second.
   if (captureInFlight) return;
   captureInFlight = true;
   try {
-    await runCapture(describeAfter);
+    await runCapture(runMode);
   } finally {
     captureInFlight = false;
   }
 }
 
-async function runCapture(describeAfter) {
+async function runCapture(runMode) {
   setVideoError("");
   if (jobs.size >= MAX_BATCH_SIZE) {
     setVideoError(`This batch is full at ${MAX_BATCH_SIZE} slides — export or start a new batch.`);
@@ -2882,13 +2885,15 @@ async function runCapture(describeAfter) {
       `Captured the ${frame.cropped ? "cropped " : ""}frame at ${formatClock(frame.seconds)} as ${name}.`
     );
 
-  if (!describeAfter) return;
+  if (!runMode) return;
   // A job holds its batch slot before its image data is ready; describing it
   // that early would skip it silently. addFiles has already awaited the
   // decode by this point, so base64 is the check that it actually succeeded.
   // describeSingleJob (not describeOne) because it owns the API-key lookup,
   // the cancel flag and the re-render that a bare describeOne would skip.
-  if (added.base64 && !batchRunning) describeSingleJob(added.id);
+  // The mode rides through it, so "ocr" marks the slide text-only exactly
+  // as the workspace OCR button does.
+  if (added.base64 && !batchRunning) describeSingleJob(added.id, runMode);
 }
 
 function openVideoDialog() {
@@ -3051,8 +3056,9 @@ els.videoVolume.addEventListener("input", () => {
 // itself — so the icon can never drift out of step with what you hear.
 els.videoEl.addEventListener("volumechange", updateVolumeUi);
 
-els.videoCapture.addEventListener("click", () => captureFrame(false));
-els.videoCaptureDescribe.addEventListener("click", () => captureFrame(true));
+els.videoCapture.addEventListener("click", () => captureFrame(null));
+els.videoCaptureDescribe.addEventListener("click", () => captureFrame("describe"));
+els.videoCaptureOcr.addEventListener("click", () => captureFrame("ocr"));
 
 // ----- Crop wiring -----
 
