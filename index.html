@@ -333,6 +333,12 @@
         <input type="file" id="videoInput" accept="video/*" aria-label="Choose a video file">
       </span>
       <span class="hint" id="videoFileName">No video chosen yet.</span>
+      <span class="btn file-btn" id="transcriptBtn" hidden
+            title="Optional. What the lecturer was saying around each captured slide is sent as context, for sharper terminology in the descriptions.">
+        Add transcript (.srt)
+        <input type="file" id="transcriptInput" accept=".srt,.vtt" aria-label="Add a transcript file for this video">
+      </span>
+      <span class="hint" id="transcriptHint" hidden></span>
     </div>
 
     <div id="videoStage" hidden>

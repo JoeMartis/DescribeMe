@@ -318,6 +318,9 @@ const els = {
   videoClose: document.getElementById("videoClose"),
   videoInput: document.getElementById("videoInput"),
   videoFileName: document.getElementById("videoFileName"),
+  transcriptBtn: document.getElementById("transcriptBtn"),
+  transcriptInput: document.getElementById("transcriptInput"),
+  transcriptHint: document.getElementById("transcriptHint"),
   videoStage: document.getElementById("videoStage"),
   videoEl: document.getElementById("videoEl"),
   videoPlayPause: document.getElementById("videoPlayPause"),
@@ -955,6 +958,7 @@ async function addFiles(fileList, meta) {
       videoName: null,
       captureSeconds: null,
       textOnly: false,
+      transcriptContext: null,
       ...meta,
     };
     jobs.set(job.id, job);
@@ -1285,6 +1289,7 @@ function renderDetail() {
   if (Number.isFinite(job.captureSeconds)) {
     metaBits.push(`Captured at ${formatClock(job.captureSeconds)}`);
   }
+  if (job.transcriptContext) metaBits.push("Transcript context attached");
   if (job.resized) {
     metaBits.push(
       `Resized ${job.originalWidth}×${job.originalHeight} → ${job.width}×${job.height} before upload`
@@ -1951,7 +1956,17 @@ async function describeOne(job, { apiKey, model, verbosity, revision }) {
                 },
                 {
                   type: "text",
-                  text: USER_INSTRUCTION_TEXT,
+                  // The transcript is grounding, not content: it sharpens
+                  // terminology (the lecturer said "SSP scenarios", so the
+                  // axis label isn't guessed at) without licensing the model
+                  // to describe things the slide doesn't show.
+                  text: job.transcriptContext
+                    ? `${USER_INSTRUCTION_TEXT}\n\nTRANSCRIPT CONTEXT — what the lecturer was saying ` +
+                      `around the moment this slide was shown. Use it only to interpret what is visible: ` +
+                      `correct spellings and terminology, expand abbreviations, name symbols the way the ` +
+                      `course does. Do not add information from it that is not on the slide, do not quote ` +
+                      `it, and do not describe it.\n\n${job.transcriptContext}`
+                    : USER_INSTRUCTION_TEXT,
                 },
               ],
             },
@@ -2267,6 +2282,83 @@ let videoCaptureCount = 0;
 // caption — indistinguishable in the export.
 let videoCapturedSeconds = new Set();
 let captureInFlight = false;
+// { stem, name, cues: [{ start, end, text }] } for the loaded video, or null.
+// Session-only, like the video itself — what persists is the per-job excerpt
+// attached at capture time.
+let videoTranscript = null;
+
+const TRANSCRIPT_WINDOW_SECONDS = 60;
+const TRANSCRIPT_EXCERPT_MAX_CHARS = 1800;
+
+/**
+ * Parses SRT (and, incidentally, most WebVTT — same timestamp shape, and
+ * non-cue blocks like the WEBVTT header simply fail the timecode match and
+ * are skipped). Returns [{ start, end, text }] in seconds, sorted. Tolerant
+ * by design: a malformed block is dropped, not fatal — a transcript with a
+ * few bad cues is still worth having.
+ */
+function parseSrt(raw) {
+  const TIMECODE =
+    /(\d{1,2}):(\d{2}):(\d{2})[.,](\d{1,3})\s*-->\s*(\d{1,2}):(\d{2}):(\d{2})[.,](\d{1,3})/;
+  const cues = [];
+  for (const block of raw.replace(/\r/g, "").split(/\n{2,}/)) {
+    const lines = block.split("\n");
+    const timeAt = lines.findIndex((line) => TIMECODE.test(line));
+    if (timeAt === -1) continue;
+    const m = lines[timeAt].match(TIMECODE);
+    const toSeconds = (h, min, s, ms) =>
+      Number(h) * 3600 + Number(min) * 60 + Number(s) + Number(ms.padEnd(3, "0")) / 1000;
+    const text = lines
+      .slice(timeAt + 1)
+      .join(" ")
+      .replace(/<[^>]*>/g, "") // <i>, <font>, speaker tags
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!text) continue;
+    cues.push({
+      start: toSeconds(m[1], m[2], m[3], m[4]),
+      end: toSeconds(m[5], m[6], m[7], m[8]),
+      text,
+    });
+  }
+  return cues.sort((a, b) => a.start - b.start);
+}
+
+/**
+ * The transcript within a minute either side of the capture — what the
+ * lecturer was saying while this slide was up. Trimmed from the edges when
+ * over budget, so what survives is what was said closest to the moment.
+ */
+function transcriptExcerpt(seconds) {
+  if (!videoTranscript) return null;
+  let picked = videoTranscript.cues.filter(
+    (cue) =>
+      cue.end >= seconds - TRANSCRIPT_WINDOW_SECONDS &&
+      cue.start <= seconds + TRANSCRIPT_WINDOW_SECONDS
+  );
+  const total = () => picked.reduce((n, cue) => n + cue.text.length + 1, 0);
+  while (picked.length > 1 && total() > TRANSCRIPT_EXCERPT_MAX_CHARS) {
+    const first = picked[0];
+    const last = picked[picked.length - 1];
+    if (seconds - first.end >= last.start - seconds) picked.shift();
+    else picked.pop();
+  }
+  const text = picked.map((cue) => cue.text).join(" ");
+  return text ? text.slice(0, TRANSCRIPT_EXCERPT_MAX_CHARS) : null;
+}
+
+function setTranscriptHint(message) {
+  els.transcriptHint.textContent = message;
+}
+
+function clearTranscript() {
+  videoTranscript = null;
+  els.transcriptInput.value = "";
+  // Kept to one short line: this hint shares a row with the video picker,
+  // and a wrapping hint grows the dialog's fixed chrome, which the video's
+  // height budget in style.css is measured against.
+  setTranscriptHint("Optional — named like the video.");
+}
 // The crop region, as fractions of the video's own width/height (0..1), so
 // it stays pinned to the same picture region however the dialog is sized.
 // null = no crop; captures take the full frame.
@@ -2387,6 +2479,11 @@ function loadVideoFile(file) {
   // remembered region would silently crop the wrong part of it.
   setCropMode(false);
   els.videoFileName.textContent = file.name;
+  els.transcriptBtn.hidden = false;
+  els.transcriptHint.hidden = false;
+  // A transcript belongs to one recording; keep it only if its name still
+  // matches the video that just loaded.
+  if (videoTranscript && videoTranscript.stem !== videoStem) clearTranscript();
 
   videoObjectUrl = URL.createObjectURL(file);
   els.videoEl.src = videoObjectUrl;
@@ -2572,7 +2669,13 @@ async function runCapture(describeAfter) {
   }
 
   const before = new Set(jobs.keys());
-  await addFiles([file], { videoName: videoStem, captureSeconds: frame.seconds });
+  await addFiles([file], {
+    videoName: videoStem,
+    captureSeconds: frame.seconds,
+    // Snapshotted per capture, not referenced from the (session-only)
+    // transcript, so the context survives save/reload with the job.
+    transcriptContext: transcriptExcerpt(frame.seconds),
+  });
   const added = jobList().find((job) => !before.has(job.id));
 
   // addFiles reports refusals on the page's error line, which showModal() has
@@ -2632,11 +2735,54 @@ els.videoDialog.addEventListener("close", () => {
   els.videoStage.hidden = true;
   els.videoFileName.textContent = "No video chosen yet.";
   els.videoInput.value = "";
+  els.transcriptBtn.hidden = true;
+  els.transcriptHint.hidden = true;
+  clearTranscript();
 });
 
 els.videoInput.addEventListener("change", () => {
   const file = els.videoInput.files && els.videoInput.files[0];
   if (file) loadVideoFile(file);
+});
+
+els.transcriptInput.addEventListener("change", async () => {
+  const file = els.transcriptInput.files && els.transcriptInput.files[0];
+  if (!file) return;
+  setVideoError("");
+
+  // Matching names is the pairing rule: it is what says this transcript
+  // belongs to this recording, and it catches grabbing last week's captions
+  // by mistake. Compared through the same normalisation as the video stem so
+  // "My Lecture #3.srt" matches "My Lecture #3.mp4".
+  const stem = safeVideoStem(file.name);
+  if (stem !== videoStem) {
+    els.transcriptInput.value = "";
+    setVideoError(
+      `That transcript is named "${file.name}", which doesn't match this video — expected "${videoStem}" with a .srt extension.`
+    );
+    return;
+  }
+
+  let cues = [];
+  try {
+    cues = parseSrt(await file.text());
+  } catch (err) {
+    cues = [];
+  }
+  if (cues.length === 0) {
+    els.transcriptInput.value = "";
+    setVideoError(`No captions found in "${file.name}" — is it a valid .srt file?`);
+    return;
+  }
+
+  videoTranscript = { stem, name: file.name, cues };
+  const last = cues[cues.length - 1];
+  setTranscriptHint(
+    `${file.name} — ${cues.length} caption${cues.length === 1 ? "" : "s"} through ${formatClock(last.end)}.`
+  );
+  setVideoStatus(
+    "Transcript attached — captures from here on carry the nearby speech as context."
+  );
 });
 
 /**
@@ -3379,6 +3525,7 @@ function serializeProject() {
       videoName: job.videoName,
       captureSeconds: job.captureSeconds,
       textOnly: !!job.textOnly,
+      transcriptContext: job.transcriptContext,
     })),
   };
 }
@@ -3631,6 +3778,12 @@ function importedProjectRecord(raw) {
       // keeps its legitimate 0 while junk is discarded.
       captureSeconds: num(saved.captureSeconds),
       textOnly: !!saved.textOnly,
+      // Plain text sent to the API as context, never rendered as HTML — a
+      // type check is the only sanitation it needs.
+      transcriptContext:
+        typeof saved.transcriptContext === "string" && saved.transcriptContext
+          ? saved.transcriptContext
+          : null,
     };
   });
 

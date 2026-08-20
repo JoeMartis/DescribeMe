@@ -1130,12 +1130,13 @@ dialog.sheet-wide { max-width: min(880px, 94vw); }
   width: auto;
   height: auto;
   max-width: 100%;
-  /* Measured, not guessed: the rest of the dialog runs to 434px in its
-     tallest state (an error line showing after a capture), so this keeps the
-     status line — where capture confirmations land — on screen rather than
-     under the fold. Clamped at each end; below the floor the sheet body
-     scrolls, as it always did. Re-measure this if a row is added. */
-  max-height: clamp(120px, calc(90vh - 450px), 520px);
+  /* Measured, not guessed: the rest of the dialog runs to 472px in its
+     tallest state (transcript attached, an error line showing after a
+     capture), so this keeps the status line — where capture confirmations
+     land — on screen rather than under the fold. Clamped at each end; below
+     the floor the sheet body scrolls, as it always did. Re-measure this if
+     a row is added. */
+  max-height: clamp(120px, calc(90vh - 485px), 520px);
 }
 
 .video-crop-overlay {

@@ -46,7 +46,17 @@ selected slide's image plus its description on the right.
    the point it came from. **Capture & describe** does the same and starts
    describing it immediately. Playback speed (up to 3×) and volume sit under
    the scrub bar — speed in particular makes skimming a long lecture for the
-   next slide much quicker. The timestamp is kept with the slide and shows
+   next slide much quicker. **Add transcript (.srt)** optionally attaches
+   the lecture's caption file — it must be named like the video, which is
+   what pairs them — and from then on each captured frame carries the
+   transcript from the minute around its timestamp. That excerpt rides along
+   with the describe request as context, so the description uses the
+   lecturer's own terminology instead of guessing at axis labels and
+   abbreviations; the prompt forbids adding anything from the transcript
+   that is not visible on the slide. Like the video, the transcript never
+   leaves the browser and is dropped when the dialog closes — only the
+   per-frame excerpts persist, saved with their slides. The timestamp is
+   kept with the slide and shows
    up again in the export (see step 8). The video is read straight off your
    disk through a `blob:` URL and is never uploaded, never persisted, and
    released as soon as the dialog closes — only the frames you capture
