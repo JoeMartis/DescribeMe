@@ -87,7 +87,14 @@
     <p class="brand">DescribeMe <span class="version-badge" id="versionBadge" title="Build number, increases with every commit"></span></p>
     <span class="header-rule" aria-hidden="true"></span>
     <div class="batch-meta">
-      <input class="batch-name" id="batchName" value="Untitled batch" aria-label="Batch name">
+      <div class="batch-name-row">
+        <input class="batch-name" id="batchName" value="Untitled batch" aria-label="Batch name">
+        <!-- Batch-scoped, so it lives with the batch's name and summary
+             rather than in the action cluster on the right. -->
+        <p class="chip chip-cost" id="costChip">
+          <span id="costChipLabel">Est. per slide</span> <strong id="costChipValue">—</strong>
+        </p>
+      </div>
       <p class="batch-summary" id="batchSummary">No slides yet</p>
     </div>
     <div class="header-spacer"></div>
@@ -96,9 +103,6 @@
         <span class="chip-dot" id="settingsChipDot" aria-hidden="true"></span>
         <span id="settingsChipLabel">No key yet</span>
       </button>
-      <p class="chip chip-cost" id="costChip">
-        <span id="costChipLabel">Est. per slide</span> <strong id="costChipValue">—</strong>
-      </p>
       <button type="button" class="btn" id="videoBtn" aria-haspopup="dialog">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" width="16" height="16"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
         From video
