@@ -928,6 +928,12 @@ async function addFiles(fileList, meta) {
   }
 
   if (jobs.size >= MAX_BATCH_SIZE) {
+    // The images are refused, but any transcript in the same drop already
+    // attached — say so, or the cap error reads as the whole drop failing.
+    if (transcriptNotes.length > 0) {
+      renderAll();
+      setStatus(transcriptNotes.join(" "));
+    }
     setError(`You already have the maximum of ${MAX_BATCH_SIZE} images queued.`);
     return;
   }
@@ -1066,6 +1072,10 @@ function newBatch() {
   );
   if (!ok) return;
   jobs.clear();
+  // The next batch is a different lecture until proven otherwise — a stale
+  // transcript left here would silently stamp last week's speech onto any
+  // name-matching upload.
+  workspaceTranscripts.clear();
   els.railList.replaceChildren();
   selectedJobId = null;
   editMode = null;
@@ -1865,6 +1875,23 @@ async function refineJob(jobId, revisionKey, overrideModel) {
   job.history.push({ html: job.resultHtml, text: job.resultText });
   job.attempt = 0;
   job.error = null;
+
+  // The refine buttons steer the slide's MODE, not just this one request —
+  // job.textOnly is what describeOne falls back to whenever no explicit
+  // revision rides along (Retry, Redo with a stronger model). Without this,
+  // OCR → "More detail" → "Redo with Opus" snapped back to a bare
+  // transcription, undoing the narrative the user had just steered toward.
+  // "Text only" is sticky like the OCR button; "More detail" is a request
+  // for narrative, so it clears the mode; "Shorter" keeps whatever mode the
+  // slide is in — a shorter transcription is still a transcription, so the
+  // text-only framing must ride along with it.
+  if (revisionKey === "textOnly") job.textOnly = true;
+  else if (revisionKey === "more") job.textOnly = false;
+  let revision = revisionKey ? REVISIONS[revisionKey] : "";
+  if (revisionKey === "less" && job.textOnly) {
+    revision = `${REVISIONS.textOnly}\n\n${REVISIONS.less}`;
+  }
+
   batchRunning = true;
   runScope = "single";
   // Stale from a previous batch's Stop — only runBatch resets it, so without
@@ -1876,7 +1903,7 @@ async function refineJob(jobId, revisionKey, overrideModel) {
     apiKey,
     model: overrideModel || job.usedModel || els.model.value,
     verbosity: currentVerbosity(),
-    revision: revisionKey ? REVISIONS[revisionKey] : "",
+    revision,
   });
 
   batchRunning = false;
@@ -2335,8 +2362,11 @@ const TRANSCRIPT_EXCERPT_MAX_CHARS = 1800;
  * few bad cues is still worth having.
  */
 function parseSrt(raw) {
+  // Hours are optional: WebVTT writes MM:SS.mmm for cues under the hour
+  // (ffmpeg's .vtt output does), and requiring them silently dropped every
+  // cue in a lecture's first hour while "attaching" the file successfully.
   const TIMECODE =
-    /(\d{1,2}):(\d{2}):(\d{2})[.,](\d{1,3})\s*-->\s*(\d{1,2}):(\d{2}):(\d{2})[.,](\d{1,3})/;
+    /(?:(\d{1,2}):)?(\d{1,2}):(\d{2})[.,](\d{1,3})\s*-->\s*(?:(\d{1,2}):)?(\d{1,2}):(\d{2})[.,](\d{1,3})/;
   const cues = [];
   for (const block of raw.replace(/\r/g, "").split(/\n{2,}/)) {
     const lines = block.split("\n");
@@ -2344,11 +2374,14 @@ function parseSrt(raw) {
     if (timeAt === -1) continue;
     const m = lines[timeAt].match(TIMECODE);
     const toSeconds = (h, min, s, ms) =>
-      Number(h) * 3600 + Number(min) * 60 + Number(s) + Number(ms.padEnd(3, "0")) / 1000;
+      Number(h || 0) * 3600 + Number(min) * 60 + Number(s) + Number(ms.padEnd(3, "0")) / 1000;
     const text = lines
       .slice(timeAt + 1)
       .join(" ")
-      .replace(/<[^>]*>/g, "") // <i>, <font>, speaker tags
+      // Only things shaped like markup: "</i>", "<font …>", "<v Speaker>".
+      // A bare /<[^>]*>/ also matched "< 5, then y >" and gutted exactly the
+      // inequality-laden captions a STEM lecture produces.
+      .replace(/<\/?[a-zA-Z][^<>]*>/g, "")
       .replace(/\s+/g, " ")
       .trim();
     if (!text) continue;
@@ -2406,16 +2439,35 @@ const workspaceTranscripts = new Map(); // normalized stem -> { name, cues }
  */
 function timestampFromName(name) {
   const stem = name.replace(/\.[^.]+$/, "");
-  const m = stem.match(/[_\s-](\d{2})-(\d{2})-(\d{2})$/);
+  // Underscore separator only — it is what the capture writes, and the looser
+  // [_\s-] read GNOME's "Screenshot from 2026-08-20 14-30-05.png" as a frame
+  // fourteen and a half hours into a video. Minutes and seconds are range-
+  // checked for the same reason: a real capture never writes 12-99-99.
+  const m = stem.match(/_(\d{2})-(\d{2})-(\d{2})$/);
   if (!m) return null;
+  const minutes = Number(m[2]);
+  const seconds = Number(m[3]);
+  if (minutes > 59 || seconds > 59) return null;
   return {
     prefix: stem.slice(0, m.index),
-    seconds: Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]),
+    seconds: Number(m[1]) * 3600 + minutes * 60 + seconds,
   };
 }
 
 function isTranscriptFile(file) {
   return /\.(srt|vtt)$/i.test(file.name);
+}
+
+/**
+ * The stems a transcript file can pair under. Besides the literal stem,
+ * subtitle tooling commonly writes a language-tagged name beside the video —
+ * "Lecture_3.en.srt", the convention VLC and yt-dlp use — so a trailing
+ * language code offers the base name as a second candidate.
+ */
+function transcriptStemCandidates(fileName) {
+  const stem = safeVideoStem(fileName);
+  const base = stem.replace(/\.[a-z]{2,3}(?:-[a-z]{2,4})?$/i, "");
+  return base && base !== stem ? [stem, base] : [stem];
 }
 
 /**
@@ -2433,8 +2485,14 @@ async function registerWorkspaceTranscript(file) {
   }
   if (cues.length === 0) return `No captions found in "${file.name}" — is it a valid .srt file?`;
 
-  const stem = safeVideoStem(file.name);
-  workspaceTranscripts.set(stem, { name: file.name, cues });
+  // Registered under every stem it can pair as — "Lecture_3.en.srt" answers
+  // for both "Lecture_3.en" and "Lecture_3". The base name is what images
+  // are actually named after, so it leads in messages.
+  const candidates = transcriptStemCandidates(file.name);
+  const entry = { name: file.name, cues };
+  for (const c of candidates) workspaceTranscripts.set(c, entry);
+  const stems = new Set(candidates);
+  const baseStem = candidates[candidates.length - 1];
 
   let attached = 0;
   for (const job of jobs.values()) {
@@ -2443,14 +2501,14 @@ async function registerWorkspaceTranscript(file) {
       ? job.captureSeconds
       : (() => {
           const stamp = timestampFromName(job.name);
-          return stamp && normalizeStem(stamp.prefix) === stem ? stamp.seconds : null;
+          return stamp && stems.has(normalizeStem(stamp.prefix)) ? stamp.seconds : null;
         })();
     if (seconds === null) continue;
     // For name-derived matches the stem check happened above; for jobs that
     // already carry a timestamp, pair on their recorded source video.
-    if (Number.isFinite(job.captureSeconds) && job.videoName !== stem) continue;
+    if (Number.isFinite(job.captureSeconds) && !stems.has(job.videoName)) continue;
     job.captureSeconds = seconds;
-    if (!job.videoName) job.videoName = stem;
+    if (!job.videoName) job.videoName = baseStem;
     job.transcriptContext = excerptFromCues(cues, seconds);
     attached += job.transcriptContext ? 1 : 0;
   }
@@ -2458,7 +2516,7 @@ async function registerWorkspaceTranscript(file) {
 
   return attached > 0
     ? `Transcript "${file.name}" attached to ${attached} slide${attached === 1 ? "" : "s"}.`
-    : `Transcript "${file.name}" loaded — it will pair with images named ${stem}_HH-MM-SS.`;
+    : `Transcript "${file.name}" loaded — it will pair with images named ${baseStem}_HH-MM-SS.`;
 }
 
 function setTranscriptHint(message) {
@@ -2873,9 +2931,10 @@ els.transcriptInput.addEventListener("change", async () => {
   // Matching names is the pairing rule: it is what says this transcript
   // belongs to this recording, and it catches grabbing last week's captions
   // by mistake. Compared through the same normalisation as the video stem so
-  // "My Lecture #3.srt" matches "My Lecture #3.mp4".
+  // "My Lecture #3.srt" matches "My Lecture #3.mp4"; a language-tagged name
+  // like "My Lecture #3.en.srt" counts as a match too.
   const stem = safeVideoStem(file.name);
-  if (stem !== videoStem) {
+  if (!transcriptStemCandidates(file.name).includes(videoStem)) {
     els.transcriptInput.value = "";
     setVideoError(
       `That transcript is named "${file.name}", which doesn't match this video — expected "${videoStem}" with a .srt extension.`
@@ -3012,7 +3071,7 @@ els.videoCropOverlay.addEventListener("pointerdown", (e) => {
   const point = cropPointFromEvent(e);
   if (!point) return;
   els.videoCropOverlay.setPointerCapture(e.pointerId);
-  videoCropDraft = { startX: point.x, startY: point.y };
+  videoCropDraft = { startX: point.x, startY: point.y, before: videoCropRegion };
   setCropRegion({ x: point.x, y: point.y, w: 0, h: 0 });
   e.preventDefault();
 });
@@ -3043,8 +3102,14 @@ els.videoCropOverlay.addEventListener("pointerup", (e) => {
 });
 
 els.videoCropOverlay.addEventListener("pointercancel", () => {
+  if (!videoCropDraft) return;
+  // Back to the region from before the drag started — NOT the current one,
+  // which pointermove has been overwriting with the half-drawn draft. A
+  // cancelled drag must not leave an unvalidated sliver (possibly 0×0)
+  // active, silently cropping every capture after it to a few pixels.
+  const before = videoCropDraft.before;
   videoCropDraft = null;
-  setCropRegion(videoCropRegion);
+  setCropRegion(before);
 });
 
 // Inside the dialog Escape means "back out of crop mode" before it means
@@ -3652,6 +3717,9 @@ function serializeProject() {
 
 function loadProjectRecord(record) {
   jobs.clear();
+  // Same reasoning as newBatch: the opened project's slides carry their own
+  // excerpts; the session transcript belonged to whatever came before.
+  workspaceTranscripts.clear();
   els.railList.replaceChildren();
   selectedJobId = null;
   editMode = null;

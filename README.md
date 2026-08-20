@@ -82,15 +82,16 @@ selected slide's image plus its description on the right.
    divider, a wall of bullets — **OCR text/math only** (next to **Describe this
    slide**) skips the narrative description entirely and returns a semantic
    transcription instead: headings, lists, and MathML for any equation. The
-   slide stays in OCR mode for retries and model redos until you re-describe
-   it.
+   slide stays in OCR mode for retries, **Shorter**, and model redos;
+   **Describe this slide** or **More detail** switches it back to a
+   narrative description.
 4. For the selected slide, once described: read the rendered description,
    check **HTML source** for the raw markup, or use **Copy HTML** / **Copy
    text**.
 5. **Edit** turns the description directly editable in place, with a
    formatting toolbar (bold, italic, heading level, lists) that applies to
    the selected text. For structural fixes beyond what the toolbar covers —
-   a list that should be a table, a `<p>` that should be a `<figcaption>` —
+   a list that should be a table, a paragraph that should be a heading —
    open **HTML source** and use **Edit source** to change the markup
    directly. Either way, saving runs the result back through the
    same sanitizer before it's kept, and pushes the previous version onto the
@@ -211,7 +212,10 @@ not just to produce accessible output:
 
 The **generated descriptions** are the other half of this: the prompt asks
 for semantic headings, list grouping, MathML with a plain-language reading
-alongside every equation, `<figure>`/`<figcaption>` for diagrams, real
+alongside every equation, paragraph-based diagram descriptions (`<figure>`
+is reserved for the slide image in the export, and any figure markup in a
+description — model-written or hand-edited — is unwrapped to paragraphs on
+the way out), real
 `<table>` markup with `<th>` for data, and color/emphasis described by what
 it means rather than how it looks — see `app.js`'s `SYSTEM_PROMPT` for the
 exact instructions. Rendering relies on the browser's native MathML support
