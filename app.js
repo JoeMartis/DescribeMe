@@ -2942,10 +2942,29 @@ async function captureFrame(runMode) {
   }
 }
 
+/** The slide already captured from this video at this second, if any. */
+function jobAtCapture(seconds) {
+  return jobList().find(
+    (job) => job.videoName === videoStem && job.captureSeconds === seconds
+  );
+}
+
 async function runCapture(runMode) {
   setVideoError("");
   if (jobs.size >= MAX_BATCH_SIZE) {
     setVideoError(`This batch is full at ${MAX_BATCH_SIZE} slides — export or start a new batch.`);
+    return;
+  }
+
+  // Ask for the key BEFORE spending the capture. Capturing first and failing
+  // afterwards left the frame in the batch and the second recorded, so the
+  // obvious retry — clicking the same button again once the key was in —
+  // answered "you already captured the frame at 3:25" and did nothing.
+  // describeSingleJob reports this on the page's error line, which showModal()
+  // has made inert, so say it in here too.
+  if (runMode && !els.apiKey.value.trim()) {
+    setVideoError(NO_KEY_ERROR);
+    openSettings();
     return;
   }
 
@@ -2961,7 +2980,30 @@ async function runCapture(runMode) {
   if (!frame) return;
 
   if (videoCapturedSeconds.has(frame.seconds)) {
-    setVideoError(`You already captured the frame at ${formatClock(frame.seconds)}.`);
+    const clock = formatClock(frame.seconds);
+    const existing = jobAtCapture(frame.seconds);
+
+    // "Capture & describe" on a second that is already captured used to
+    // dead-end here. That is precisely the state a failed describe leaves
+    // behind — the frame is in the batch, the description is not — so the
+    // button that would fix it refused to. When only the description is
+    // missing, run the slide that is already there.
+    if (runMode && existing) {
+      if (existing.state === "done") {
+        setVideoError(`The frame at ${clock} is already captured and described — it's in the rail.`);
+      } else if (batchRunning || existing.state === "describing") {
+        setVideoError(`The frame at ${clock} is already captured and a description is running.`);
+      } else if (!existing.base64) {
+        setVideoError(`The frame at ${clock} is captured but still decoding — try again in a moment.`);
+      } else {
+        selectJob(existing.id);
+        setVideoStatus(`Already captured ${clock} — describing that slide now.`);
+        describeSingleJob(existing.id, runMode);
+      }
+      return;
+    }
+
+    setVideoError(`You already captured the frame at ${clock}.`);
     return;
   }
 
@@ -3050,6 +3092,20 @@ els.videoDialog.addEventListener("close", () => {
   els.transcriptBtn.hidden = true;
   els.transcriptHint.hidden = true;
   clearTranscript();
+});
+
+// A capture that needed a key left its reason on this dialog's error line and
+// opened settings on top. Once the key is actually in, the warning has
+// outlived the problem — clear it rather than leaving it there to contradict
+// the next successful capture.
+els.settingsDialog.addEventListener("close", () => {
+  if (
+    els.videoDialog.open &&
+    els.apiKey.value.trim() &&
+    els.videoError.textContent === NO_KEY_ERROR
+  ) {
+    setVideoError("");
+  }
 });
 
 els.videoInput.addEventListener("change", () => {
