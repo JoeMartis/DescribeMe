@@ -9,7 +9,7 @@
      capture. Without it the <video> falls back to default-src 'self', which
      refuses object URLs outright. It grants no network origin — the video
      never leaves the browser, and connect-src remains the only way out. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self' blob:; font-src 'self'; connect-src https://parley.api.mit.edu; object-src 'none'; base-uri 'none'; form-action 'none';">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self' blob:; font-src 'self'; connect-src https://parley.api.mit.edu https://api.anthropic.com; object-src 'none'; base-uri 'none'; form-action 'none';">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -23,16 +23,16 @@
   <div class="onboard-card">
     <p class="onboard-brand">DescribeMe <span class="version-badge" id="versionBadgeOnboard" title="Build number, increases with every commit"></span></p>
     <h1 id="onboardTitle">Let's set you up once.</h1>
-    <p class="onboard-lede">Paste your MIT Parley key and pick a model. After this you'll land straight in your slides — everything here, plus description verbosity, stays changeable from the header.</p>
+    <p class="onboard-lede">Paste your MIT Parley or Anthropic API key and pick a model. After this you'll land straight in your slides — everything here, plus description verbosity, stays changeable from the header.</p>
 
     <div class="field">
-      <label for="onboardKey">MIT Parley API key</label>
+      <label for="onboardKey">API key &mdash; MIT Parley or Anthropic</label>
       <div class="input-row">
         <input class="input" type="password" id="onboardKey" autocomplete="off" spellcheck="false"
-               placeholder="sk-parley-v1-..." aria-describedby="onboardKeyHint">
+               placeholder="sk-parley-v1-... or sk-ant-..." aria-describedby="onboardKeyHint">
         <button type="button" class="btn" id="onboardKeyToggle" aria-pressed="false">Show</button>
       </div>
-      <p class="hint" id="onboardKeyHint">Don't have one? <a href="https://platform.parley.mit.edu/my-keys" target="_blank" rel="noopener">Get a key at platform.parley.mit.edu</a>. It's sent only to <code>parley.api.mit.edu</code>, straight from this browser — it never reaches any server of ours; there isn't one.</p>
+      <p class="hint" id="onboardKeyHint">Don't have one? <a href="https://platform.parley.mit.edu/my-keys" target="_blank" rel="noopener">Get a Parley key at platform.parley.mit.edu</a>, or use an Anthropic key from <a href="https://console.anthropic.com" target="_blank" rel="noopener">console.anthropic.com</a>. The key is sent only to the API it belongs to — <code>parley.api.mit.edu</code>, or <code>api.anthropic.com</code> for <code>sk-ant-</code> keys — straight from this browser; it never reaches any server of ours, there isn't one.</p>
     </div>
 
     <fieldset class="field">
@@ -167,7 +167,7 @@
       <!-- Empty state -->
       <div class="empty" id="emptyState">
         <h1>Bring in a lecture.</h1>
-        <p class="empty-lede">Export your deck as images and drop them all at once. They stay in your browser — nothing is uploaded anywhere except to MIT Parley for describing.</p>
+        <p class="empty-lede">Export your deck as images and drop them all at once. They stay in your browser — nothing is uploaded anywhere except to your API (MIT Parley or Anthropic) for describing.</p>
         <div class="dropzone" id="dropZone">
           <div class="dropzone-mark" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="4"></rect><circle cx="8.5" cy="9" r="1.6"></circle><path d="M21 15l-5-5-4.5 5.5L9 13l-6 6"></path></svg>
@@ -219,16 +219,16 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
       </button>
     </div>
-    <p class="sheet-lede">Your API key is used only to call the MIT Parley API (<code>https://parley.api.mit.edu</code>) directly from this page in your browser. It is never sent to any other server.</p>
+    <p class="sheet-lede">Your API key is used only to call the API it belongs to, directly from this page in your browser: MIT Parley keys go to <code>parley.api.mit.edu</code>, Anthropic (<code>sk-ant-</code>) keys go to <code>api.anthropic.com</code>. It is never sent to any other server.</p>
 
     <div class="field">
-      <label for="apiKey">MIT Parley API key</label>
+      <label for="apiKey">API key &mdash; MIT Parley or Anthropic</label>
       <div class="input-row">
         <input class="input" type="password" id="apiKey" autocomplete="off" spellcheck="false"
-               placeholder="sk-parley-v1-..." aria-describedby="apiKeyHint">
+               placeholder="sk-parley-v1-... or sk-ant-..." aria-describedby="apiKeyHint">
         <button type="button" class="btn" id="toggleKeyVisibility" aria-pressed="false">Show</button>
       </div>
-      <p class="hint" id="apiKeyHint">Your MIT Parley key — get one at <a href="https://platform.parley.mit.edu/my-keys" target="_blank" rel="noopener">platform.parley.mit.edu/my-keys</a>.</p>
+      <p class="hint" id="apiKeyHint">A Parley key from <a href="https://platform.parley.mit.edu/my-keys" target="_blank" rel="noopener">platform.parley.mit.edu/my-keys</a>, or an Anthropic key from <a href="https://console.anthropic.com" target="_blank" rel="noopener">console.anthropic.com</a> — the key itself picks which API is called.</p>
     </div>
 
     <div class="field">
@@ -545,7 +545,7 @@
 </template>
 
 <footer class="visually-hidden">
-  <p>DescribeMe runs entirely in your browser and calls the MIT Parley API directly. No image, key, or description is sent to or stored on any server operated by this site.</p>
+  <p>DescribeMe runs entirely in your browser and calls the MIT Parley or Anthropic API directly. No image, key, or description is sent to or stored on any server operated by this site.</p>
 </footer>
 
 <!-- An easter egg — five quick clicks on the header wordmark summon him.

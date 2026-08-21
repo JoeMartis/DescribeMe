@@ -75,10 +75,19 @@ const MAX_BATCH_SIZE = 25;
 const ACCEPTED_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
 const ANTHROPIC_VERSION = "2023-06-01";
 
-// This app is wired specifically to MIT Parley, which proxies the Anthropic
-// Messages API. All requests go to this host — there is no user-configurable
-// base URL.
-const API_BASE_URL = "https://parley.api.mit.edu";
+// Two hosts, chosen by the key itself — there is no user-configurable base
+// URL. MIT Parley proxies the Anthropic Messages API, so the request shape
+// is identical either way; an sk-ant- key routes straight to Anthropic.
+const PARLEY_BASE_URL = "https://parley.api.mit.edu";
+const ANTHROPIC_BASE_URL = "https://api.anthropic.com";
+
+function keyIsAnthropic(key) {
+  return (key || "").trim().startsWith("sk-ant-");
+}
+
+function apiBaseFor(key) {
+  return keyIsAnthropic(key) ? ANTHROPIC_BASE_URL : PARLEY_BASE_URL;
+}
 
 // Claude doesn't benefit from image dimensions beyond roughly this on the long
 // edge — it downsamples internally. Resizing client-side before upload cuts
@@ -514,7 +523,7 @@ function setStatus(message) {
   els.statusMessage.textContent = message;
 }
 
-const NO_KEY_ERROR = "Add your MIT Parley API key in settings first.";
+const NO_KEY_ERROR = "Add your MIT Parley or Anthropic API key in settings first.";
 
 function setError(message) {
   if (message) {
@@ -542,7 +551,7 @@ function showApp() {
 els.onboardStart.addEventListener("click", () => {
   const key = els.onboardKey.value.trim();
   if (!key) {
-    els.onboardError.textContent = "Enter your MIT Parley key to continue, or choose \"I'll do this later\".";
+    els.onboardError.textContent = "Enter your MIT Parley or Anthropic key to continue, or choose \"I'll do this later\".";
     els.onboardError.hidden = false;
     els.onboardKey.focus();
     return;
@@ -1502,8 +1511,8 @@ function renderDetail() {
       // suggesting a wait would be wrong for those (bad key, bad request).
       body.textContent =
         job.attempt >= MAX_ATTEMPTS
-          ? "MIT Parley returned an error after four tries. Waiting a moment and retrying usually clears a rate limit."
-          : "MIT Parley rejected this request outright — the error below says why. Fix the cause (often the API key) before retrying.";
+          ? "The API returned an error after four tries. Waiting a moment and retrying usually clears a rate limit."
+          : "The API rejected this request outright — the error below says why. Fix the cause (often the API key) before retrying.";
       detail.hidden = false;
       detail.textContent = job.error || "unknown error";
       primary.textContent = "Retry this slide";
@@ -2015,14 +2024,21 @@ async function describeOne(job, { apiKey, model, verbosity, revision }) {
       // an abort of a sent (possibly billable) request, not a skipped one,
       // and the canceled-state copy distinguishes the two.
       job.requestSent = true;
-      const response = await fetch(`${API_BASE_URL}/v1/messages`, {
+      const requestHeaders = {
+        "content-type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": ANTHROPIC_VERSION,
+      };
+      // Anthropic's API refuses direct browser (CORS) calls unless the page
+      // opts in with this header; Parley doesn't expect it, so it is only
+      // sent where it is required.
+      if (keyIsAnthropic(apiKey)) {
+        requestHeaders["anthropic-dangerous-direct-browser-access"] = "true";
+      }
+      const response = await fetch(`${apiBaseFor(apiKey)}/v1/messages`, {
         method: "POST",
         signal: controller.signal,
-        headers: {
-          "content-type": "application/json",
-          "x-api-key": apiKey,
-          "anthropic-version": ANTHROPIC_VERSION,
-        },
+        headers: requestHeaders,
         body: JSON.stringify({
           model,
           max_tokens: 4096,
@@ -2129,7 +2145,7 @@ async function describeOne(job, { apiKey, model, verbosity, revision }) {
       }
 
       job.state = "error";
-      job.error = describeFetchError(err);
+      job.error = describeFetchError(err, apiBaseFor(apiKey));
       renderJobState(job);
       return;
     }
@@ -2179,21 +2195,25 @@ function nonJsonDiagnostic(response, raw) {
   const redirected = response.redirected ? ` (redirected to ${response.url})` : "";
   const titlePart = titleMatch ? ` — page title: "${titleMatch[1]}"` : "";
   return (
-    `MIT Parley returned HTTP ${response.status} with ${contentType} instead of JSON${redirected}` +
+    `The API returned HTTP ${response.status} with ${contentType} instead of JSON${redirected}` +
     `${titlePart}. The request likely reached a login page or an error page rather than the API — ` +
     `double-check the API key, and if this keeps happening, ask MIT IT whether this endpoint requires ` +
     `something other than a direct browser request.`
   );
 }
 
-function describeFetchError(err) {
+function describeFetchError(err, base) {
   const msg = err && err.message ? err.message : String(err);
   if (msg === "Failed to fetch") {
+    const host = base || PARLEY_BASE_URL;
+    const cors =
+      host === ANTHROPIC_BASE_URL
+        ? `the Anthropic API not allowing cross-origin (CORS) requests from ${location.origin}`
+        : `MIT Parley not allowing cross-origin (CORS) requests from ${location.origin} — if your key ` +
+          `works from a terminal but not here, ask MIT IT to enable browser (CORS) access from this origin`;
     return (
-      `Could not reach ${API_BASE_URL} — the browser blocked or failed the request before getting a ` +
-      `response. This is usually either no network connection, or MIT Parley not allowing cross-origin ` +
-      `(CORS) requests from ${location.origin}. If your key works from a terminal but not here, ask MIT ` +
-      `IT to enable browser (CORS) access from this origin.`
+      `Could not reach ${host} — the browser blocked or failed the request before getting a ` +
+      `response. This is usually either no network connection, or ${cors}.`
     );
   }
   return msg;

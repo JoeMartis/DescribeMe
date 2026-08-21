@@ -6,13 +6,15 @@ images, click **Describe all**, and get back semantic HTML (with MathML for
 equations) ready to embed next to each slide.
 
 The whole thing is static HTML/CSS/JS — no build step, no backend. It calls
-the MIT Parley API (an Anthropic-API-compatible proxy) directly from your
+the MIT Parley API (an Anthropic-API-compatible proxy) or the Anthropic
+API itself directly from your
 browser using an API key you supply, and is designed to be hosted for free on
 GitHub Pages.
 
 ## Using it
 
-**First run.** A one-time setup screen asks for your MIT Parley API key, how
+**First run.** A one-time setup screen asks for your API key — MIT Parley
+or Anthropic; the key's own prefix picks which API is called — how
 long to remember it (this tab only, this device, or not at all — the
 default), and a starting **Model**, listed cheapest to most expensive with a
 live per-slide cost estimate next to each:
@@ -138,7 +140,8 @@ selected slide's image plus its description on the right.
    reserved for the slide image alone — any figure markup inside a
    description is unwrapped to paragraphs on the way out.
 
-Nothing is uploaded to any server other than the MIT Parley endpoint. There is
+Nothing is uploaded to any server other than the API your key belongs to
+(MIT Parley, or Anthropic for `sk-ant-` keys). There is
 no backend for this site — GitHub Pages only serves the static files.
 
 **Projects.** The folder icon in the header saves the current batch — slides,
@@ -241,25 +244,33 @@ exact instructions. Rendering relies on the browser's native MathML support
 No secrets or environment variables are needed at deploy time — the API key
 is entered by whoever uses the page, in their own browser.
 
-## About MIT Parley
+## About the API endpoints
 
-MIT Parley proxies requests to the Anthropic API. This app talks to it at a
-fixed base URL (`https://parley.api.mit.edu`) and sends requests to
-`/v1/messages` exactly as the Anthropic SDK would, using the key you enter
-during setup or in **Settings**. API keys are issued at
-[platform.parley.mit.edu/my-keys](https://platform.parley.mit.edu/my-keys).
+The app sends requests to `/v1/messages` exactly as the Anthropic SDK
+would, using the key you enter during setup or in **Settings**. The key
+itself picks the host — there is no user-configurable base URL:
+
+- **MIT Parley** (`https://parley.api.mit.edu`), which proxies the
+  Anthropic API. Keys are issued at
+  [platform.parley.mit.edu/my-keys](https://platform.parley.mit.edu/my-keys).
+- **Anthropic** (`https://api.anthropic.com`) for keys starting `sk-ant-`,
+  from [console.anthropic.com](https://console.anthropic.com). These
+  requests carry Anthropic's `anthropic-dangerous-direct-browser-access`
+  opt-in header, which their API requires for direct browser calls.
 
 ## Security notes
 
-- Your API key is only ever sent as an `x-api-key` header on requests to MIT
-  Parley — it is never sent anywhere else, and this site has no server
-  component to intercept or log it.
+- Your API key is only ever sent as an `x-api-key` header on requests to
+  the API it belongs to (MIT Parley, or Anthropic for `sk-ant-` keys) — it
+  is never sent anywhere else, and this site has no server component to
+  intercept or log it.
 - By default the key is kept only in page memory and is gone as soon as you
   reload or close the tab. The "remember" options use your browser's
   `sessionStorage`/`localStorage`, entirely client-side.
-- This calls MIT Parley directly from a browser, which relies on Parley
-  allowing cross-origin (CORS) requests from this page's origin — Parley,
-  not this app, controls whether that's permitted. If requests fail with a
+- This calls the API directly from a browser, which relies on the API host
+  allowing cross-origin (CORS) requests from this page's origin — the host,
+  not this app, controls whether that's permitted. Anthropic permits it via
+  the browser-access header above; for Parley, If requests fail with a
   network error (not an HTTP error from the API), check your browser's
   DevTools console for a CORS message and, if you see one, ask MIT IT to
   allow browser access from this page's origin.
@@ -298,7 +309,7 @@ during setup or in **Settings**. API keys are issued at
   top of that sanitizer: no inline or external scripts, no inline styles, no
   `<object>`/`<embed>`, fonts restricted to this same origin (`font-src
   'self'` — the two fonts are self-hosted from `fonts/`, see Files below),
-  and `connect-src` restricted to the MIT Parley endpoint — so even a
+  and `connect-src` restricted to the two API endpoints — so even a
   sanitizer bug couldn't be used to run script or exfiltrate data to another
   host. The `.zip` and project-file exports are plain `<a download>` links
   to in-browser blobs — downloads aren't governed by `img-src`, so the CSP
