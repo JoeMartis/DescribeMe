@@ -3731,30 +3731,30 @@ function renderVersionBadge() {
   els.versionBadgeOnboard.textContent = label;
 }
 
-// ---------- Easter egg ----------
-// Five quick clicks on the header wordmark and a visitor swings by. The
-// container is aria-hidden with pointer-events: none, so he can't intercept
-// a click, a tab stop, or a screen reader — strictly a treat for whoever
-// idly clicks the logo.
+// ---------- Cameo ----------
+// Five quick clicks on the header wordmark plays a short animation. Named
+// blandly on purpose — finding it is the whole point. The container is
+// aria-hidden with pointer-events: none, so it can never intercept a click,
+// a tab stop, or a screen reader.
 (() => {
-  const egg = document.getElementById("monkeyEgg");
+  const cameo = document.getElementById("cameo");
   const brand = document.querySelector(".app-header .brand");
-  if (!egg || !brand) return;
+  if (!cameo || !brand) return;
   let clicks = 0;
   let lastClick = 0;
   brand.addEventListener("click", () => {
     const now = Date.now();
     clicks = now - lastClick < 1200 ? clicks + 1 : 1;
     lastClick = now;
-    if (clicks < 5 || !egg.hidden) return;
+    if (clicks < 5 || !cameo.hidden) return;
     clicks = 0;
-    egg.hidden = false;
-    egg.classList.add("is-up");
-    egg.addEventListener(
+    cameo.hidden = false;
+    cameo.classList.add("is-up");
+    cameo.addEventListener(
       "animationend",
       () => {
-        egg.classList.remove("is-up");
-        egg.hidden = true;
+        cameo.classList.remove("is-up");
+        cameo.hidden = true;
       },
       { once: true }
     );

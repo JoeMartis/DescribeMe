@@ -3,8 +3,64 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>DescribeMe — STEM Slide Accessibility Descriptions</title>
-<meta name="description" content="Upload STEM lecture slides and generate screen-reader-friendly extended descriptions using Claude.">
+<title>DescribeMe — Accessible Descriptions for STEM Lecture Slides</title>
+<meta name="description" content="Turn STEM lecture slides and video into screen-reader-friendly descriptions with MathML. Free, open source, runs in your browser with your own API key.">
+
+<!-- Canonical: GitHub Pages serves this page at both /DescribeMe/ and
+     /DescribeMe/index.html. Without this they are indexed as two pages
+     competing with each other. Absolute, because a relative canonical would
+     resolve differently at each of those two URLs. -->
+<link rel="canonical" href="https://joemartis.github.io/DescribeMe/">
+
+<!-- Social cards. Absolute URLs are required — crawlers do not resolve
+     relative ones against the page. -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="DescribeMe">
+<meta property="og:url" content="https://joemartis.github.io/DescribeMe/">
+<meta property="og:title" content="DescribeMe — Accessible Descriptions for STEM Lecture Slides">
+<meta property="og:description" content="Turn STEM lecture slides and video into screen-reader-friendly descriptions with MathML. Free, open source, runs in your browser with your own API key.">
+<meta property="og:image" content="https://joemartis.github.io/DescribeMe/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="DescribeMe — accessible descriptions for STEM lecture slides.">
+<meta property="og:locale" content="en_US">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="DescribeMe — Accessible Descriptions for STEM Lecture Slides">
+<meta name="twitter:description" content="Turn STEM lecture slides and video into screen-reader-friendly descriptions with MathML. Free, open source, runs in your browser with your own API key.">
+<meta name="twitter:image" content="https://joemartis.github.io/DescribeMe/og-image.png">
+
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="theme-color" content="#fff3d9">
+
+<!-- Structured data. A script element whose type is not a JavaScript MIME
+     type is a data block, never executed, so script-src 'self' below does not
+     apply to it — verified in the browser, not assumed. -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebApplication",
+  "name": "DescribeMe",
+  "url": "https://joemartis.github.io/DescribeMe/",
+  "description": "Generates screen-reader-friendly extended descriptions of STEM lecture slides, with MathML for equations, from slide images or frames captured out of lecture video. Runs entirely in the browser against the user's own Anthropic or MIT Parley API key.",
+  "applicationCategory": "EducationalApplication",
+  "applicationSubCategory": "Accessibility",
+  "operatingSystem": "Any (modern web browser)",
+  "browserRequirements": "Requires JavaScript and a Chromium, Firefox or Safari browser.",
+  "isAccessibleForFree": true,
+  "license": "https://github.com/JoeMartis/DescribeMe/blob/main/README.md",
+  "sameAs": "https://github.com/JoeMartis/DescribeMe",
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+  "featureList": [
+    "Extended image descriptions for STEM lecture slides",
+    "MathML output for equations",
+    "OCR mode for text and math only",
+    "Frame capture from lecture video, with timestamps",
+    "Transcript (.srt) context for sharper terminology",
+    "Export as a .zip of HTML plus images for an LMS"
+  ]
+}
+</script>
 <!-- media-src allows blob: so a locally-picked video can be played for frame
      capture. Without it the <video> falls back to default-src 'self', which
      refuses object URLs outright. It grants no network origin — the video
@@ -14,6 +70,40 @@
 </head>
 <body>
 <a class="skip-link" href="#detail">Skip to the slide being reviewed</a>
+
+<!-- Everything below this is hidden at load and revealed by app.js, so a
+     crawler that does not run scripts would otherwise index a blank page —
+     and the first heading it WOULD find, once scripts run, is the setup
+     screen's "Let's set you up once." This is the page's real subject in
+     plain HTML. Anyone with JavaScript never sees it. -->
+<noscript>
+  <div class="noscript-intro">
+    <h1>DescribeMe — accessible descriptions for STEM lecture slides</h1>
+    <p>
+      DescribeMe turns lecture slides into screen-reader-friendly extended
+      descriptions: semantic HTML, with MathML for the equations, ready to
+      paste beside each slide in an LMS such as edX or Canvas. Give it slide
+      images, or scrub through a lecture recording and capture the frames you
+      want described — captured frames carry their timestamp into the export.
+    </p>
+    <p>
+      It is a single static page with no backend. Your slides and your video
+      never leave your device except for the individual images sent to the
+      API you choose, using an API key you supply — the Anthropic API, or
+      MIT's Parley proxy.
+    </p>
+    <ul>
+      <li>Extended descriptions written for listening, not skimming</li>
+      <li>MathML for equations, validated before it reaches you</li>
+      <li>An OCR mode for slides that are only text and math</li>
+      <li>Frame capture from lecture video, with optional cropping</li>
+      <li>Transcript (.srt) context for sharper subject terminology</li>
+      <li>Export as a .zip of one HTML file plus the images it references</li>
+    </ul>
+    <p><strong>JavaScript is required to use the app itself.</strong>
+      The source is on <a href="https://github.com/JoeMartis/DescribeMe">GitHub</a>.</p>
+  </div>
+</noscript>
 
 <!-- ══════════════════════════════════════════════════════════════════════
      First run. Shown only until the user finishes setup; after that the
@@ -604,8 +694,8 @@
      aria-hidden and pointer-events: none, so he can't intercept a click, a
      tab stop, or a screen reader; purely a treat for the person idly
      clicking the logo. -->
-<div class="monkey-egg" id="monkeyEgg" aria-hidden="true" hidden>
-  <img src="monkey.png" alt="">
+<div class="cameo" id="cameo" aria-hidden="true" hidden>
+  <img src="assets/cameo-01.png" alt="">
 </div>
 
 <script src="version.js"></script>
