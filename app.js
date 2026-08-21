@@ -269,6 +269,7 @@ const els = {
   onboardKeyToggle: document.getElementById("onboardKeyToggle"),
   onboardModels: document.getElementById("onboardModels"),
   onboardError: document.getElementById("onboardError"),
+  onboardResize: document.getElementById("onboardResize"),
   onboardStart: document.getElementById("onboardStart"),
   onboardSkip: document.getElementById("onboardSkip"),
   versionBadgeOnboard: document.getElementById("versionBadgeOnboard"),
@@ -417,6 +418,9 @@ function loadSettings() {
 
   const savedResize = localStorage.getItem(STORAGE_KEYS.exportResize);
   if (savedResize !== null) els.exportResize.checked = savedResize === "1";
+  // The splash shows the same choice, so it has to start from the same value
+  // rather than its own markup default.
+  els.onboardResize.checked = els.exportResize.checked;
 
   // Gate ALL three fields on persistence mode, not just the key — reading
   // model/verbosity unconditionally meant a stale value left over in storage
@@ -588,6 +592,13 @@ els.onboardSkip.addEventListener("click", () => {
 });
 
 function finishOnboarding() {
+  // Carried on both exits, including "I'll do this later" — the checkbox was
+  // on screen either way, so unticking it and then skipping should still mean
+  // something. Written straight to storage like the settings copy, since it
+  // is an export preference and not key material.
+  els.exportResize.checked = els.onboardResize.checked;
+  localStorage.setItem(STORAGE_KEYS.exportResize, els.exportResize.checked ? "1" : "0");
+
   showApp();
   updateVerbosityDisplay();
   updateControls();

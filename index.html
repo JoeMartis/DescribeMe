@@ -23,7 +23,7 @@
   <div class="onboard-card">
     <p class="onboard-brand">DescribeMe <span class="version-badge" id="versionBadgeOnboard" title="Build number, increases with every commit"></span></p>
     <h1 id="onboardTitle">Let's set you up once.</h1>
-    <p class="onboard-lede">Paste your MIT Parley or Anthropic API key and pick a model. After this you'll land straight in your slides — everything here, plus description verbosity, stays changeable from the header.</p>
+    <p class="onboard-lede">Paste your MIT Parley or Anthropic API key and pick a model. After this you'll land straight in your slides — everything here, plus description verbosity, stays changeable from the settings cog in the header.</p>
 
     <div class="field">
       <label for="onboardKey">API key &mdash; MIT Parley or Anthropic</label>
@@ -67,6 +67,18 @@
         </label>
       </div>
       <p class="hint">Rough estimates for one average slide — good for comparing models, not for budgeting.</p>
+    </fieldset>
+
+    <!-- Mirrors the Export section of the settings dialog, so the one choice
+         that changes what lands in the .zip is visible before the first
+         batch rather than only after someone goes looking for it. -->
+    <fieldset class="field">
+      <legend>Export</legend>
+      <label class="radio-option">
+        <input type="checkbox" id="onboardResize" checked>
+        Resize images to 800px wide
+      </label>
+      <p class="hint">Keeps the exported .zip small: anything wider than 800px is downscaled (recompressed as JPEG; PNGs stay lossless PNG). Untick for full-resolution exports.</p>
     </fieldset>
 
     <p class="error" id="onboardError" role="alert" hidden></p>
