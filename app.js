@@ -283,7 +283,6 @@ const els = {
   settingsChipLabel: document.getElementById("settingsChipLabel"),
   costChipLabel: document.getElementById("costChipLabel"),
   costChipValue: document.getElementById("costChipValue"),
-  settingsBtn: document.getElementById("settingsBtn"),
   exportBtn: document.getElementById("exportBtn"),
   exportBtnLabel: document.getElementById("exportBtnLabel"),
   exportResize: document.getElementById("exportResize"),
@@ -500,7 +499,6 @@ function openSettings() {
 function closeSettings() {
   els.settingsDialog.close();
 }
-els.settingsBtn.addEventListener("click", openSettings);
 els.settingsChip.addEventListener("click", openSettings);
 els.settingsClose.addEventListener("click", closeSettings);
 els.settingsDone.addEventListener("click", closeSettings);
