@@ -1223,9 +1223,14 @@ function updateControls() {
     : "No key yet — add one";
   els.settingsChipDot.className = hasApiKey ? "chip-dot" : "chip-dot chip-dot-warn";
 
-  // Header — cost estimate. Always an estimate; never a bill.
+  // Settings — cost estimate. Always an estimate; never a bill. Off-screen
+  // until the dialog is open, but still recomputed here so it is correct the
+  // moment it appears and moves live as the model and verbosity change.
   const perSlide = estimateAverageSlideCostUsd(els.model.value, currentVerbosity());
   if (perSlide == null) {
+    // The label has to be reset too — otherwise an unpriced model inherits
+    // whatever the last priced one wrote, e.g. "Est. this batch —".
+    els.costChipLabel.textContent = "Est. per slide";
     els.costChipValue.textContent = "—";
   } else if (jobs.size === 0) {
     els.costChipLabel.textContent = "Est. per slide";

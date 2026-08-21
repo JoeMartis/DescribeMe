@@ -87,14 +87,7 @@
     <p class="brand">DescribeMe <span class="version-badge" id="versionBadge" title="Build number, increases with every commit"></span></p>
     <span class="header-rule" aria-hidden="true"></span>
     <div class="batch-meta">
-      <div class="batch-name-row">
-        <input class="batch-name" id="batchName" value="Untitled batch" aria-label="Batch name">
-        <!-- Batch-scoped, so it lives with the batch's name and summary
-             rather than in the action cluster on the right. -->
-        <p class="chip chip-cost" id="costChip">
-          <span id="costChipLabel">Est. per slide</span> <strong id="costChipValue">—</strong>
-        </p>
-      </div>
+      <input class="batch-name" id="batchName" value="Untitled batch" aria-label="Batch name">
       <p class="batch-summary" id="batchSummary">No slides yet</p>
     </div>
     <div class="header-spacer"></div>
@@ -234,7 +227,14 @@
         <option value="claude-opus-5">Claude Opus 5 — most thorough, best for cluttered figures</option>
       </select>
       <p class="hint">Listed cheapest to most expensive. Sonnet 5 is a strong default; drop to Haiku for simple slides, or step up to Opus for crowded, multi-part figures.</p>
-      <p class="hint"><strong>Estimated cost is per average slide</strong> — actual cost varies with the image and how much text Claude generates. These are rough estimates only; do not use them for budgeting.</p>
+      <!-- Lives here rather than in the header: it only moves when the model
+           or the verbosity slider below it moves, so it belongs beside the
+           controls that change it rather than on screen the whole time.
+           updateControls() keeps it live while this dialog is open. -->
+      <p class="chip chip-cost" id="costChip">
+        <span id="costChipLabel">Est. per slide</span> <strong id="costChipValue">—</strong>
+      </p>
+      <p class="hint"><strong>Estimates only</strong> — actual cost varies with the image and how much text Claude generates. Do not use them for budgeting.</p>
     </div>
 
     <div class="field">

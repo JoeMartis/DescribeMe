@@ -298,6 +298,9 @@ button.chip:hover { background: var(--swamp-parchment); }
   color: var(--ink-brown);
 }
 .chip-cost strong { font-family: var(--font-heading); font-weight: 400; }
+/* .field stretches its children, which would stretch this pill across the
+   whole dialog — it should hug its text like every other chip. */
+.field > .chip-cost { align-self: flex-start; }
 .chip-toggle { cursor: pointer; user-select: none; }
 .chip-toggle input { margin: 0; }
 
@@ -440,10 +443,6 @@ button.chip:hover { background: var(--swamp-parchment); }
 /* Shrinkable, so the row gives here — truncating the batch name — before
    the whole tools cluster wraps to a second header line. */
 .batch-meta { min-width: 0; flex: 0 1 auto; }
-.batch-name-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
-/* Smaller than the header-tools chips: it sits beside the batch name now,
-   where it is context, not a control. */
-.batch-name-row .chip-cost { font-size: 12px; padding: 4px 12px; flex-shrink: 0; }
 .batch-name {
   font-family: var(--font-heading);
   font-size: 13px;
@@ -461,7 +460,6 @@ button.chip:hover { background: var(--swamp-parchment); }
   color: inherit;
   padding: 3px 28px 3px 10px;
   margin-left: -10px;
-  flex: 0 1 24ch;
   width: 24ch;
   min-width: 11ch;
   max-width: 100%;
