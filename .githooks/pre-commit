@@ -9,7 +9,7 @@
 # incrementing by 1 per commit from there — without touching git history.
 # Bumping it again later means the same thing: set it to the current
 # count(HEAD) at the commit you want to become v1.
-VERSION_OFFSET=40
+VERSION_OFFSET=82
 count=$(git rev-list --count HEAD 2>/dev/null || echo 0)
 version=$((count + 1 - VERSION_OFFSET))
 echo "window.APP_VERSION = \"$version\";" > version.js

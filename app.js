@@ -353,7 +353,7 @@ const els = {
   videoCropBtn: document.getElementById("videoCropBtn"),
   videoCropOverlay: document.getElementById("videoCropOverlay"),
   videoCropRect: document.getElementById("videoCropRect"),
-  videoCaptureCount: document.getElementById("videoCaptureCount"),
+  videoInputLabel: document.getElementById("videoInputLabel"),
   videoError: document.getElementById("videoError"),
   videoStatus: document.getElementById("videoStatus"),
 
@@ -2782,11 +2782,11 @@ function loadVideoFile(file) {
   videoStem = safeVideoStem(file.name);
   videoCaptureCount = 0;
   videoCapturedSeconds = new Set();
-  els.videoCaptureCount.textContent = "";
   // A different recording almost certainly has a different layout, so a
   // remembered region would silently crop the wrong part of it.
   setCropMode(false);
   els.videoFileName.textContent = file.name;
+  els.videoInputLabel.textContent = "Change video";
   els.transcriptBtn.hidden = false;
   els.transcriptHint.hidden = false;
   // A transcript belongs to one recording; keep it only if its name still
@@ -3042,9 +3042,6 @@ async function runCapture(runMode) {
 
   videoCapturedSeconds.add(frame.seconds);
   videoCaptureCount += 1;
-  els.videoCaptureCount.textContent = `${videoCaptureCount} frame${
-    videoCaptureCount === 1 ? "" : "s"
-  } captured`;
 
   if (added.state === "invalid") {
     setVideoError(added.error || "That frame could not be decoded.");
@@ -3052,8 +3049,13 @@ async function runCapture(runMode) {
   }
   if (pageError) setVideoError(pageError);
   else
+    // The generated filename used to end this line — around fifty characters
+    // of it, under every capture. It is on the slide's rail row and in the
+    // export already, so the line just confirms the moment, and picks up the
+    // running count that used to sit in the capture bar.
     setVideoStatus(
-      `Captured the ${frame.cropped ? "cropped " : ""}frame at ${formatClock(frame.seconds)} as ${name}.`
+      `Captured ${formatClock(frame.seconds)}${frame.cropped ? " (cropped)" : ""} — ` +
+        `added to the batch. ${videoCaptureCount} frame${videoCaptureCount === 1 ? "" : "s"} so far.`
     );
 
   if (!runMode) return;
@@ -3088,6 +3090,7 @@ els.videoDialog.addEventListener("close", () => {
   setCropMode(false);
   els.videoStage.hidden = true;
   els.videoFileName.textContent = "No video chosen yet.";
+  els.videoInputLabel.textContent = "Choose a video";
   els.videoInput.value = "";
   els.transcriptBtn.hidden = true;
   els.transcriptHint.hidden = true;

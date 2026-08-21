@@ -290,6 +290,11 @@ code, kbd {
 .btn svg { flex-shrink: 0; }
 
 .btn-ghost { border-color: transparent; box-shadow: none; background: transparent; }
+
+/* A third weight below the plain button: still a real button with the full
+   outline and shadow, but visibly the least likely of a set. */
+.btn-quiet { background: var(--swamp-sunken); }
+.btn-quiet:hover:not(:disabled) { background: var(--swamp-parchment); }
 .btn-ghost:hover:not(:disabled) { box-shadow: none; background: var(--swamp-parchment); }
 
 /* .btn's default ink-brown text is nearly invisible against the onboarding
@@ -1142,8 +1147,27 @@ dialog.sheet-wide { max-width: min(880px, 94vw); }
 /* Every row above the video is overhead competing with it for height, so
    this dialog runs tighter than the text-form sheets it shares styles with. */
 #videoDialog .sheet-lede { margin-bottom: 14px; }
-#videoDialog .project-save-row { margin-bottom: 14px; }
 #videoDialog .approve-bar { margin-top: 14px; }
+
+/* The video's own name leads the row and gives way first — a lecture export
+   can run to fifty characters, and truncating it is better than letting it
+   push the buttons off the end. */
+.video-file-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.video-file-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.video-file-row .file-btn { flex-shrink: 0; }
+.video-file-row .hint { flex-shrink: 0; }
 
 /* Deliberately NOT .slide-frame: that one pins a 16/10 box and letterboxes
    whatever it holds, which spends a good part of the dialog on black bars
@@ -1202,17 +1226,40 @@ dialog.sheet-wide { max-width: min(880px, 94vw); }
   box-shadow: 0 0 0 9999px rgba(36, 26, 18, 0.55);
   pointer-events: none;
 }
+/* Crop acts on the picture; the group beside it acts on the batch. The rule
+   is the same one the header uses to separate identity from actions. */
+.capture-rule { width: var(--border-width); height: 26px; background: var(--border); flex-shrink: 0; }
+.capture-group { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.capture-label {
+  font-family: var(--font-heading);
+  font-size: 12px;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
 #videoCropBtn[aria-pressed="true"] {
   background: var(--mustard);
   color: var(--ink-brown);
 }
 
+/* The gap here is BETWEEN the three groups; inside a group it is 8px. One
+   even gap across eight controls read as eight equal things. */
 .video-transport {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 22px;
   flex-wrap: wrap;
   margin-top: 14px;
+}
+.video-tp-group { display: flex; align-items: center; gap: 8px; }
+/* Icon buttons are fixed-size by definition — without this the flex row
+   squeezes them and the glyph spills out of the circle. */
+.video-tp-group .btn-icon { flex: 0 0 auto; }
+.video-tp-seek {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
 }
 /* The global range rule is written for the stacked settings slider; inside a
    flex row its margin breaks centring against the icon buttons, and without

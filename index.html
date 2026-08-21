@@ -352,18 +352,22 @@
     </div>
     <p class="sheet-lede">Pause on a slide and capture it — frames carry their timestamp into the export. The video never leaves this device.</p>
 
-    <div class="project-save-row">
+    <!-- The loaded file is the subject of this row, so it leads and the
+         buttons that act on it follow. It used to be a caption wedged between
+         them, which meant a long name shoved the transcript button around
+         instead of truncating. -->
+    <div class="video-file-row">
+      <span class="video-file-name" id="videoFileName">No video chosen yet.</span>
+      <span class="hint" id="transcriptHint" hidden></span>
       <span class="btn file-btn">
-        Choose a video
+        <span id="videoInputLabel">Choose a video</span>
         <input type="file" id="videoInput" accept="video/*" aria-label="Choose a video file">
       </span>
-      <span class="hint" id="videoFileName">No video chosen yet.</span>
       <span class="btn file-btn" id="transcriptBtn" hidden
             title="Optional. What the lecturer was saying around each captured slide is sent as context, for sharper terminology in the descriptions.">
         Add transcript (.srt)
         <input type="file" id="transcriptInput" accept=".srt,.vtt" aria-label="Add a transcript file for this video">
       </span>
-      <span class="hint" id="transcriptHint" hidden></span>
     </div>
 
     <div id="videoStage" hidden>
@@ -380,7 +384,11 @@
         </span>
       </div>
 
+      <!-- Three groups, not eight peers: playback, position, audio. Same
+           controls in the same order — only the spacing says which belong
+           together. -->
       <div class="video-transport">
+       <div class="video-tp-group">
         <button type="button" class="btn btn-icon" id="videoPlayPause" aria-label="Play">
           <svg viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true" id="videoPlayIcon"><polygon points="6 4 20 12 6 20 6 4"></polygon></svg>
           <svg viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true" id="videoPauseIcon" hidden><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
@@ -391,12 +399,17 @@
         <button type="button" class="btn btn-icon" id="videoFwd" aria-label="Forward 5 seconds">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="13 17 18 12 13 7"></polyline><polyline points="6 17 11 12 6 7"></polyline></svg>
         </button>
+       </div>
+
+       <div class="video-tp-seek">
         <input type="range" id="videoScrub" min="0" max="0" step="0.01" value="0" aria-label="Seek through the video">
         <!-- aria-live is off deliberately: this updates many times a second
              during playback and would flood a screen reader. Capture
              confirmations are announced through #videoStatus instead. -->
         <p class="chip video-time" aria-live="off"><strong id="videoTimeLabel">0:00</strong></p>
+       </div>
 
+       <div class="video-tp-group">
         <select class="input video-rate" id="videoRate" aria-label="Playback speed">
           <option value="0.5">0.5&times;</option>
           <option value="0.75">0.75&times;</option>
@@ -411,17 +424,32 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" id="videoSoundOffIcon" hidden><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><line x1="22" y1="9" x2="16" y2="15"></line><line x1="16" y1="9" x2="22" y2="15"></line></svg>
         </button>
         <input type="range" class="video-volume" id="videoVolume" min="0" max="1" step="0.05" value="1" aria-label="Volume">
+       </div>
       </div>
 
-      <!-- Crop leads: it is set up once before capturing, so the buttons
-           read in the order the workflow runs. -->
+      <!-- "Capture" was the first word of three of these four buttons, which
+           pushed the part that actually differs to the end of each label.
+           Said once as the group's label, the three endings become the
+           choice. Crop is fenced off because it is a mode toggle, not a
+           fourth way to capture.
+           Each button still carries a complete accessible name — the visual
+           label is only complete alongside the group label beside it, and a
+           screen reader user arriving on the button by Tab may not get that
+           context. The names contain the visible text verbatim, so WCAG
+           2.5.3 (Label in Name) still holds. -->
       <div class="approve-bar">
         <button type="button" class="btn" id="videoCropBtn" aria-pressed="false">Crop</button>
-        <button type="button" class="btn btn-primary" id="videoCapture">Capture frame</button>
-        <button type="button" class="btn" id="videoCaptureDescribe">Capture &amp; describe</button>
-        <button type="button" class="btn" id="videoCaptureOcr"
-                title="Capture this frame and transcribe its on-screen text and math instead of describing it — for titles, section dividers, and bullet slides.">Capture &amp; OCR</button>
-        <span class="hint" id="videoCaptureCount"></span>
+        <span class="capture-rule" aria-hidden="true"></span>
+        <div class="capture-group" role="group" aria-labelledby="captureLabel">
+          <span class="capture-label" id="captureLabel">Capture as</span>
+          <button type="button" class="btn btn-primary" id="videoCaptureDescribe"
+                  aria-label="Capture as description">Description</button>
+          <button type="button" class="btn" id="videoCaptureOcr" aria-label="Capture as text &amp; math"
+                  title="Capture this frame and transcribe its on-screen text and math instead of describing it — for titles, section dividers, and bullet slides.">Text &amp; math</button>
+          <button type="button" class="btn btn-quiet" id="videoCapture"
+                  aria-label="Capture as image only"
+                  title="Capture this frame into the batch without describing it — you can describe it later from the slide list.">Image only</button>
+        </div>
       </div>
     </div>
 
