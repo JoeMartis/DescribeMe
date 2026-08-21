@@ -397,6 +397,11 @@ const STORAGE_KEYS = {
   verbosity: "describeme.verbosity",
   persistence: "describeme.keyPersistence",
   onboarded: "describeme.onboarded",
+  // Not gated on the key-persistence choice below: an export preference is
+  // not key material, and the default is "don't remember", so gating it
+  // there would mean it never persisted for most people — the whole reason
+  // it moved out of the header.
+  exportResize: "describeme.exportResize",
 };
 
 // Not user-configurable — a fixed middle ground between processing a batch
@@ -410,6 +415,9 @@ function loadSettings() {
     `input[name="keyPersistence"][value="${persistence}"]`
   );
   if (radio) radio.checked = true;
+
+  const savedResize = localStorage.getItem(STORAGE_KEYS.exportResize);
+  if (savedResize !== null) els.exportResize.checked = savedResize === "1";
 
   // Gate ALL three fields on persistence mode, not just the key — reading
   // model/verbosity unconditionally meant a stale value left over in storage
@@ -472,6 +480,10 @@ els.verbosity.addEventListener("input", () => {
   updateVerbosityDisplay();
   persistSettings();
   updateControls();
+});
+
+els.exportResize.addEventListener("change", () => {
+  localStorage.setItem(STORAGE_KEYS.exportResize, els.exportResize.checked ? "1" : "0");
 });
 
 els.clearStoredKey.addEventListener("click", () => {
@@ -3572,7 +3584,10 @@ async function exportApproved() {
   link.click();
   link.remove();
   setTimeout(() => URL.revokeObjectURL(url), 10000);
-  setStatus(`Exported ${approved.length} approved description${approved.length === 1 ? "" : "s"}.`);
+  setStatus(
+    `Exported ${approved.length} approved description${approved.length === 1 ? "" : "s"} — ` +
+      (shouldResize ? "images resized to 800px wide." : "images at full resolution.")
+  );
 }
 
 els.exportBtn.addEventListener("click", exportApproved);
