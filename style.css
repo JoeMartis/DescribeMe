@@ -1156,18 +1156,28 @@ dialog.sheet-wide { max-width: min(880px, 94vw); }
   display: flex;
   align-items: center;
   gap: 12px;
+  /* Wraps rather than overflows: the two buttons cannot shrink, so on a
+     narrow dialog they have to be allowed to drop to a second line. */
+  flex-wrap: wrap;
   margin-bottom: 14px;
 }
 .video-file-name {
-  flex: 1 1 auto;
-  min-width: 0;
+  /* Zero basis, not auto: a wrapping flex row breaks lines BEFORE it shrinks
+     anything, so an auto-basis name long enough to matter would always push
+     the buttons to a second line instead of ellipsizing. From zero it only
+     ever claims what is left over, and truncates there. */
+  flex: 1 1 0;
+  /* A floor rather than 0, so the row stays one line down to this width —
+     lecture exports have long names, and wrapping the buttons would cost the
+     height the video wants. Below the floor the row wraps, never overflows. */
+  min-width: 8ch;
   font-size: 14px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .video-file-row .file-btn { flex-shrink: 0; }
-.video-file-row .hint { flex-shrink: 0; }
+.video-transcript-hint { margin: -6px 0 14px; text-wrap: pretty; }
 
 /* Deliberately NOT .slide-frame: that one pins a 16/10 box and letterboxes
    whatever it holds, which spends a good part of the dialog on black bars
@@ -1201,13 +1211,16 @@ dialog.sheet-wide { max-width: min(880px, 94vw); }
   width: auto;
   height: auto;
   max-width: 100%;
-  /* Measured, not guessed: the rest of the dialog runs to 472px in its
-     tallest state (transcript attached, an error line showing after a
-     capture), so this keeps the status line — where capture confirmations
-     land — on screen rather than under the fold. Clamped at each end; below
-     the floor the sheet body scrolls, as it always did. Re-measure this if
-     a row is added. */
-  max-height: clamp(120px, calc(90vh - 485px), 520px);
+  /* Measured, not guessed: the rest of the dialog runs to 508px in its
+     tallest state (a two-line transcript hint plus an error line showing
+     after a capture), so this keeps the status line — where capture
+     confirmations land — on screen rather than under the fold. Clamped at
+     each end; below the floor the sheet body scrolls, as it always did.
+     Re-measure this if a row is added. The previous 485 was measured when
+     the transcript hint shared a row with the file buttons; it had been 27px
+     short of its own tallest state ever since that hint grew long enough to
+     wrap, and the dialog quietly scrolled there. */
+  max-height: clamp(120px, calc(90vh - 526px), 520px);
 }
 
 .video-crop-overlay {

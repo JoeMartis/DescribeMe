@@ -358,7 +358,6 @@
          instead of truncating. -->
     <div class="video-file-row">
       <span class="video-file-name" id="videoFileName">No video chosen yet.</span>
-      <span class="hint" id="transcriptHint" hidden></span>
       <span class="btn file-btn">
         <span id="videoInputLabel">Choose a video</span>
         <input type="file" id="videoInput" accept="video/*" aria-label="Choose a video file">
@@ -369,6 +368,10 @@
         <input type="file" id="transcriptInput" accept=".srt,.vtt" aria-label="Add a transcript file for this video">
       </span>
     </div>
+    <!-- Its own line: this is a whole sentence naming two filenames, and on
+         the row above it would either crush the video's name to nothing or
+         shove the buttons past the edge of the dialog. -->
+    <p class="hint video-transcript-hint" id="transcriptHint" hidden></p>
 
     <div id="videoStage" hidden>
       <div class="video-frame">

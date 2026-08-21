@@ -2942,11 +2942,25 @@ async function captureFrame(runMode) {
   }
 }
 
-/** The slide already captured from this video at this second, if any. */
+/** The slide already captured from this video at this second, if any. Only
+ *  dialog captures carry cropKey, so an image UPLOADED under the same stem and
+ *  timestamp is never mistaken for one — it holds different pixels. */
 function jobAtCapture(seconds) {
   return jobList().find(
-    (job) => job.videoName === videoStem && job.captureSeconds === seconds
+    (job) =>
+      job.videoName === videoStem &&
+      job.captureSeconds === seconds &&
+      typeof job.cropKey === "string"
   );
+}
+
+/** Identifies the pixels a capture would produce, beyond its timestamp: the
+ *  same moment cropped differently is a different picture. Rounded, because a
+ *  region is stored as floats and re-deriving it can differ in the last bit. */
+function cropKeyOf(region) {
+  if (!region) return "full";
+  const n = (v) => Math.round(v * 1000);
+  return `${n(region.x)},${n(region.y)},${n(region.w)},${n(region.h)}`;
 }
 
 async function runCapture(runMode) {
@@ -2989,7 +3003,16 @@ async function runCapture(runMode) {
     // button that would fix it refused to. When only the description is
     // missing, run the slide that is already there.
     if (runMode && existing) {
-      if (existing.state === "done") {
+      // Reuse is only honest when the slide already there holds the pixels the
+      // user is asking about. Set up a crop and ask for a description of a
+      // second captured full-frame and this would have described the whole
+      // board while reporting success — the crop silently ignored.
+      if (existing.cropKey !== cropKeyOf(videoCropRegion)) {
+        setVideoError(
+          `The frame at ${clock} is already captured, but with a different crop. ` +
+            `Match the crop it was taken with, or capture a different moment.`
+        );
+      } else if (existing.state === "done") {
         setVideoError(`The frame at ${clock} is already captured and described — it's in the rail.`);
       } else if (batchRunning || existing.state === "describing") {
         setVideoError(`The frame at ${clock} is already captured and a description is running.`);
@@ -3024,6 +3047,11 @@ async function runCapture(runMode) {
   await addFiles([file], {
     videoName: videoStem,
     captureSeconds: frame.seconds,
+    // Session-only, and deliberately not in the project whitelist: it exists
+    // to decide whether an already-captured second can be reused, and
+    // videoCapturedSeconds — the gate on that path — is empty after a reload
+    // anyway.
+    cropKey: cropKeyOf(videoCropRegion),
     // Snapshotted per capture, not referenced from the (session-only)
     // transcript, so the context survives save/reload with the job.
     transcriptContext: transcriptExcerpt(frame.seconds),
