@@ -92,12 +92,6 @@
     </div>
     <div class="header-spacer"></div>
     <div class="header-tools">
-      <!-- The only way into Settings: it opens the dialog AND reports the
-           state a gear icon could not (key, model, verbosity). -->
-      <button type="button" class="chip" id="settingsChip" aria-haspopup="dialog" title="Key, model and verbosity — opens settings">
-        <span class="chip-dot" id="settingsChipDot" aria-hidden="true"></span>
-        <span id="settingsChipLabel">No key yet</span>
-      </button>
       <button type="button" class="btn" id="videoBtn" aria-haspopup="dialog">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" width="16" height="16"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
         From video
@@ -108,6 +102,15 @@
       </button>
       <button type="button" class="btn btn-icon" id="projectsBtn" aria-haspopup="dialog" aria-label="Projects">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+      </button>
+      <!-- Still the only way into Settings. The state it used to spell out
+           lives in aria-label/title now, so it is not lost for screen readers
+           or on hover; the alert fill and the "!" badge carry it visually —
+           two cues, so it does not rest on colour alone. -->
+      <button type="button" class="btn btn-icon" id="settingsChip" aria-haspopup="dialog"
+              aria-label="No API key yet — open settings" title="No API key yet — open settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+        <span class="btn-badge" id="settingsChipBadge" aria-hidden="true">!</span>
       </button>
     </div>
   </header>

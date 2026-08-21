@@ -235,6 +235,35 @@ code, kbd {
 .btn-primary:active:not(:disabled) { background: var(--accent-800); }
 .btn-primary:disabled:hover { background: var(--accent-press); }
 
+/* "Something needs your attention" on an icon button, where there is no room
+   for words. Two cues, never colour on its own: the fill is a large luminance
+   change (so it survives greyscale and any colour blindness) and the badge is
+   a shape. Same red as the primary button, which already clears AA against
+   paper-white at this size. */
+.btn-alert {
+  background: var(--accent-press);
+  border-color: var(--border);
+  color: var(--paper-white);
+}
+.btn-alert:hover:not(:disabled) { background: var(--accent-800); }
+.btn-alert:active:not(:disabled) { background: var(--accent-800); }
+.btn-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 19px;
+  height: 19px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  border: var(--border-width) solid var(--border);
+  background: var(--mustard);
+  color: var(--ink-brown);
+  font-family: var(--font-heading);
+  font-size: 10px;
+  line-height: 1;
+}
+
 .btn-approve {
   background: var(--sage-press);
   border-color: var(--border);
@@ -250,6 +279,7 @@ code, kbd {
 }
 
 .btn-icon {
+  position: relative;
   width: 40px;
   height: 40px;
   padding: 0;
@@ -283,15 +313,6 @@ code, kbd {
   color: var(--fg);
   white-space: nowrap;
 }
-button.chip { cursor: pointer; font-family: var(--font-accent); box-shadow: var(--shadow-sm); }
-button.chip:hover { background: var(--swamp-parchment); }
-.chip-dot {
-  width: 8px; height: 8px;
-  border-radius: 999px;
-  background: var(--sage);
-  flex-shrink: 0;
-}
-.chip-dot-warn { background: var(--accent); }
 .chip-cost {
   background: var(--mustard);
   border-color: var(--border);
@@ -301,8 +322,6 @@ button.chip:hover { background: var(--swamp-parchment); }
 /* .field stretches its children, which would stretch this pill across the
    whole dialog — it should hug its text like every other chip. */
 .field > .chip-cost { align-self: flex-start; }
-.chip-toggle { cursor: pointer; user-select: none; }
-.chip-toggle input { margin: 0; }
 
 .tag {
   display: inline-flex;

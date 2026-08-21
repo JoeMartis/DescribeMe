@@ -279,8 +279,7 @@ const els = {
   batchName: document.getElementById("batchName"),
   batchSummary: document.getElementById("batchSummary"),
   settingsChip: document.getElementById("settingsChip"),
-  settingsChipDot: document.getElementById("settingsChipDot"),
-  settingsChipLabel: document.getElementById("settingsChipLabel"),
+  settingsChipBadge: document.getElementById("settingsChipBadge"),
   costChipLabel: document.getElementById("costChipLabel"),
   costChipValue: document.getElementById("costChipValue"),
   exportBtn: document.getElementById("exportBtn"),
@@ -1216,12 +1215,17 @@ function updateControls() {
     els.batchSummary.textContent = parts.join(" · ");
   }
 
-  // Header — settings chip
+  // Header — settings cog. It no longer has room to spell its state out, so
+  // the words move to the accessible name and the tooltip and the alert
+  // treatment carries it visually.
   const modelName = MODEL_SHORT_NAMES[els.model.value] || els.model.value;
-  els.settingsChipLabel.textContent = hasApiKey
-    ? `Key set · ${modelName} · ${currentVerbosity().label}`
-    : "No key yet — add one";
-  els.settingsChipDot.className = hasApiKey ? "chip-dot" : "chip-dot chip-dot-warn";
+  const settingsLabel = hasApiKey
+    ? `Settings — key set · ${modelName} · ${currentVerbosity().label}`
+    : "No API key yet — open settings";
+  els.settingsChip.setAttribute("aria-label", settingsLabel);
+  els.settingsChip.title = settingsLabel;
+  els.settingsChip.classList.toggle("btn-alert", !hasApiKey);
+  els.settingsChipBadge.hidden = hasApiKey;
 
   // Settings — cost estimate. Always an estimate; never a bill. Off-screen
   // until the dialog is open, but still recomputed here so it is correct the
