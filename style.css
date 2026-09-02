@@ -664,35 +664,72 @@ code, kbd {
    thumbnail, no selection, not draggable — so the row is dashed until it has
    matched something, and takes the review green once it has. */
 .rail-transcripts { padding: 0 12px 4px; flex-shrink: 0; }
-.rail-transcripts h3 {
+.rail-transcripts summary {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 8px 11px 6px;
+  cursor: pointer;
+  list-style: none;
+  border-radius: var(--radius-sm);
+}
+.rail-transcripts summary::-webkit-details-marker { display: none; }
+.rail-transcripts summary::before {
+  content: "";
+  width: 0; height: 0;
+  border-left: 5px solid var(--faint);
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  transform: translateY(-1px);
+  transition: transform var(--duration-quick);
+}
+.rail-transcripts[open] summary::before { transform: rotate(90deg) translateX(-1px); }
+.rail-transcripts summary:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+.rail-transcripts-title {
   font-family: var(--font-heading);
   font-size: 11px;
   letter-spacing: 0.04em;
   color: var(--faint);
-  padding: 8px 11px 6px;
 }
-.transcript-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.rail-transcripts-verdict { font-family: var(--font-accent); font-size: 13px; color: var(--muted); }
+.transcript-list { list-style: none; margin: 0; padding: 0 0 4px; display: flex; flex-direction: column; gap: 6px; }
+/* Compact: one line of name, one of verdict, an icon to detach. The name
+   keeps its tail (middle-ellipsised in JS) since that is what tells two
+   lecture files apart; the full name is in the tooltip. */
 .transcript-item {
   display: flex;
   align-items: center;
-  gap: 11px;
-  padding: 9px 11px;
-  border-radius: var(--radius-md);
-  border: var(--border-width) dashed var(--neutral-400);
+  gap: 9px;
+  padding: 6px 9px;
+  border-radius: var(--radius-sm);
+  border: 2px dashed var(--neutral-400);
 }
 .transcript-item[data-matched="yes"] {
   border-style: solid;
   border-color: var(--sage-300);
   background: var(--sage-100);
 }
-/* Long lecture names must not truncate here: two transcripts that differ
-   only in their tail were indistinguishable as "UB-CELLBIO_CYCLE…". */
-.transcript-item .rail-name { white-space: normal; overflow: visible; word-break: break-word; }
-.transcript-item .rail-status { white-space: normal; }
-.transcript-item[data-matched="no"] .rail-status { color: var(--accent-700); }
+.transcript-item .rail-name { font-size: 11px; }
+.transcript-item .rail-status { font-size: 12px; }
+/* The two-line "No match / expects slides named like …" has to be read in
+   full — that row is the one asking for a fix. */
+.transcript-item[data-matched="no"] .rail-status { color: var(--accent-700); white-space: normal; }
 .transcript-item[data-matched="yes"] .rail-status { color: var(--sage-700); }
 .dot-unmatched { background: var(--neutral-400); }
-.transcript-detach { flex-shrink: 0; }
+.transcript-detach {
+  flex-shrink: 0;
+  width: 24px; height: 24px;
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 0;
+  border: var(--border-width) solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.transcript-detach svg { width: 12px; height: 12px; }
+.transcript-detach:hover { background: var(--raised); border-color: var(--border); color: var(--fg); }
+.transcript-detach:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 
 .rail-foot { padding: 12px; display: flex; flex-direction: column; gap: 10px; }
 .rail-card {

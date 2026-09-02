@@ -292,6 +292,7 @@ const els = {
   railEmpty: document.getElementById("railEmpty"),
   railFileInput: document.getElementById("railFileInput"),
   railTranscripts: document.getElementById("railTranscripts"),
+  railTranscriptsVerdict: document.getElementById("railTranscriptsVerdict"),
   transcriptList: document.getElementById("transcriptList"),
   newBatchBtn: document.getElementById("newBatchBtn"),
   progressCard: document.getElementById("progressCard"),
@@ -894,10 +895,25 @@ function renderRailRow(job) {
  * each one matched. Not persisted — the excerpts they stamped on slides are,
  * so after a reload the slides keep their context and this list is empty.
  */
+/** "UB-CellBi…lls-00-02-23.srt": the tail is what tells two lecture files
+ *  apart, so a long name loses its middle rather than its end. */
+function middleEllipsis(text, max = 24) {
+  if (text.length <= max) return text;
+  const head = Math.ceil((max - 1) * 0.4);
+  return `${text.slice(0, head)}…${text.slice(-(max - 1 - head))}`;
+}
+
+// The panel opens itself when a transcript needs attention and closes when
+// everything matched — but only when that state CHANGES, so a person's own
+// toggle is left alone in between.
+let transcriptsPanelSignature = "";
+
 function renderTranscripts() {
   const entries = transcriptEntries();
   els.railTranscripts.hidden = entries.length === 0;
   els.transcriptList.replaceChildren();
+  let matchedEntries = 0;
+  let attachedSlides = 0;
   for (const entry of entries) {
     const total = jobs.size;
     // Worked out live against the batch, so the row is right after slides
@@ -920,6 +936,9 @@ function renderTranscripts() {
     const captions =
       `${entry.cues.length} caption${entry.cues.length === 1 ? "" : "s"} through ${formatClock(lastEnd)}`;
 
+    if (matched) matchedEntries += 1;
+    attachedSlides += attachedJobs.length;
+
     const li = document.createElement("li");
     li.className = "transcript-item";
     li.dataset.matched = matched ? "yes" : "no";
@@ -932,7 +951,8 @@ function renderTranscripts() {
     text.className = "rail-text";
     const name = document.createElement("span");
     name.className = "rail-name";
-    name.textContent = entry.name;
+    name.textContent = middleEllipsis(entry.name);
+    name.title = entry.name;
     const status = document.createElement("span");
     status.className = "rail-status";
     const clocks = (list) => {
@@ -944,10 +964,12 @@ function renderTranscripts() {
     const middle = entry.cues[Math.floor(entry.cues.length / 2)];
     const example = `${entry.baseStem}_${formatStampForName(middle ? middle.start : 0)}.png`;
     if (matched) {
-      const bits = [`${captions} · attached to ${live.length} of ${total} slide${total === 1 ? "" : "s"}`];
+      // One line. The slide count leads; the caption span is detail.
+      const bits = [`${live.length} of ${total} slide${total === 1 ? "" : "s"}`, captions];
       if (hadOther.length > 0) bits.push(`${hadOther.length} already had context`);
       if (noCaptions.length > 0) bits.push(`no captions near ${clocks(noCaptions)}`);
       status.textContent = bits.join(" · ");
+      status.title = status.textContent;
     } else if (noCaptions.length > 0) {
       // The name is right; the time is not covered. Say so, with the times
       // and how far the captions run, so the fix is obvious.
@@ -964,13 +986,29 @@ function renderTranscripts() {
 
     const detach = document.createElement("button");
     detach.type = "button";
-    detach.className = "btn btn-small btn-ghost transcript-detach";
-    detach.textContent = "Detach";
+    detach.className = "transcript-detach";
+    detach.innerHTML =
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>';
     detach.setAttribute("aria-label", `Detach transcript ${entry.name}`);
+    detach.title = "Detach";
     detach.addEventListener("click", () => detachTranscript(entry));
 
     li.append(dot, text, detach);
     els.transcriptList.appendChild(li);
+  }
+
+  // Summary line: enough to know whether to open it.
+  const unmatched = entries.length - matchedEntries;
+  els.railTranscriptsVerdict.textContent =
+    entries.length === 0
+      ? ""
+      : unmatched > 0
+        ? `${unmatched} of ${entries.length} unmatched`
+        : `${entries.length} · ${attachedSlides} slide${attachedSlides === 1 ? "" : "s"}`;
+  const signature = entries.map((e) => `${e.id}:${e.attached.size}`).join("|") + `#${unmatched}`;
+  if (signature !== transcriptsPanelSignature) {
+    transcriptsPanelSignature = signature;
+    els.railTranscripts.open = unmatched > 0;
   }
 }
 
