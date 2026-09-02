@@ -1028,10 +1028,8 @@ function detachTranscript(entry) {
   // The Detach button just removed itself from under the keyboard — from the
   // detail pane or the rail list alike.
   els.detail.focus();
-  setStatus(
-    `Detached ${entry.name}` +
-      (cleared ? ` — transcript context removed from ${cleared} slide${cleared === 1 ? "" : "s"}.` : ".")
-  );
+  // No announcement: the green edge and the file name leave the rows, and
+  // a long caption filename in the status line was noise on top of that.
 }
 
 function renderRail() {
@@ -2874,8 +2872,11 @@ function transcriptStemCandidates(fileName) {
   const push = (s) => {
     if (s && !out.includes(s)) out.push(s);
   };
-  // "Lecture_3.en.srt" — VLC's and yt-dlp's language tag.
-  push(stem.replace(/\.[a-z]{2,3}(?:-[a-z]{2,4})?$/i, ""));
+  // "Lecture_3.en.srt" — VLC's and yt-dlp's language tag — and the same tag
+  // after a hyphen or underscore ("…_v1-en.srt"), which caption exporters
+  // also write. Only ever an EXTRA candidate, so a name that happens to end
+  // in two letters loses nothing.
+  push(stem.replace(/[._-][a-z]{2,3}(?:-[a-z]{2,4})?$/i, ""));
   // "Lecture_3_HH-MM-SS.srt" — our own placeholder, copied into the name
   // by someone doing what the message appeared to say. Meet them there.
   for (const s of [...out]) push(s.replace(/[_-]HH-MM-SS$/i, ""));
