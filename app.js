@@ -1097,31 +1097,29 @@ async function addFiles(fileList, meta) {
   // don't occupy batch slots, and a full batch must not stop one attaching.
   const files = all.filter((f) => !isTranscriptFile(f));
   const transcriptNotes = [];
-  // Slides in this drop that picked up a transcript loaded EARLIER. The
-  // transcript's own announcement ("attaches to slides … as they arrive")
-  // was made then; this is the moment it came true, so it gets said now.
-  const pairedByTranscript = new Map();
   for (const f of all.filter(isTranscriptFile)) {
     transcriptNotes.push(await registerWorkspaceTranscript(f));
   }
+  // Nothing is announced about a transcript that loaded: it shows in the
+  // rail — on the slides it reached, or under Unmatched transcripts — and a
+  // status line saying the same thing just sat at the top of the page until
+  // something else happened. A file that would not parse is the exception:
+  // nothing else shows it, so it goes on the error line.
+  const transcriptFailures = transcriptNotes.filter((n) => typeof n === "string");
+
   if (files.length === 0) {
-    if (transcriptNotes.length > 0) {
-      // renderAll before the announcement, not after: updateOverallStatus
-      // blanks the status line for an empty batch and would eat the note.
-      renderAll();
-      setStatus(transcriptNotesText(transcriptNotes));
-    }
+    renderAll();
+    if (transcriptFailures.length > 0) setError(transcriptFailures.join(" "));
     return;
   }
 
   if (jobs.size >= MAX_BATCH_SIZE) {
     // The images are refused, but any transcript in the same drop already
-    // attached — say so, or the cap error reads as the whole drop failing.
-    if (transcriptNotes.length > 0) {
-      renderAll();
-      setStatus(transcriptNotesText(transcriptNotes));
-    }
-    setError(`You already have the maximum of ${MAX_BATCH_SIZE} images queued.`);
+    // registered — render so it shows in the rail.
+    if (transcriptNotes.length > 0) renderAll();
+    setError(
+      [`You already have the maximum of ${MAX_BATCH_SIZE} images queued.`, ...transcriptFailures].join(" ")
+    );
     return;
   }
 
@@ -1184,10 +1182,7 @@ async function addFiles(fileList, meta) {
         const transcript = workspaceTranscripts.get(stemKey(job.videoName));
         if (transcript && !job.transcriptContext) {
           job.transcriptContext = excerptFromCues(transcript.cues, stamp.seconds);
-          if (job.transcriptContext) {
-            transcript.attached.add(job.id);
-            pairedByTranscript.set(transcript.name, (pairedByTranscript.get(transcript.name) || 0) + 1);
-          }
+          if (job.transcriptContext) transcript.attached.add(job.id);
         }
       }
     }
@@ -1219,19 +1214,11 @@ async function addFiles(fileList, meta) {
       `${skippedForRoom} file(s) skipped — batches are capped at ${MAX_BATCH_SIZE} images.`
     );
   }
+  messages.push(...transcriptFailures);
   if (messages.length > 0) setError(messages.join(" "));
 
   maybeNameBatch();
   renderAll();
-  // After renderAll for the same reason as the early return above — and it
-  // outranks the batch summary this once: the attachment is what just
-  // happened, and the summary is back on the next render anyway.
-  const announcements = [];
-  if (transcriptNotes.length > 0) announcements.push(transcriptNotesText(transcriptNotes));
-  for (const [name, n] of pairedByTranscript) {
-    announcements.push(`${n} new slide${n === 1 ? "" : "s"} picked up transcript "${name}".`);
-  }
-  if (announcements.length > 0) setStatus(announcements.join(" "));
 }
 
 /** Default the batch name to whatever the filenames have in common. */
@@ -2963,30 +2950,9 @@ async function registerWorkspaceTranscript(file) {
   // had happened.
   renderRail();
 
-  // The caller words the announcement, and only once the whole drop is in:
-  // images in the same drop are added AFTER this returns, so a count taken
-  // here said "nothing matched yet" about a transcript that was about to
-  // match every one of them.
+  // The entry, not a message: the rail is where a loaded transcript shows.
+  // A parse failure returns a string instead, which the caller reports.
   return entry;
-}
-
-/** One line for the status region about a transcript, from live state. */
-function transcriptNote(entry) {
-  const attached = [...entry.attached].filter((id) => jobs.has(id) && jobs.get(id).transcriptContext).length;
-  if (attached > 0) {
-    return `Transcript "${entry.name}" attached to ${attached} slide${attached === 1 ? "" : "s"}.`;
-  }
-  const middle = entry.cues[Math.floor(entry.cues.length / 2)];
-  return (
-    `Transcript "${entry.name}" loaded — it attaches to slides named like ` +
-    `${entry.baseStem}_${formatStampForName(middle ? middle.start : 0)}.png as they arrive.`
-  );
-}
-
-/** Notes are either an entry (worded now, from live state) or a string (a
- *  parse failure, worded when it happened). */
-function transcriptNotesText(notes) {
-  return notes.map((n) => (typeof n === "string" ? n : transcriptNote(n))).join(" ");
 }
 
 function setTranscriptHint(message) {
