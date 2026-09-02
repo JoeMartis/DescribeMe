@@ -919,7 +919,6 @@ function renderTranscripts() {
     const lastEnd = entry.cues.reduce((max, cue) => Math.max(max, cue.end), 0);
     const captions =
       `${entry.cues.length} caption${entry.cues.length === 1 ? "" : "s"} through ${formatClock(lastEnd)}`;
-    const pattern = `${entry.baseStem}_HH-MM-SS`;
 
     const li = document.createElement("li");
     li.className = "transcript-item";
@@ -940,6 +939,10 @@ function renderTranscripts() {
       const shown = list.slice(0, 3).map((job) => formatClock(job.captureSeconds));
       return shown.join(", ") + (list.length > 3 ? ` and ${list.length - 3} more` : "");
     };
+    // A concrete example beats a placeholder: "…_HH-MM-SS" got copied into
+    // filenames literally. The time is one this transcript actually covers.
+    const middle = entry.cues[Math.floor(entry.cues.length / 2)];
+    const example = `${entry.baseStem}_${formatStampForName(middle ? middle.start : 0)}.png`;
     if (matched) {
       const bits = [`${captions} · attached to ${live.length} of ${total} slide${total === 1 ? "" : "s"}`];
       if (hadOther.length > 0) bits.push(`${hadOther.length} already had context`);
@@ -955,7 +958,7 @@ function renderTranscripts() {
       );
     } else {
       // Two short lines: the verdict, then the one fact that fixes it.
-      status.append("No match", document.createElement("br"), `pairs with slides named ${pattern}`);
+      status.append("No match", document.createElement("br"), `expects slides named like ${example}`);
     }
     text.append(name, status);
 
@@ -1073,7 +1076,7 @@ async function addFiles(fileList, meta) {
       // renderAll before the announcement, not after: updateOverallStatus
       // blanks the status line for an empty batch and would eat the note.
       renderAll();
-      setStatus(transcriptNotes.join(" "));
+      setStatus(transcriptNotesText(transcriptNotes));
     }
     return;
   }
@@ -1083,7 +1086,7 @@ async function addFiles(fileList, meta) {
     // attached — say so, or the cap error reads as the whole drop failing.
     if (transcriptNotes.length > 0) {
       renderAll();
-      setStatus(transcriptNotes.join(" "));
+      setStatus(transcriptNotesText(transcriptNotes));
     }
     setError(`You already have the maximum of ${MAX_BATCH_SIZE} images queued.`);
     return;
@@ -1187,7 +1190,7 @@ async function addFiles(fileList, meta) {
   // After renderAll for the same reason as the early return above — and it
   // outranks the batch summary this once: the attachment is what just
   // happened, and the summary is back on the next render anyway.
-  if (transcriptNotes.length > 0) setStatus(transcriptNotes.join(" "));
+  if (transcriptNotes.length > 0) setStatus(transcriptNotesText(transcriptNotes));
 }
 
 /** Default the batch name to whatever the filenames have in common. */
@@ -2770,15 +2773,24 @@ function timestampFromName(name) {
   // [_\s-] read GNOME's "Screenshot from 2026-08-20 14-30-05.png" as a frame
   // fourteen and a half hours into a video. Minutes and seconds are range-
   // checked for the same reason: a real capture never writes 12-99-99.
-  // A browser's duplicate-download suffix ("… (1).png") or macOS's " copy"
+  // Underscore OR hyphen before the stamp: capture writes "_", but a person
+  // naming files by hand in a name that already uses hyphens
+  // ("Splitting-Cells-00-02-23") will not switch separators for us. A
+  // browser's duplicate-download suffix ("… (1).png") or macOS's " copy"
   // after the stamp must not hide it — the file is the same frame.
-  const m = stem.match(/_(\d{2})-(\d{2})-(\d{2})(?:\s*\(\d+\)|[ _-]copy(?:\s*\d+)?)?$/i);
+  const m = stem.match(/[_-](\d{2})-(\d{2})-(\d{2})(?:\s*\(\d+\)|[ _-]copy(?:\s*\d+)?)?$/i);
   if (!m) return null;
+  const prefix = stem.slice(0, m.index);
+  // GNOME's "Screenshot from 2026-08-20 14-30-05.png" is a date and a clock,
+  // not a lecture and an offset into it — and it would otherwise become a
+  // frame fourteen and a half hours into a video called "Screenshot from
+  // 2026-08-20". A prefix that ends in a date is a screenshot.
+  if (/\d{4}-\d{2}-\d{2}\s*$/.test(prefix) || !prefix.replace(/[\s_-]+$/, "")) return null;
   const minutes = Number(m[2]);
   const seconds = Number(m[3]);
   if (minutes > 59 || seconds > 59) return null;
   return {
-    prefix: stem.slice(0, m.index),
+    prefix,
     seconds: Number(m[1]) * 3600 + minutes * 60 + seconds,
   };
 }
@@ -2795,8 +2807,22 @@ function isTranscriptFile(file) {
  */
 function transcriptStemCandidates(fileName) {
   const stem = safeVideoStem(fileName);
-  const base = stem.replace(/\.[a-z]{2,3}(?:-[a-z]{2,4})?$/i, "");
-  return base && base !== stem ? [stem, base] : [stem];
+  const out = [stem];
+  const push = (s) => {
+    if (s && !out.includes(s)) out.push(s);
+  };
+  // "Lecture_3.en.srt" — VLC's and yt-dlp's language tag.
+  push(stem.replace(/\.[a-z]{2,3}(?:-[a-z]{2,4})?$/i, ""));
+  // "Lecture_3_HH-MM-SS.srt" — our own placeholder, copied into the name
+  // by someone doing what the message appeared to say. Meet them there.
+  for (const s of [...out]) push(s.replace(/[_-]HH-MM-SS$/i, ""));
+  // "Lecture_3-00-02-23.srt" — named after a captured frame rather than
+  // after the lecture. The frame's own stem is the lecture.
+  for (const s of [...out]) {
+    const stamp = timestampFromName(`${s}.x`);
+    if (stamp) push(normalizeStem(stamp.prefix));
+  }
+  return out;
 }
 
 /**
@@ -2820,9 +2846,10 @@ async function registerWorkspaceTranscript(file) {
   const candidates = transcriptStemCandidates(file.name);
   const stems = new Set(candidates.map(stemKey));
   const baseStem = candidates[candidates.length - 1];
-  // Dropping the same file again replaces it, keeping the earlier copy's
+  // One transcript per lecture: a file for the same stem — the same file
+  // dropped again, or a renamed copy — replaces the earlier one, keeping its
   // record of which slides it stamped so Detach still knows what it owns.
-  const previous = transcriptEntries().find((e) => e.name === file.name);
+  const previous = transcriptEntries().find((e) => e.stems.some((s) => stems.has(stemKey(s))));
   if (previous) {
     for (const [key, value] of workspaceTranscripts) if (value === previous) workspaceTranscripts.delete(key);
   }
@@ -2863,9 +2890,25 @@ async function registerWorkspaceTranscript(file) {
   // had happened.
   renderRail();
 
+  // The caller words the announcement, and only once the whole drop is in:
+  // images in the same drop are added AFTER this returns, so a count taken
+  // here said "nothing matched yet" about a transcript that was about to
+  // match every one of them.
+  return entry;
+}
+
+/** One line for the status region about a transcript, from live state. */
+function transcriptNote(entry) {
+  const attached = [...entry.attached].filter((id) => jobs.has(id) && jobs.get(id).transcriptContext).length;
   return attached > 0
-    ? `Transcript "${file.name}" attached to ${attached} slide${attached === 1 ? "" : "s"}.`
-    : `Transcript "${file.name}" loaded — it will pair with images named ${baseStem}_HH-MM-SS.`;
+    ? `Transcript "${entry.name}" attached to ${attached} slide${attached === 1 ? "" : "s"}.`
+    : `Transcript "${entry.name}" loaded — nothing matched yet; see Transcripts in the rail.`;
+}
+
+/** Notes are either an entry (worded now, from live state) or a string (a
+ *  parse failure, worded when it happened). */
+function transcriptNotesText(notes) {
+  return notes.map((n) => (typeof n === "string" ? n : transcriptNote(n))).join(" ");
 }
 
 function setTranscriptHint(message) {

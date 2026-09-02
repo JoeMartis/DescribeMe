@@ -685,6 +685,9 @@ code, kbd {
   border-color: var(--sage-300);
   background: var(--sage-100);
 }
+/* Long lecture names must not truncate here: two transcripts that differ
+   only in their tail were indistinguishable as "UB-CELLBIO_CYCLE…". */
+.transcript-item .rail-name { white-space: normal; overflow: visible; word-break: break-word; }
 .transcript-item .rail-status { white-space: normal; }
 .transcript-item[data-matched="no"] .rail-status { color: var(--accent-700); }
 .transcript-item[data-matched="yes"] .rail-status { color: var(--sage-700); }
