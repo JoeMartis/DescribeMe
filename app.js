@@ -925,11 +925,12 @@ function renderTranscripts() {
     name.textContent = entry.name;
     const status = document.createElement("span");
     status.className = "rail-status";
-    status.textContent = matched
-      ? `${captions} · attached to ${live.length} of ${total} slide${total === 1 ? "" : "s"}`
-      : total === 0
-        ? `${captions} · waiting for slides named ${pattern}`
-        : `${captions} · no match — pairs with slides named ${pattern}`;
+    if (matched) {
+      status.textContent = `${captions} · attached to ${live.length} of ${total} slide${total === 1 ? "" : "s"}`;
+    } else {
+      // Two short lines: the verdict, then the one fact that fixes it.
+      status.append("No match", document.createElement("br"), `pairs with slides named ${pattern}`);
+    }
     text.append(name, status);
 
     const detach = document.createElement("button");
