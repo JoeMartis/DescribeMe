@@ -899,9 +899,20 @@ function renderTranscripts() {
   els.railTranscripts.hidden = entries.length === 0;
   els.transcriptList.replaceChildren();
   for (const entry of entries) {
-    const live = [...entry.attached].filter((id) => jobs.has(id) && jobs.get(id).transcriptContext);
     const total = jobs.size;
-    const matched = live.length > 0;
+    // Worked out live against the batch, so the row is right after slides
+    // are added, removed or reloaded. Three outcomes for a slide whose NAME
+    // matches this transcript: it got context from here; it already had
+    // context from elsewhere (the video dialog's own transcript); or its
+    // time fell outside every caption. Only the last used to be reported
+    // as "no match", which sent people off to rename files that were
+    // named correctly.
+    const byName = jobList().filter((job) => jobMatchesTranscript(entry, job));
+    const attachedJobs = byName.filter((job) => job.transcriptContext && entry.attached.has(job.id));
+    const hadOther = byName.filter((job) => job.transcriptContext && !entry.attached.has(job.id));
+    const noCaptions = byName.filter((job) => !job.transcriptContext);
+    const live = attachedJobs.map((job) => job.id);
+    const matched = attachedJobs.length > 0 || hadOther.length > 0;
     // "125 captions through 52:14" — the end time is the useful half: a
     // transcript that stops at 20:00 for an hour-long lecture is visibly
     // short. Same wording the video dialog uses for its own transcript.
@@ -925,8 +936,23 @@ function renderTranscripts() {
     name.textContent = entry.name;
     const status = document.createElement("span");
     status.className = "rail-status";
+    const clocks = (list) => {
+      const shown = list.slice(0, 3).map((job) => formatClock(job.captureSeconds));
+      return shown.join(", ") + (list.length > 3 ? ` and ${list.length - 3} more` : "");
+    };
     if (matched) {
-      status.textContent = `${captions} · attached to ${live.length} of ${total} slide${total === 1 ? "" : "s"}`;
+      const bits = [`${captions} · attached to ${live.length} of ${total} slide${total === 1 ? "" : "s"}`];
+      if (hadOther.length > 0) bits.push(`${hadOther.length} already had context`);
+      if (noCaptions.length > 0) bits.push(`no captions near ${clocks(noCaptions)}`);
+      status.textContent = bits.join(" · ");
+    } else if (noCaptions.length > 0) {
+      // The name is right; the time is not covered. Say so, with the times
+      // and how far the captions run, so the fix is obvious.
+      status.append(
+        `Name matches, but no captions near ${clocks(noCaptions)}`,
+        document.createElement("br"),
+        `captions run through ${formatClock(lastEnd)}`
+      );
     } else {
       // Two short lines: the verdict, then the one fact that fixes it.
       status.append("No match", document.createElement("br"), `pairs with slides named ${pattern}`);
@@ -943,6 +969,14 @@ function renderTranscripts() {
     li.append(dot, text, detach);
     els.transcriptList.appendChild(li);
   }
+}
+
+/** Does this slide's name (or recorded source video) point at this transcript? */
+function jobMatchesTranscript(entry, job) {
+  const stems = new Set(entry.stems.map(stemKey));
+  if (job.videoName && Number.isFinite(job.captureSeconds)) return stems.has(stemKey(job.videoName));
+  const stamp = timestampFromName(job.name);
+  return !!stamp && stems.has(stemKey(normalizeStem(stamp.prefix)));
 }
 
 function detachTranscript(entry) {
@@ -1111,7 +1145,7 @@ async function addFiles(fileList, meta) {
       if (stamp) {
         job.captureSeconds = stamp.seconds;
         job.videoName = normalizeStem(stamp.prefix);
-        const transcript = workspaceTranscripts.get(job.videoName);
+        const transcript = workspaceTranscripts.get(stemKey(job.videoName));
         if (transcript && !job.transcriptContext) {
           job.transcriptContext = excerptFromCues(transcript.cues, stamp.seconds);
           if (job.transcriptContext) transcript.attached.add(job.id);
@@ -2644,16 +2678,21 @@ function parseSrt(raw) {
   // Hours are optional: WebVTT writes MM:SS.mmm for cues under the hour
   // (ffmpeg's .vtt output does), and requiring them silently dropped every
   // cue in a lecture's first hour while "attaching" the file successfully.
+  // Milliseconds optional: some exporters write "00:04:10 --> 00:05:00", and
+  // requiring them rejected every cue in the file as "no captions found".
   const TIMECODE =
-    /(?:(\d{1,2}):)?(\d{1,2}):(\d{2})[.,](\d{1,3})\s*-->\s*(?:(\d{1,2}):)?(\d{1,2}):(\d{2})[.,](\d{1,3})/;
+    /(?:(\d{1,2}):)?(\d{1,2}):(\d{2})(?:[.,](\d{1,3}))?\s*-->\s*(?:(\d{1,2}):)?(\d{1,2}):(\d{2})(?:[.,](\d{1,3}))?/;
   const cues = [];
-  for (const block of raw.replace(/\r/g, "").split(/\n{2,}/)) {
+  // Blocks are separated by blank lines — which editors and some exporters
+  // leave a stray space or tab on. Splitting on bare "\n\n" glued every such
+  // pair of cues into one, and the second's timing was lost.
+  for (const block of raw.replace(/^\uFEFF/, "").replace(/\r/g, "").split(/\n[ \t]*\n+/)) {
     const lines = block.split("\n");
     const timeAt = lines.findIndex((line) => TIMECODE.test(line));
     if (timeAt === -1) continue;
     const m = lines[timeAt].match(TIMECODE);
     const toSeconds = (h, min, s, ms) =>
-      Number(h || 0) * 3600 + Number(min) * 60 + Number(s) + Number(ms.padEnd(3, "0")) / 1000;
+      Number(h || 0) * 3600 + Number(min) * 60 + Number(s) + Number((ms || "0").padEnd(3, "0")) / 1000;
     const text = lines
       .slice(timeAt + 1)
       .join(" ")
@@ -2731,7 +2770,9 @@ function timestampFromName(name) {
   // [_\s-] read GNOME's "Screenshot from 2026-08-20 14-30-05.png" as a frame
   // fourteen and a half hours into a video. Minutes and seconds are range-
   // checked for the same reason: a real capture never writes 12-99-99.
-  const m = stem.match(/_(\d{2})-(\d{2})-(\d{2})$/);
+  // A browser's duplicate-download suffix ("… (1).png") or macOS's " copy"
+  // after the stamp must not hide it — the file is the same frame.
+  const m = stem.match(/_(\d{2})-(\d{2})-(\d{2})(?:\s*\(\d+\)|[ _-]copy(?:\s*\d+)?)?$/i);
   if (!m) return null;
   const minutes = Number(m[2]);
   const seconds = Number(m[3]);
@@ -2777,7 +2818,7 @@ async function registerWorkspaceTranscript(file) {
   // for both "Lecture_3.en" and "Lecture_3". The base name is what images
   // are actually named after, so it leads in messages.
   const candidates = transcriptStemCandidates(file.name);
-  const stems = new Set(candidates);
+  const stems = new Set(candidates.map(stemKey));
   const baseStem = candidates[candidates.length - 1];
   // Dropping the same file again replaces it, keeping the earlier copy's
   // record of which slides it stamped so Detach still knows what it owns.
@@ -2793,7 +2834,7 @@ async function registerWorkspaceTranscript(file) {
     baseStem,
     attached: previous ? previous.attached : new Set(),
   };
-  for (const c of candidates) workspaceTranscripts.set(c, entry);
+  for (const c of candidates) workspaceTranscripts.set(stemKey(c), entry);
 
   let attached = 0;
   for (const job of jobs.values()) {
@@ -2802,12 +2843,12 @@ async function registerWorkspaceTranscript(file) {
       ? job.captureSeconds
       : (() => {
           const stamp = timestampFromName(job.name);
-          return stamp && stems.has(normalizeStem(stamp.prefix)) ? stamp.seconds : null;
+          return stamp && stems.has(stemKey(normalizeStem(stamp.prefix))) ? stamp.seconds : null;
         })();
     if (seconds === null) continue;
     // For name-derived matches the stem check happened above; for jobs that
     // already carry a timestamp, pair on their recorded source video.
-    if (Number.isFinite(job.captureSeconds) && !stems.has(job.videoName)) continue;
+    if (Number.isFinite(job.captureSeconds) && !stems.has(stemKey(job.videoName))) continue;
     job.captureSeconds = seconds;
     if (!job.videoName) job.videoName = baseStem;
     job.transcriptContext = excerptFromCues(cues, seconds);
@@ -2886,6 +2927,13 @@ function normalizeStem(stem) {
 
 function safeVideoStem(fileName) {
   return normalizeStem(fileName.replace(/\.[^.]+$/, ""));
+}
+
+/** The key two stems are compared under. Case is dropped: "lecture_3.srt"
+ *  and "Lecture_3_00-04-32.png" are the same lecture to anyone naming files
+ *  by hand, and refusing the pair over a capital letter reads as broken. */
+function stemKey(stem) {
+  return String(stem || "").toLowerCase();
 }
 
 // The two lines are alternatives, not companions: leaving the last success
@@ -2969,7 +3017,7 @@ function loadVideoFile(file) {
   els.transcriptHint.hidden = false;
   // A transcript belongs to one recording; keep it only if its name still
   // matches the video that just loaded.
-  if (videoTranscript && videoTranscript.stem !== videoStem) clearTranscript();
+  if (videoTranscript && !videoTranscript.candidates.includes(stemKey(videoStem))) clearTranscript();
 
   videoObjectUrl = URL.createObjectURL(file);
   els.videoEl.src = videoObjectUrl;
@@ -3370,7 +3418,7 @@ els.transcriptInput.addEventListener("change", async () => {
   // "My Lecture #3.srt" matches "My Lecture #3.mp4"; a language-tagged name
   // like "My Lecture #3.en.srt" counts as a match too.
   const stem = safeVideoStem(file.name);
-  if (!transcriptStemCandidates(file.name).includes(videoStem)) {
+  if (!transcriptStemCandidates(file.name).map(stemKey).includes(stemKey(videoStem))) {
     els.transcriptInput.value = "";
     setVideoError(
       `That transcript is named "${file.name}", which doesn't match this video — expected "${videoStem}" with a .srt extension.`
@@ -3390,7 +3438,15 @@ els.transcriptInput.addEventListener("change", async () => {
     return;
   }
 
-  videoTranscript = { stem, name: file.name, cues };
+  videoTranscript = {
+    stem,
+    // Every stem this file answers for, so re-choosing the same video keeps
+    // it: a language-tagged "Lecture_3.en.srt" used to be dropped on reload
+    // because its literal stem "Lecture_3.en" never equalled "Lecture_3".
+    candidates: transcriptStemCandidates(file.name).map(stemKey),
+    name: file.name,
+    cues,
+  };
   const last = cues[cues.length - 1];
   setTranscriptHint(
     `${file.name} — ${cues.length} caption${cues.length === 1 ? "" : "s"} through ${formatClock(last.end)}.`
