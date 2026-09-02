@@ -902,7 +902,12 @@ function renderTranscripts() {
     const live = [...entry.attached].filter((id) => jobs.has(id) && jobs.get(id).transcriptContext);
     const total = jobs.size;
     const matched = live.length > 0;
-    const captions = `${entry.cues.length} caption${entry.cues.length === 1 ? "" : "s"}`;
+    // "125 captions through 52:14" — the end time is the useful half: a
+    // transcript that stops at 20:00 for an hour-long lecture is visibly
+    // short. Same wording the video dialog uses for its own transcript.
+    const lastEnd = entry.cues.reduce((max, cue) => Math.max(max, cue.end), 0);
+    const captions =
+      `${entry.cues.length} caption${entry.cues.length === 1 ? "" : "s"} through ${formatClock(lastEnd)}`;
     const pattern = `${entry.baseStem}_HH-MM-SS`;
 
     const li = document.createElement("li");
