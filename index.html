@@ -241,10 +241,15 @@
            shown on the slides it reached (rail row and detail pane), so this
            list exists only while a file needs attention, and costs no rail
            height otherwise. -->
-      <section class="rail-transcripts" id="railTranscripts" aria-labelledby="railTranscriptsHeading" hidden>
-        <h3 id="railTranscriptsHeading">Unmatched transcripts</h3>
+      <details class="rail-transcripts" id="railTranscripts" open hidden>
+        <!-- Collapsible: it opens itself when a new unmatched file arrives,
+             and otherwise stays however it was left. -->
+        <summary>
+          <span class="rail-transcripts-title">Unmatched transcripts</span>
+          <span class="rail-transcripts-count" id="railTranscriptsCount"></span>
+        </summary>
         <ul class="transcript-list" id="transcriptList"></ul>
-      </section>
+      </details>
       <div class="rail-foot" id="railFoot">
         <div class="rail-card" id="progressCard" hidden>
           <h3 id="progressLabel">Describing slides…</h3>

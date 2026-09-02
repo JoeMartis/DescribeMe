@@ -292,6 +292,7 @@ const els = {
   railEmpty: document.getElementById("railEmpty"),
   railFileInput: document.getElementById("railFileInput"),
   railTranscripts: document.getElementById("railTranscripts"),
+  railTranscriptsCount: document.getElementById("railTranscriptsCount"),
   transcriptList: document.getElementById("transcriptList"),
   newBatchBtn: document.getElementById("newBatchBtn"),
   progressCard: document.getElementById("progressCard"),
@@ -932,6 +933,9 @@ function middleEllipsis(text, max = 24) {
  * it, the detail pane carries Detach — so this list exists only while a
  * file needs attention, and costs no rail height otherwise.
  */
+// How many unmatched files the drawer listed last time — a rise reopens it.
+let unmatchedTranscriptsShown = 0;
+
 function renderTranscripts() {
   els.transcriptList.replaceChildren();
   let shown = 0;
@@ -1002,6 +1006,11 @@ function renderTranscripts() {
     els.transcriptList.appendChild(li);
   }
   els.railTranscripts.hidden = shown === 0;
+  els.railTranscriptsCount.textContent = shown > 0 ? String(shown) : "";
+  // A newly unmatched file is the thing this drawer exists for, so it opens
+  // for one; a drawer someone closed stays closed otherwise.
+  if (shown > unmatchedTranscriptsShown) els.railTranscripts.open = true;
+  unmatchedTranscriptsShown = shown;
 }
 
 /** Does this slide's name (or recorded source video) point at this transcript? */

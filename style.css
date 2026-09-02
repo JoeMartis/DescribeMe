@@ -671,12 +671,36 @@ code, kbd {
    thumbnail, no selection, not draggable — so the row is dashed until it has
    matched something, and takes the review green once it has. */
 .rail-transcripts { padding: 0 12px 4px; flex-shrink: 0; }
-.rail-transcripts h3 {
+.rail-transcripts summary {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  padding: 8px 11px 6px;
+  cursor: pointer;
+  list-style: none;
+  border-radius: var(--radius-sm);
+}
+.rail-transcripts summary::-webkit-details-marker { display: none; }
+.rail-transcripts summary::before {
+  content: "";
+  width: 0; height: 0;
+  border-left: 5px solid var(--accent-700);
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  transform: translateY(-1px);
+  transition: transform var(--duration-quick);
+}
+.rail-transcripts[open] summary::before { transform: rotate(90deg) translateX(-1px); }
+.rail-transcripts summary:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+.rail-transcripts-title {
   font-family: var(--font-heading);
   font-size: 11px;
   letter-spacing: 0.04em;
   color: var(--accent-700);
-  padding: 8px 11px 6px;
+}
+.rail-transcripts-count { font-family: var(--font-accent); font-size: 13px; color: var(--accent-700); }
+@media (prefers-reduced-motion: reduce) {
+  .rail-transcripts summary::before { transition: none; }
 }
 .transcript-list { list-style: none; margin: 0; padding: 0 0 4px; display: flex; flex-direction: column; gap: 6px; }
 /* Compact: one line of name, one of verdict, an icon to detach. The name
