@@ -541,6 +541,10 @@ code, kbd {
    invisible — surface keyboard focus on the visible button instead. */
 .rail-add:has(input:focus-visible),
 .file-btn:has(input:focus-visible) { outline: 3px solid var(--focus); outline-offset: 3px; }
+/* Same problem, same fix, for the main upload control on the empty
+   workspace: its input covers the whole dropzone at opacity 0, so without
+   this a keyboard user Tabs onto the app's primary input and sees nothing. */
+.dropzone:has(input:focus-visible) { outline: 3px solid var(--focus); outline-offset: 4px; }
 .rail-add input[type="file"], .file-btn input[type="file"] {
   position: absolute;
   inset: 0;

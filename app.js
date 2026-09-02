@@ -3653,6 +3653,11 @@ function uniqueName(name, taken) {
   return candidate;
 }
 
+/** The on-disk extension for a media type the app accepts, or null. */
+function extensionFor(mediaType) {
+  return { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif" }[mediaType] || null;
+}
+
 function renameExtension(name, ext) {
   const dot = name.lastIndexOf(".");
   const stem = dot > 0 ? name.slice(0, dot) : name;
@@ -3764,6 +3769,16 @@ async function resizeImageForExport(base64, mediaType) {
 }
 
 async function exportApproved() {
+  // Nothing in here used to catch: a slide whose bytes would not decode
+  // rejected the click handler's promise, and the button just did nothing.
+  try {
+    await exportApprovedNow();
+  } catch (err) {
+    setError(`Export failed: ${(err && err.message) || err}`);
+  }
+}
+
+async function exportApprovedNow() {
   // What's exported must be what's on screen — including an edit that
   // hasn't been explicitly saved yet.
   commitPendingEdit();
@@ -3774,23 +3789,51 @@ async function exportApproved() {
   const shouldResize = els.exportResize.checked;
 
   const prepared = [];
+  const skipped = [];
+  let apiCopies = 0;
   for (const job of approved) {
-    const base64 = job.originalBase64 || job.base64;
-    const mediaType = job.originalMediaType || job.mediaType;
-    const name = exportFileName(job.name);
+    const hasOriginal = !!job.originalBase64;
+    const base64 = hasOriginal ? job.originalBase64 : job.base64;
+    const mediaType = hasOriginal ? job.originalMediaType : job.mediaType;
+    let name = exportFileName(job.name);
+    if (!hasOriginal) {
+      // The API copy is what there is — a project file from before originals
+      // were carried through import, or one edited by hand. It was re-encoded
+      // for upload, so the bytes are JPEG whatever the name says; the name
+      // has to follow the bytes or Studio serves a .png that isn't one.
+      apiCopies += 1;
+      const ext = extensionFor(mediaType);
+      if (ext && !name.toLowerCase().endsWith(`.${ext}`)) name = renameExtension(name, ext);
+    }
+    let bytes = null;
+    try {
+      bytes = base64 ? base64ToBytes(base64) : null;
+    } catch (_err) {
+      bytes = null;
+    }
+    if (!bytes || bytes.length === 0) {
+      skipped.push(job.name);
+      continue;
+    }
     if (!shouldResize) {
-      prepared.push({ job, name, bytes: base64ToBytes(base64) });
+      prepared.push({ job, name, bytes });
       continue;
     }
     try {
-      const { bytes, ext } = await resizeImageForExport(base64, mediaType);
-      prepared.push({ job, name: ext ? renameExtension(name, ext) : name, bytes });
-    } catch (err) {
+      const resized = await resizeImageForExport(base64, mediaType);
+      prepared.push({ job, name: resized.ext ? renameExtension(name, resized.ext) : name, bytes: resized.bytes });
+    } catch (_err) {
       // A slide that resized fine for upload should always resize fine here
       // too — but if decoding somehow fails, exporting the original is
       // better than dropping the image from the zip entirely.
-      prepared.push({ job, name, bytes: base64ToBytes(base64) });
+      prepared.push({ job, name, bytes });
     }
+  }
+  if (prepared.length === 0) {
+    setError(
+      `Nothing was exported — ${skipped.join(", ")} ${skipped.length === 1 ? "has" : "have"} no image data.`
+    );
+    return;
   }
 
   const imageNames = new Set();
@@ -3816,9 +3859,21 @@ async function exportApproved() {
   link.click();
   link.remove();
   setTimeout(() => URL.revokeObjectURL(url), 10000);
+  const notes = [];
+  if (apiCopies > 0) {
+    // Not "full resolution" — say what actually went out.
+    notes.push(
+      `${apiCopies} image${apiCopies === 1 ? " has" : "s have"} no original in this project, so the copy ` +
+        `that was sent to the API (up to ${MAX_IMAGE_EDGE}px, JPEG) was exported instead.`
+    );
+  }
+  if (skipped.length > 0) {
+    notes.push(`Skipped ${skipped.join(", ")} — no image data.`);
+  }
   setStatus(
-    `Exported ${approved.length} approved description${approved.length === 1 ? "" : "s"} — ` +
-      (shouldResize ? "images resized to 800px wide." : "images at full resolution.")
+    `Exported ${prepared.length} approved description${prepared.length === 1 ? "" : "s"} — ` +
+      (shouldResize ? "images resized to 800px wide." : apiCopies > 0 ? "images as available." : "images at full resolution.") +
+      (notes.length ? ` ${notes.join(" ")}` : "")
   );
 }
 
@@ -3959,9 +4014,13 @@ function markDirty() {
 async function writeAutosave() {
   clearTimeout(autosaveTimer);
   if (!autosaveReady || !autosaveDirty) return;
-  // Mid-batch state is churn — the batch's final renderAll re-marks dirty,
-  // so the settled result is what gets written.
-  if (batchRunning) return;
+  // Written during a batch too. This used to stand down while batchRunning,
+  // on the theory that mid-batch state is churn and the final renderAll
+  // would write the settled result — which meant every description that
+  // landed before a reload, crash or closed tab was lost, minutes of API
+  // spend included. A mid-batch snapshot is safe to restore: serializeProject
+  // already records an in-flight slide as "pending", and the debounce keeps
+  // a 25-slide batch from writing more than once every 1.5 s.
   autosaveDirty = false;
   const record = {
     ...serializeProject(),
@@ -3983,7 +4042,16 @@ async function writeAutosave() {
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden") writeAutosave();
 });
-window.addEventListener("pagehide", () => writeAutosave());
+window.addEventListener("pagehide", () => {
+  // The page is going away: an edit still open in the editor is committed
+  // first, or "everything is as you left it" would not include it. Not done
+  // on visibilitychange — alt-tabbing away must not exit edit mode.
+  if (editMode) {
+    commitPendingEdit();
+    autosaveDirty = true;
+  }
+  writeAutosave();
+});
 
 async function restoreAutosave() {
   try {
@@ -4083,10 +4151,16 @@ function loadProjectRecord(record) {
       railEl: null,
       ...saved,
       previewDataUrl: saved.dataUrl,
-      base64:
-        saved.dataUrl && saved.dataUrl.startsWith("data:") && saved.dataUrl.includes(",")
-          ? saved.dataUrl.slice(saved.dataUrl.indexOf(",") + 1)
-          : null,
+      // Only a base64-encoded image is a payload. The "anything after the
+      // comma" version handed the placeholder SVG's percent-encoded markup to
+      // the API as an image, and to atob at export time.
+      base64: (() => {
+        const m =
+          typeof saved.dataUrl === "string"
+            ? saved.dataUrl.match(/^data:image\/(?:png|jpeg|webp|gif);base64,([A-Za-z0-9+/]+={0,2})$/)
+            : null;
+        return m ? m[1] : null;
+      })(),
     };
     delete job.dataUrl;
     jobs.set(job.id, job);
@@ -4355,22 +4429,40 @@ function importedProjectRecord(raw) {
     return { html: holder.innerHTML, text: domFragmentToText(fragment) };
   };
 
+  const b64ok = (s) =>
+    typeof s === "string" && s.length > 0 && s.length % 4 === 0 && /^[A-Za-z0-9+/]+={0,2}$/.test(s);
   const jobs = raw.jobs.map((saved, i) => {
-    const dataUrlOk = typeof saved.dataUrl === "string" && saved.dataUrl.startsWith("data:image/");
+    // The preview has to be a real, base64-encoded image: loadProjectRecord
+    // takes the job's API payload from it. A slide without one used to get
+    // a placeholder SVG, which then passed as base64 text — "runnable", so
+    // Describe all sent it and got a 400; "approved", so Export tried to
+    // decode it and died in atob with no message. It is an invalid slide.
+    const dataUrlOk =
+      typeof saved.dataUrl === "string" && /^data:image\/(?:png|jpeg|webp|gif);base64,[A-Za-z0-9+/]+={0,2}$/.test(saved.dataUrl);
     const result = sanitizeToStored(saved.resultHtml);
-    const state = VALID_STATES.has(saved.state) ? saved.state : "pending";
+    const state = !dataUrlOk ? "invalid" : VALID_STATES.has(saved.state) ? saved.state : "pending";
     const num = (v) => (Number.isFinite(v) ? v : null);
+    // The original bytes ride along when they are usable — serializeProject
+    // has always written them, but import used to drop them, so an exported
+    // .zip of an imported project shipped the API-resized JPEG under the
+    // original's name while the status line said "full resolution".
+    const originalOk = b64ok(saved.originalBase64) && ACCEPTED_TYPES.includes(saved.originalMediaType);
     return {
+      ...(originalOk ? { originalBase64: saved.originalBase64, originalMediaType: saved.originalMediaType } : {}),
       // Basename only: a project file is untrusted, and a name carrying a
       // directory or ".." would otherwise reach the export zip as a path.
       name:
         (typeof saved.name === "string" ? saved.name.split(/[\\/]/).pop().trim() : "") ||
         `Slide ${i + 1}`,
       state,
-      error: typeof saved.error === "string" ? saved.error : null,
+      error: !dataUrlOk
+        ? "This slide's image data is missing from the project file, so there is nothing to describe or export."
+        : typeof saved.error === "string"
+          ? saved.error
+          : null,
       resultHtml: result.html,
       resultText: result.text,
-      approved: !!saved.approved && state === "done",
+      approved: dataUrlOk && !!saved.approved && state === "done",
       edited: !!saved.edited,
       history: Array.isArray(saved.history)
         ? saved.history.map((entry) => sanitizeToStored(entry && entry.html))
