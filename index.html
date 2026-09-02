@@ -234,6 +234,13 @@
       </div>
       <p class="rail-empty" id="railEmpty">Nothing queued yet. Drop your slide exports on the right and they'll line up here.</p>
       <ul class="rail-list" id="railList"></ul>
+      <!-- Transcripts dropped in with the slides. Shown so a caption file
+           is visibly THERE, with what it matched — before this it announced
+           itself once in the status line and then had no presence at all. -->
+      <section class="rail-transcripts" id="railTranscripts" aria-labelledby="railTranscriptsHeading" hidden>
+        <h3 id="railTranscriptsHeading">Transcripts</h3>
+        <ul class="transcript-list" id="transcriptList"></ul>
+      </section>
       <div class="rail-foot" id="railFoot">
         <div class="rail-card" id="progressCard" hidden>
           <h3 id="progressLabel">Describing slides…</h3>

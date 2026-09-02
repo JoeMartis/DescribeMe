@@ -291,6 +291,8 @@ const els = {
   railList: document.getElementById("railList"),
   railEmpty: document.getElementById("railEmpty"),
   railFileInput: document.getElementById("railFileInput"),
+  railTranscripts: document.getElementById("railTranscripts"),
+  transcriptList: document.getElementById("transcriptList"),
   newBatchBtn: document.getElementById("newBatchBtn"),
   progressCard: document.getElementById("progressCard"),
   progressLabel: document.getElementById("progressLabel"),
@@ -874,19 +876,94 @@ function renderRailRow(job) {
   if (!row) return;
   const meta = jobStatusMeta(job);
   row.dataset.state = meta.state;
-  row.querySelector(".rail-status").textContent = meta.text;
+  // A slide that carries transcript context says so on its row, so which
+  // slides a transcript matched is visible without opening each one.
+  const statusText = job.transcriptContext ? `${meta.text} · transcript` : meta.text;
+  row.querySelector(".rail-status").textContent = statusText;
   row.setAttribute("aria-current", String(job.id === selectedJobId));
   const dot = row.querySelector(".dot");
   dot.className = `dot ${meta.dot}`;
   row.setAttribute(
     "aria-label",
-    `${job.name} — ${meta.text}${job.id === selectedJobId ? ", currently open" : ""}`
+    `${job.name} — ${statusText}${job.id === selectedJobId ? ", currently open" : ""}`
+  );
+}
+
+/**
+ * The transcripts loaded this session, listed under the slides with what
+ * each one matched. Not persisted — the excerpts they stamped on slides are,
+ * so after a reload the slides keep their context and this list is empty.
+ */
+function renderTranscripts() {
+  const entries = transcriptEntries();
+  els.railTranscripts.hidden = entries.length === 0;
+  els.transcriptList.replaceChildren();
+  for (const entry of entries) {
+    const live = [...entry.attached].filter((id) => jobs.has(id) && jobs.get(id).transcriptContext);
+    const total = jobs.size;
+    const matched = live.length > 0;
+    const captions = `${entry.cues.length} caption${entry.cues.length === 1 ? "" : "s"}`;
+    const pattern = `${entry.baseStem}_HH-MM-SS`;
+
+    const li = document.createElement("li");
+    li.className = "transcript-item";
+    li.dataset.matched = matched ? "yes" : "no";
+
+    const dot = document.createElement("span");
+    dot.className = `dot ${matched ? "dot-approved" : "dot-unmatched"}`;
+    dot.setAttribute("aria-hidden", "true");
+
+    const text = document.createElement("span");
+    text.className = "rail-text";
+    const name = document.createElement("span");
+    name.className = "rail-name";
+    name.textContent = entry.name;
+    const status = document.createElement("span");
+    status.className = "rail-status";
+    status.textContent = matched
+      ? `${captions} · attached to ${live.length} of ${total} slide${total === 1 ? "" : "s"}`
+      : total === 0
+        ? `${captions} · waiting for slides named ${pattern}`
+        : `${captions} · no match — pairs with slides named ${pattern}`;
+    text.append(name, status);
+
+    const detach = document.createElement("button");
+    detach.type = "button";
+    detach.className = "btn btn-small btn-ghost transcript-detach";
+    detach.textContent = "Detach";
+    detach.setAttribute("aria-label", `Detach transcript ${entry.name}`);
+    detach.addEventListener("click", () => detachTranscript(entry));
+
+    li.append(dot, text, detach);
+    els.transcriptList.appendChild(li);
+  }
+}
+
+function detachTranscript(entry) {
+  for (const [key, value] of workspaceTranscripts) if (value === entry) workspaceTranscripts.delete(key);
+  // Only the context this transcript stamped — a frame captured with the
+  // video dialog's own transcript keeps its excerpt.
+  let cleared = 0;
+  for (const id of entry.attached) {
+    const job = jobs.get(id);
+    if (job && job.transcriptContext) {
+      job.transcriptContext = null;
+      cleared += 1;
+    }
+  }
+  renderAll();
+  // The Detach button just removed itself from under the keyboard.
+  els.railFileInput.focus();
+  setStatus(
+    `Detached ${entry.name}` +
+      (cleared ? ` — transcript context removed from ${cleared} slide${cleared === 1 ? "" : "s"}.` : ".")
   );
 }
 
 function renderRail() {
   jobs.forEach(renderRailRow);
   els.railEmpty.hidden = jobs.size > 0;
+  renderTranscripts();
 
   const list = jobList();
   list.forEach((job, i) => {
@@ -1031,6 +1108,7 @@ async function addFiles(fileList, meta) {
         const transcript = workspaceTranscripts.get(job.videoName);
         if (transcript && !job.transcriptContext) {
           job.transcriptContext = excerptFromCues(transcript.cues, stamp.seconds);
+          if (job.transcriptContext) transcript.attached.add(job.id);
         }
       }
     }
@@ -2624,7 +2702,16 @@ function transcriptExcerpt(seconds) {
 // Session-only like the dialog's transcript; what persists is the per-job
 // excerpt (and timestamp) stamped onto matching jobs.
 
-const workspaceTranscripts = new Map(); // normalized stem -> { name, cues }
+// normalized stem -> entry, with one entry shared by every stem it answers
+// for. entry: { id, name, cues, stems, baseStem, attached: Set<jobId> } —
+// `attached` is the record of which slides THIS transcript stamped, so the
+// rail can say what it matched and Detach knows what it owns.
+const workspaceTranscripts = new Map();
+
+/** Each loaded transcript once, in the order they were added. */
+function transcriptEntries() {
+  return [...new Set(workspaceTranscripts.values())];
+}
 
 /**
  * "Lecture_3_00-04-32.jpg" -> { prefix: "Lecture_3", seconds: 272 }, or null
@@ -2684,10 +2771,23 @@ async function registerWorkspaceTranscript(file) {
   // for both "Lecture_3.en" and "Lecture_3". The base name is what images
   // are actually named after, so it leads in messages.
   const candidates = transcriptStemCandidates(file.name);
-  const entry = { name: file.name, cues };
-  for (const c of candidates) workspaceTranscripts.set(c, entry);
   const stems = new Set(candidates);
   const baseStem = candidates[candidates.length - 1];
+  // Dropping the same file again replaces it, keeping the earlier copy's
+  // record of which slides it stamped so Detach still knows what it owns.
+  const previous = transcriptEntries().find((e) => e.name === file.name);
+  if (previous) {
+    for (const [key, value] of workspaceTranscripts) if (value === previous) workspaceTranscripts.delete(key);
+  }
+  const entry = {
+    id: previous ? previous.id : `transcript-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    name: file.name,
+    cues,
+    stems: candidates,
+    baseStem,
+    attached: previous ? previous.attached : new Set(),
+  };
+  for (const c of candidates) workspaceTranscripts.set(c, entry);
 
   let attached = 0;
   for (const job of jobs.values()) {
@@ -2705,9 +2805,16 @@ async function registerWorkspaceTranscript(file) {
     job.captureSeconds = seconds;
     if (!job.videoName) job.videoName = baseStem;
     job.transcriptContext = excerptFromCues(cues, seconds);
-    attached += job.transcriptContext ? 1 : 0;
+    if (job.transcriptContext) {
+      entry.attached.add(job.id);
+      attached += 1;
+    }
   }
   if (attached > 0) markDirty();
+  // The rail lists loaded transcripts — a dropped file that only ever
+  // announced itself in a status line, then vanished, looked like nothing
+  // had happened.
+  renderRail();
 
   return attached > 0
     ? `Transcript "${file.name}" attached to ${attached} slide${attached === 1 ? "" : "s"}.`
