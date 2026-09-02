@@ -659,39 +659,25 @@ code, kbd {
    under 4.5:1 — the current slide's status is the one that most needs to be
    readable, so it goes full ink there. */
 .rail-row[aria-current="true"] .rail-status { color: var(--ink-brown); }
+/* A slide with a transcript: green edge on the row, green name in its
+   status. inset box-shadow rather than border-left, so hover's and the
+   selected row's border colours leave it alone. */
+.rail-row[data-transcript="yes"] { box-shadow: inset 5px 0 0 var(--sage); }
+.rail-row[data-transcript="yes"][aria-current="true"] { box-shadow: inset 5px 0 0 var(--sage), var(--shadow-sm); }
+.rail-transcript-tag { color: var(--sage-700); }
+.rail-row[aria-current="true"] .rail-transcript-tag { color: var(--sage-press); }
 
 /* Loaded transcripts sit under the slide list. They are not slides — no
    thumbnail, no selection, not draggable — so the row is dashed until it has
    matched something, and takes the review green once it has. */
 .rail-transcripts { padding: 0 12px 4px; flex-shrink: 0; }
-.rail-transcripts summary {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  padding: 8px 11px 6px;
-  cursor: pointer;
-  list-style: none;
-  border-radius: var(--radius-sm);
-}
-.rail-transcripts summary::-webkit-details-marker { display: none; }
-.rail-transcripts summary::before {
-  content: "";
-  width: 0; height: 0;
-  border-left: 5px solid var(--faint);
-  border-top: 4px solid transparent;
-  border-bottom: 4px solid transparent;
-  transform: translateY(-1px);
-  transition: transform var(--duration-quick);
-}
-.rail-transcripts[open] summary::before { transform: rotate(90deg) translateX(-1px); }
-.rail-transcripts summary:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
-.rail-transcripts-title {
+.rail-transcripts h3 {
   font-family: var(--font-heading);
   font-size: 11px;
   letter-spacing: 0.04em;
-  color: var(--faint);
+  color: var(--accent-700);
+  padding: 8px 11px 6px;
 }
-.rail-transcripts-verdict { font-family: var(--font-accent); font-size: 13px; color: var(--muted); }
 .transcript-list { list-style: none; margin: 0; padding: 0 0 4px; display: flex; flex-direction: column; gap: 6px; }
 /* Compact: one line of name, one of verdict, an icon to detach. The name
    keeps its tail (middle-ellipsised in JS) since that is what tells two

@@ -237,16 +237,14 @@
       <!-- Transcripts dropped in with the slides. Shown so a caption file
            is visibly THERE, with what it matched — before this it announced
            itself once in the status line and then had no presence at all. -->
-      <details class="rail-transcripts" id="railTranscripts" hidden>
-        <!-- Closed when every transcript matched something: the summary line
-             carries the verdict, and the list only costs rail height when a
-             file needs attention (it opens itself for that). -->
-        <summary>
-          <span class="rail-transcripts-title">Transcripts</span>
-          <span class="rail-transcripts-verdict" id="railTranscriptsVerdict"></span>
-        </summary>
+      <!-- Only transcripts that have NOT matched a slide. A matched one is
+           shown on the slides it reached (rail row and detail pane), so this
+           list exists only while a file needs attention, and costs no rail
+           height otherwise. -->
+      <section class="rail-transcripts" id="railTranscripts" aria-labelledby="railTranscriptsHeading" hidden>
+        <h3 id="railTranscriptsHeading">Unmatched transcripts</h3>
         <ul class="transcript-list" id="transcriptList"></ul>
-      </details>
+      </section>
       <div class="rail-foot" id="railFoot">
         <div class="rail-card" id="progressCard" hidden>
           <h3 id="progressLabel">Describing slides…</h3>

@@ -292,7 +292,6 @@ const els = {
   railEmpty: document.getElementById("railEmpty"),
   railFileInput: document.getElementById("railFileInput"),
   railTranscripts: document.getElementById("railTranscripts"),
-  railTranscriptsVerdict: document.getElementById("railTranscriptsVerdict"),
   transcriptList: document.getElementById("transcriptList"),
   newBatchBtn: document.getElementById("newBatchBtn"),
   progressCard: document.getElementById("progressCard"),
@@ -877,17 +876,41 @@ function renderRailRow(job) {
   if (!row) return;
   const meta = jobStatusMeta(job);
   row.dataset.state = meta.state;
-  // A slide that carries transcript context says so on its row, so which
-  // slides a transcript matched is visible without opening each one.
-  const statusText = job.transcriptContext ? `${meta.text} · transcript` : meta.text;
-  row.querySelector(".rail-status").textContent = statusText;
+  // A slide that carries transcript context names the transcript on its
+  // row — a matched caption file lives on the slides it reached, not in a
+  // separate list. Context from the video dialog (or from before a reload,
+  // when the file itself is gone) is just "transcript".
+  const source = job.transcriptContext ? transcriptFor(job) : null;
+  const statusText = job.transcriptContext
+    ? `${meta.text} · ${source ? middleEllipsis(source.name, 18) : "transcript"}`
+    : meta.text;
+  const statusLabel = job.transcriptContext
+    ? `${meta.text}, with transcript${source ? ` ${source.name}` : ""}`
+    : meta.text;
+  const statusEl = row.querySelector(".rail-status");
+  if (job.transcriptContext) {
+    const tag = document.createElement("span");
+    tag.className = "rail-transcript-tag";
+    tag.textContent = source ? middleEllipsis(source.name, 18) : "transcript";
+    statusEl.replaceChildren(`${meta.text} · `, tag);
+  } else {
+    statusEl.textContent = statusText;
+  }
+  statusEl.title = source ? source.name : "";
+  // The green edge is the at-a-glance cue that this slide has a transcript.
+  row.dataset.transcript = job.transcriptContext ? "yes" : "no";
   row.setAttribute("aria-current", String(job.id === selectedJobId));
   const dot = row.querySelector(".dot");
   dot.className = `dot ${meta.dot}`;
   row.setAttribute(
     "aria-label",
-    `${job.name} — ${statusText}${job.id === selectedJobId ? ", currently open" : ""}`
+    `${job.name} — ${statusLabel}${job.id === selectedJobId ? ", currently open" : ""}`
   );
+}
+
+/** The workspace transcript that stamped this slide's context, if any. */
+function transcriptFor(job) {
+  return transcriptEntries().find((e) => e.attached.has(job.id)) || null;
 }
 
 /**
@@ -903,19 +926,16 @@ function middleEllipsis(text, max = 24) {
   return `${text.slice(0, head)}…${text.slice(-(max - 1 - head))}`;
 }
 
-// The panel opens itself when a transcript needs attention and closes when
-// everything matched — but only when that state CHANGES, so a person's own
-// toggle is left alone in between.
-let transcriptsPanelSignature = "";
-
+/**
+ * The rail's list of transcripts that have NOT matched a slide. A matched
+ * transcript is shown on the slides it reached instead — the rail row names
+ * it, the detail pane carries Detach — so this list exists only while a
+ * file needs attention, and costs no rail height otherwise.
+ */
 function renderTranscripts() {
-  const entries = transcriptEntries();
-  els.railTranscripts.hidden = entries.length === 0;
   els.transcriptList.replaceChildren();
-  let matchedEntries = 0;
-  let attachedSlides = 0;
-  for (const entry of entries) {
-    const total = jobs.size;
+  let shown = 0;
+  for (const entry of transcriptEntries()) {
     // Worked out live against the batch, so the row is right after slides
     // are added, removed or reloaded. Three outcomes for a slide whose NAME
     // matches this transcript: it got context from here; it already had
@@ -927,24 +947,16 @@ function renderTranscripts() {
     const attachedJobs = byName.filter((job) => job.transcriptContext && entry.attached.has(job.id));
     const hadOther = byName.filter((job) => job.transcriptContext && !entry.attached.has(job.id));
     const noCaptions = byName.filter((job) => !job.transcriptContext);
-    const live = attachedJobs.map((job) => job.id);
-    const matched = attachedJobs.length > 0 || hadOther.length > 0;
-    // "125 captions through 52:14" — the end time is the useful half: a
-    // transcript that stops at 20:00 for an hour-long lecture is visibly
-    // short. Same wording the video dialog uses for its own transcript.
+    if (attachedJobs.length > 0 || hadOther.length > 0) continue; // shown on its slides
+    shown += 1;
     const lastEnd = entry.cues.reduce((max, cue) => Math.max(max, cue.end), 0);
-    const captions =
-      `${entry.cues.length} caption${entry.cues.length === 1 ? "" : "s"} through ${formatClock(lastEnd)}`;
-
-    if (matched) matchedEntries += 1;
-    attachedSlides += attachedJobs.length;
 
     const li = document.createElement("li");
     li.className = "transcript-item";
-    li.dataset.matched = matched ? "yes" : "no";
+    li.dataset.matched = "no";
 
     const dot = document.createElement("span");
-    dot.className = `dot ${matched ? "dot-approved" : "dot-unmatched"}`;
+    dot.className = "dot dot-unmatched";
     dot.setAttribute("aria-hidden", "true");
 
     const text = document.createElement("span");
@@ -963,14 +975,7 @@ function renderTranscripts() {
     // filenames literally. The time is one this transcript actually covers.
     const middle = entry.cues[Math.floor(entry.cues.length / 2)];
     const example = `${entry.baseStem}_${formatStampForName(middle ? middle.start : 0)}.png`;
-    if (matched) {
-      // One line. The slide count leads; the caption span is detail.
-      const bits = [`${live.length} of ${total} slide${total === 1 ? "" : "s"}`, captions];
-      if (hadOther.length > 0) bits.push(`${hadOther.length} already had context`);
-      if (noCaptions.length > 0) bits.push(`no captions near ${clocks(noCaptions)}`);
-      status.textContent = bits.join(" · ");
-      status.title = status.textContent;
-    } else if (noCaptions.length > 0) {
+    if (noCaptions.length > 0) {
       // The name is right; the time is not covered. Say so, with the times
       // and how far the captions run, so the fix is obvious.
       status.append(
@@ -996,20 +1001,7 @@ function renderTranscripts() {
     li.append(dot, text, detach);
     els.transcriptList.appendChild(li);
   }
-
-  // Summary line: enough to know whether to open it.
-  const unmatched = entries.length - matchedEntries;
-  els.railTranscriptsVerdict.textContent =
-    entries.length === 0
-      ? ""
-      : unmatched > 0
-        ? `${unmatched} of ${entries.length} unmatched`
-        : `${entries.length} · ${attachedSlides} slide${attachedSlides === 1 ? "" : "s"}`;
-  const signature = entries.map((e) => `${e.id}:${e.attached.size}`).join("|") + `#${unmatched}`;
-  if (signature !== transcriptsPanelSignature) {
-    transcriptsPanelSignature = signature;
-    els.railTranscripts.open = unmatched > 0;
-  }
+  els.railTranscripts.hidden = shown === 0;
 }
 
 /** Does this slide's name (or recorded source video) point at this transcript? */
@@ -1033,8 +1025,9 @@ function detachTranscript(entry) {
     }
   }
   renderAll();
-  // The Detach button just removed itself from under the keyboard.
-  els.railFileInput.focus();
+  // The Detach button just removed itself from under the keyboard — from the
+  // detail pane or the rail list alike.
+  els.detail.focus();
   setStatus(
     `Detached ${entry.name}` +
       (cleared ? ` — transcript context removed from ${cleared} slide${cleared === 1 ? "" : "s"}.` : ".")
@@ -1106,6 +1099,10 @@ async function addFiles(fileList, meta) {
   // don't occupy batch slots, and a full batch must not stop one attaching.
   const files = all.filter((f) => !isTranscriptFile(f));
   const transcriptNotes = [];
+  // Slides in this drop that picked up a transcript loaded EARLIER. The
+  // transcript's own announcement ("attaches to slides … as they arrive")
+  // was made then; this is the moment it came true, so it gets said now.
+  const pairedByTranscript = new Map();
   for (const f of all.filter(isTranscriptFile)) {
     transcriptNotes.push(await registerWorkspaceTranscript(f));
   }
@@ -1189,7 +1186,10 @@ async function addFiles(fileList, meta) {
         const transcript = workspaceTranscripts.get(stemKey(job.videoName));
         if (transcript && !job.transcriptContext) {
           job.transcriptContext = excerptFromCues(transcript.cues, stamp.seconds);
-          if (job.transcriptContext) transcript.attached.add(job.id);
+          if (job.transcriptContext) {
+            transcript.attached.add(job.id);
+            pairedByTranscript.set(transcript.name, (pairedByTranscript.get(transcript.name) || 0) + 1);
+          }
         }
       }
     }
@@ -1228,7 +1228,12 @@ async function addFiles(fileList, meta) {
   // After renderAll for the same reason as the early return above — and it
   // outranks the batch summary this once: the attachment is what just
   // happened, and the summary is back on the next render anyway.
-  if (transcriptNotes.length > 0) setStatus(transcriptNotesText(transcriptNotes));
+  const announcements = [];
+  if (transcriptNotes.length > 0) announcements.push(transcriptNotesText(transcriptNotes));
+  for (const [name, n] of pairedByTranscript) {
+    announcements.push(`${n} new slide${n === 1 ? "" : "s"} picked up transcript "${name}".`);
+  }
+  if (announcements.length > 0) setStatus(announcements.join(" "));
 }
 
 /** Default the batch name to whatever the filenames have in common. */
@@ -1539,7 +1544,10 @@ function renderDetail() {
   if (Number.isFinite(job.captureSeconds)) {
     metaBits.push(`Captured at ${formatClock(job.captureSeconds)}`);
   }
-  if (job.transcriptContext) metaBits.push("Transcript context attached");
+  const transcriptSource = job.transcriptContext ? transcriptFor(job) : null;
+  if (job.transcriptContext) {
+    metaBits.push(transcriptSource ? `Transcript ${transcriptSource.name}` : "Transcript context attached");
+  }
   if (job.resized) {
     metaBits.push(
       `Resized ${job.originalWidth}×${job.originalHeight} → ${job.width}×${job.height} before upload`
@@ -1552,6 +1560,23 @@ function renderDetail() {
   if (job.usedModel) metaBits.push(MODEL_SHORT_NAMES[job.usedModel] || job.usedModel);
   if (job.durationMs) metaBits.push(`${(job.durationMs / 1000).toFixed(1)}s`);
   q(".js-slide-meta").textContent = metaBits.join(" · ");
+  // Detaching lives with the slide, since that is where the transcript now
+  // shows. It detaches the FILE — every slide it reached — and says so.
+  if (transcriptSource) {
+    const reached = [...transcriptSource.attached].filter(
+      (id) => jobs.has(id) && jobs.get(id).transcriptContext
+    ).length;
+    const detach = document.createElement("button");
+    detach.type = "button";
+    detach.className = "btn btn-small btn-ghost js-detach-transcript";
+    detach.textContent = reached > 1 ? `Detach from ${reached} slides` : "Detach transcript";
+    detach.setAttribute(
+      "aria-label",
+      `Detach transcript ${transcriptSource.name} from ${reached} slide${reached === 1 ? "" : "s"}`
+    );
+    detach.addEventListener("click", () => detachTranscript(transcriptSource));
+    q(".js-slide-meta").append(" · ", detach);
+  }
 
   const described = job.state === "done" && job.resultHtml;
 
@@ -2903,7 +2928,6 @@ async function registerWorkspaceTranscript(file) {
 
   let attached = 0;
   for (const job of jobs.values()) {
-    if (job.transcriptContext) continue; // already has context; don't clobber
     const seconds = Number.isFinite(job.captureSeconds)
       ? job.captureSeconds
       : (() => {
@@ -2914,6 +2938,16 @@ async function registerWorkspaceTranscript(file) {
     // For name-derived matches the stem check happened above; for jobs that
     // already carry a timestamp, pair on their recorded source video.
     if (Number.isFinite(job.captureSeconds) && !stems.has(stemKey(job.videoName))) continue;
+    if (job.transcriptContext) {
+      // The slide already carries context for this recording — from this
+      // same file before a reload (the list of files does not survive one,
+      // the excerpts do), or from the video dialog's transcript. Claim it
+      // rather than report it as "already had context": the slide then
+      // names this file and Detach reaches it. The excerpt is left alone.
+      entry.attached.add(job.id);
+      attached += 1;
+      continue;
+    }
     job.captureSeconds = seconds;
     if (!job.videoName) job.videoName = baseStem;
     job.transcriptContext = excerptFromCues(cues, seconds);
@@ -2938,9 +2972,14 @@ async function registerWorkspaceTranscript(file) {
 /** One line for the status region about a transcript, from live state. */
 function transcriptNote(entry) {
   const attached = [...entry.attached].filter((id) => jobs.has(id) && jobs.get(id).transcriptContext).length;
-  return attached > 0
-    ? `Transcript "${entry.name}" attached to ${attached} slide${attached === 1 ? "" : "s"}.`
-    : `Transcript "${entry.name}" loaded — nothing matched yet; see Transcripts in the rail.`;
+  if (attached > 0) {
+    return `Transcript "${entry.name}" attached to ${attached} slide${attached === 1 ? "" : "s"}.`;
+  }
+  const middle = entry.cues[Math.floor(entry.cues.length / 2)];
+  return (
+    `Transcript "${entry.name}" loaded — it attaches to slides named like ` +
+    `${entry.baseStem}_${formatStampForName(middle ? middle.start : 0)}.png as they arrive.`
+  );
 }
 
 /** Notes are either an entry (worded now, from live state) or a string (a
