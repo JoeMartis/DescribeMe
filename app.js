@@ -1433,13 +1433,17 @@ function renderDetail() {
     // parsed tree no longer shows.
     const arityProblems = mathmlProblems(job.resultHtml);
     const mathWarn = q(".js-math-warning");
-    if (job.mathWarning || arityProblems.length > 0) {
+    if (job.truncated || job.mathWarning || arityProblems.length > 0) {
       mathWarn.hidden = false;
       const detail = arityProblems.length > 0 ? ` (${[...new Set(arityProblems)].slice(0, 3).join(", ")})` : "";
-      mathWarn.textContent =
-        (job.mathWarning || "This description's equation markup is malformed and will render scrambled.") +
-        detail +
-        " Try Redo with a stronger model, or re-describe this slide.";
+      // Truncation is the root cause when both are set: a description that
+      // stops mid-equation is malformed because it is unfinished.
+      mathWarn.textContent = job.truncated
+        ? "This description was cut off — the model hit its output limit before it finished, so the end of the slide is missing. " +
+          "Try Shorter, a lower verbosity, or Redo with a stronger model."
+        : (job.mathWarning || "This description's equation markup is malformed and will render scrambled.") +
+          detail +
+          " Try Redo with a stronger model, or re-describe this slide.";
     }
 
     const desc = q(".js-desc");
@@ -1540,9 +1544,11 @@ function renderDetail() {
       // a 400/401 fails on the first attempt, and claiming "four tries" or
       // suggesting a wait would be wrong for those (bad key, bad request).
       body.textContent =
-        job.attempt >= MAX_ATTEMPTS
-          ? "The API returned an error after four tries. Waiting a moment and retrying usually clears a rate limit."
-          : "The API rejected this request outright — the error below says why. Fix the cause (often the API key) before retrying.";
+        job.errorKind === "refusal"
+          ? "The model declined this slide rather than failing — the key and the request were fine. The note below says what to try instead."
+          : job.attempt >= MAX_ATTEMPTS
+            ? "The API returned an error after four tries. Waiting a moment and retrying usually clears a rate limit."
+            : "The API rejected this request outright — the error below says why. Fix the cause (often the API key) before retrying.";
       detail.hidden = false;
       detail.textContent = job.error || "unknown error";
       primary.textContent = "Retry this slide";
@@ -1691,13 +1697,16 @@ function commitEdit() {
     return;
   }
   const fragment = sanitizeHtmlFragment(preview.innerHTML);
-  job.history.push({ html: job.resultHtml, text: job.resultText });
+  job.history.push(snapshotOf(job));
   const holder = document.createElement("div");
   holder.appendChild(fragment.cloneNode(true));
   job.resultHtml = holder.innerHTML;
   job.resultText = domFragmentToText(fragment);
   job.edited = true;
   job.mathWarning = null;
+  // A person has taken the text over; if the model's version was cut off,
+  // the warning about that is theirs to have acted on.
+  job.truncated = false;
   editMode = null;
   preview.removeAttribute("contenteditable");
   renderDetail();
@@ -1742,19 +1751,53 @@ function commitSourceEdit() {
     return;
   }
   const fragment = sanitizeHtmlFragment(textarea.value);
-  job.history.push({ html: job.resultHtml, text: job.resultText });
+  job.history.push(snapshotOf(job));
   const holder = document.createElement("div");
   holder.appendChild(fragment.cloneNode(true));
   job.resultHtml = holder.innerHTML;
   job.resultText = domFragmentToText(fragment);
   job.edited = true;
   job.mathWarning = null;
+  // A person has taken the text over; if the model's version was cut off,
+  // the warning about that is theirs to have acted on.
+  job.truncated = false;
   editMode = null;
   textarea.readOnly = true;
   renderDetail();
   updateControls();
   markDirty();
   setStatus(`Your edits to ${job.name} were saved.`);
+}
+
+/**
+ * What a history entry has to carry for undo to be honest: the text, and the
+ * state that only makes sense alongside that text — whether a person edited
+ * it, the parse-time equation warning (which cannot be recomputed from the
+ * parsed tree), whether the model was cut off, and which model produced it.
+ * Approval is deliberately not here — see undoRevision.
+ */
+function snapshotOf(job) {
+  return {
+    html: job.resultHtml,
+    text: job.resultText,
+    edited: !!job.edited,
+    mathWarning: job.mathWarning || null,
+    truncated: !!job.truncated,
+    usedModel: job.usedModel || null,
+    durationMs: Number.isFinite(job.durationMs) ? job.durationMs : null,
+  };
+}
+
+function restoreSnapshot(job, snap) {
+  job.resultHtml = snap.html;
+  job.resultText = snap.text;
+  // Entries from older saves and from imported project files hold {html,
+  // text} only; leave the rest of the job alone rather than blanking it.
+  if ("edited" in snap) job.edited = !!snap.edited;
+  if ("mathWarning" in snap) job.mathWarning = snap.mathWarning || null;
+  if ("truncated" in snap) job.truncated = !!snap.truncated;
+  if ("usedModel" in snap) job.usedModel = snap.usedModel || null;
+  if ("durationMs" in snap) job.durationMs = snap.durationMs;
 }
 
 function undoRevision(jobId) {
@@ -1764,9 +1807,11 @@ function undoRevision(jobId) {
   // then pops that same entry — i.e. undoing mid-edit undoes the edit,
   // instead of invisibly reverting underneath the editor.
   commitPendingEdit();
-  const previous = job.history.pop();
-  job.resultHtml = previous.html;
-  job.resultText = previous.text;
+  restoreSnapshot(job, job.history.pop());
+  // The description on screen is no longer the one that was approved, so it
+  // needs a look again — the same rule refineJob applies to a revision.
+  // Without this, refine → approve → undo exported unreviewed content.
+  job.approved = false;
   renderJobState(job);
   setStatus(`Reverted ${job.name} to the previous description.`);
 }
@@ -1884,6 +1929,10 @@ async function runBatch() {
   cancelRequested = false;
   els.stopBtn.disabled = false;
   els.progressCard.hidden = false;
+  // The Describe card — and the button inside it that was just activated —
+  // hides in the renderAll below. Hiding the focused element drops keyboard
+  // focus to <body>; Stop is the natural next control, and it is visible now.
+  if (document.activeElement === els.describeBtn) els.stopBtn.focus();
   // renderAll (not just updateControls) so every not-yet-picked-up rail row
   // and the detail pane immediately read "Queued" instead of their old,
   // now-stale "ready to describe" view — otherwise they won't refresh until
@@ -1932,7 +1981,7 @@ async function refineJob(jobId, revisionKey, overrideModel) {
   // Otherwise the editMode guard hides the whole revision run, and saving
   // afterward would overwrite the fresh revision with stale preview text.
   commitPendingEdit();
-  job.history.push({ html: job.resultHtml, text: job.resultText });
+  job.history.push(snapshotOf(job));
   job.attempt = 0;
   job.error = null;
 
@@ -1972,9 +2021,7 @@ async function refineJob(jobId, revisionKey, overrideModel) {
     // The revision failed — put the previous (still good) description back
     // instead of hiding it behind an error pane, whose Retry button wouldn't
     // even carry the revision instruction.
-    const previous = job.history.pop();
-    job.resultHtml = previous.html;
-    job.resultText = previous.text;
+    restoreSnapshot(job, job.history.pop());
     setError(
       `Couldn't revise ${job.name}: ${(job.error || "the request didn't finish").replace(/\.$/, "")}. ` +
         `The previous description is untouched.`
@@ -2034,6 +2081,7 @@ async function describeOne(job, { apiKey, model, verbosity, revision }) {
   job.state = "describing";
   job.attempt = 1;
   job.requestSent = false;
+  job.errorKind = null;
   const startedAt = performance.now();
   renderJobState(job);
 
@@ -2140,12 +2188,29 @@ async function describeOne(job, { apiKey, model, verbosity, revision }) {
         throw new Error("Unexpected response shape from the API.");
       }
 
+      // A refusal is a 200 with no text, which used to fall through to "did
+      // not return any text content" and, because it fails on attempt 1,
+      // the error pane's "fix the cause (often the API key)" advice. The key
+      // is fine; the model declined this particular image.
+      if (payload.stop_reason === "refusal") {
+        job.errorKind = "refusal";
+        throw new Error(
+          "The model declined to describe this image (stop reason: refusal). Sending it again " +
+            "unchanged will get the same answer — try Text & math mode, a tighter crop, or a different model."
+        );
+      }
+
       const textBlock = payload.content.find((b) => b.type === "text");
       if (!textBlock || !textBlock.text) {
         throw new Error("The model did not return any text content.");
       }
 
       applyResult(job, textBlock.text);
+      // A 200 can still be an unfinished answer. stop_reason "max_tokens"
+      // means the model ran out of room and the HTML simply stops — often
+      // mid-equation, where the unterminated <math> also slips past the
+      // well-formedness check, since there is no </math> for it to pair.
+      job.truncated = payload.stop_reason === "max_tokens";
       job.state = "done";
       job.usedModel = model;
       job.durationMs = performance.now() - startedAt;
@@ -2942,16 +3007,17 @@ async function captureFrame(runMode) {
   }
 }
 
-/** The slide already captured from this video at this second, if any. Only
- *  dialog captures carry cropKey, so an image UPLOADED under the same stem and
- *  timestamp is never mistaken for one — it holds different pixels. */
+/**
+ * The slide already in the batch for this second of this recording, if any —
+ * captured in this dialog session, an earlier one, before a reload, or
+ * uploaded under the capture naming convention. Only a capture from this
+ * session still carries cropKey; without it the slide's pixels are unknown
+ * here, so the caller can find it but must not reuse it in place of a fresh
+ * capture. An uploaded frame is matched on purpose: letting a second slide
+ * in for the same moment gives the export two identical captions.
+ */
 function jobAtCapture(seconds) {
-  return jobList().find(
-    (job) =>
-      job.videoName === videoStem &&
-      job.captureSeconds === seconds &&
-      typeof job.cropKey === "string"
-  );
+  return jobList().find((job) => job.videoName === videoStem && job.captureSeconds === seconds);
 }
 
 /** Identifies the pixels a capture would produce, beyond its timestamp: the
@@ -2993,9 +3059,14 @@ async function runCapture(runMode) {
   const frame = captureCurrentFrame();
   if (!frame) return;
 
-  if (videoCapturedSeconds.has(frame.seconds)) {
+  // The batch is the source of truth for "already captured", not this dialog
+  // session: videoCapturedSeconds resets on every video load, so closing the
+  // dialog and choosing the same file again used to let the same second in
+  // twice — two jobs with the same name and an identical "Slide in video
+  // at 4:32" caption in the export.
+  const existing = jobAtCapture(frame.seconds);
+  if (videoCapturedSeconds.has(frame.seconds) || existing) {
     const clock = formatClock(frame.seconds);
-    const existing = jobAtCapture(frame.seconds);
 
     // "Capture & describe" on a second that is already captured used to
     // dead-end here. That is precisely the state a failed describe leaves
@@ -3007,7 +3078,18 @@ async function runCapture(runMode) {
       // user is asking about. Set up a crop and ask for a description of a
       // second captured full-frame and this would have described the whole
       // board while reporting success — the crop silently ignored.
-      if (existing.cropKey !== cropKeyOf(videoCropRegion)) {
+      if (typeof existing.cropKey !== "string") {
+        // Uploaded, or restored from a save (which does not keep cropKey) —
+        // so whether it holds the whole frame or a region is unknowable
+        // here. Guessing "full frame" would describe a cropped image while
+        // reporting success, the very thing the check below exists to
+        // prevent.
+        setVideoError(
+          `A slide for ${clock} is already in the batch — uploaded, or captured before this page was ` +
+            `reloaded — so its crop can't be checked here. Describe it from the rail, or remove it ` +
+            `to capture this moment afresh.`
+        );
+      } else if (existing.cropKey !== cropKeyOf(videoCropRegion)) {
         setVideoError(
           `The frame at ${clock} is already captured, but with a different crop. ` +
             `Match the crop it was taken with, or capture a different moment.`
@@ -3026,7 +3108,10 @@ async function runCapture(runMode) {
       return;
     }
 
-    setVideoError(`You already captured the frame at ${clock}.`);
+    setVideoError(
+      `A slide for ${clock} is already in the batch — remove it from the rail if you want to capture ` +
+        `this moment again.`
+    );
     return;
   }
 
@@ -3048,9 +3133,9 @@ async function runCapture(runMode) {
     videoName: videoStem,
     captureSeconds: frame.seconds,
     // Session-only, and deliberately not in the project whitelist: it exists
-    // to decide whether an already-captured second can be reused, and
-    // videoCapturedSeconds — the gate on that path — is empty after a reload
-    // anyway.
+    // to decide whether an already-captured second can be reused. After a
+    // reload the job is still found by jobAtCapture, but with no cropKey the
+    // reuse is refused with a message rather than guessed at.
     cropKey: cropKeyOf(videoCropRegion),
     // Snapshotted per capture, not referenced from the (session-only)
     // transcript, so the context survives save/reload with the job.
@@ -3123,6 +3208,23 @@ els.videoDialog.addEventListener("close", () => {
   els.transcriptBtn.hidden = true;
   els.transcriptHint.hidden = true;
   clearTranscript();
+  // close() hands focus back to whichever control opened the dialog — unless
+  // that control has gone. Capturing from the empty workspace hides the
+  // splash screen and its "Capture slides from a video" button, so a
+  // keyboard user's first capture ended with focus on <body>. Land on the
+  // slide they just captured instead, or the header's From video button.
+  // The test is "focus never made it out of the dialog": when the opener
+  // can't take focus, activeElement is still the Close button inside this
+  // closed dialog at this point — the browser only drops it to <body> on a
+  // later fixup pass, too late to intercept.
+  const active = document.activeElement;
+  if (!active || active === document.body || els.videoDialog.contains(active)) {
+    // The opener only disappears when the batch went from empty to not,
+    // i.e. something was captured — so the newest rail row is the slide
+    // the user just made, whether or not it is the selected one.
+    const newest = els.railList.querySelector("li:last-child .rail-row");
+    (newest || els.videoBtn).focus();
+  }
 });
 
 // A capture that needed a key left its reason on this dialog's error line and
@@ -3355,6 +3457,11 @@ els.videoDialog.addEventListener("keydown", (e) => {
   if (els.videoStage.hidden) return;
 
   if (e.key === " " || e.key === "Spacebar") {
+    // Space is a button's own activation key. Taking it over everywhere made
+    // Close, Crop, Mute and the three Capture buttons toggle playback instead
+    // of doing what they say — so the shortcut applies only when focus is
+    // not on a control that Space already means something to.
+    if (e.target.closest("button, a, select, summary")) return;
     e.preventDefault();
     if (els.videoEl.paused) els.videoEl.play();
     else els.videoEl.pause();
@@ -3512,6 +3619,26 @@ function safeFileStem(name, taken) {
 // immediately follows it on the page, so a screen reader isn't given the
 // same content twice. A slide captured from a video gets a <figure> wrapper
 // carrying its timestamp instead — see exportBlockFor.
+/**
+ * The name a slide's image gets in the zip and in its /static/ src — the two
+ * must agree, and both end up in a URL. Spaces were already rewritten because
+ * they break /static/ links once pasted into Studio; "#", "?" and "%" break
+ * them worse ("#" turns the rest of the path into a fragment, "%" starts an
+ * escape the server rejects), and a name from an imported project file could
+ * carry a directory or "..", which a zip extractor would honour. So: basename
+ * only, a conservative character set, and a lowercase alphanumeric extension.
+ */
+function exportFileName(name) {
+  const base = String(name || "").split(/[\\/]/).pop().trim();
+  const dot = base.lastIndexOf(".");
+  const rawStem = dot > 0 ? base.slice(0, dot) : base;
+  const rawExt = dot > 0 ? base.slice(dot + 1) : "";
+  const stem =
+    rawStem.replace(/[^A-Za-z0-9._-]+/g, "_").replace(/^[._-]+|[._-]+$/g, "") || "slide";
+  const ext = rawExt.replace(/[^A-Za-z0-9]/g, "").toLowerCase();
+  return ext ? `${stem}.${ext}` : stem;
+}
+
 function uniqueName(name, taken) {
   const dot = name.lastIndexOf(".");
   const stem = dot > 0 ? name.slice(0, dot) : name;
@@ -3650,9 +3777,7 @@ async function exportApproved() {
   for (const job of approved) {
     const base64 = job.originalBase64 || job.base64;
     const mediaType = job.originalMediaType || job.mediaType;
-    // Spaces in a filename survive a zip fine but are a common source of
-    // broken /static/ links once pasted into Studio, so strip them here.
-    const name = job.name.replace(/ /g, "_");
+    const name = exportFileName(job.name);
     if (!shouldResize) {
       prepared.push({ job, name, bytes: base64ToBytes(base64) });
       continue;
@@ -3935,6 +4060,7 @@ function serializeProject() {
       videoName: job.videoName,
       captureSeconds: job.captureSeconds,
       textOnly: !!job.textOnly,
+      truncated: !!job.truncated,
       transcriptContext: job.transcriptContext,
       mathWarning: typeof job.mathWarning === "string" ? job.mathWarning : null,
     })),
@@ -4235,7 +4361,11 @@ function importedProjectRecord(raw) {
     const state = VALID_STATES.has(saved.state) ? saved.state : "pending";
     const num = (v) => (Number.isFinite(v) ? v : null);
     return {
-      name: typeof saved.name === "string" && saved.name ? saved.name : `Slide ${i + 1}`,
+      // Basename only: a project file is untrusted, and a name carrying a
+      // directory or ".." would otherwise reach the export zip as a path.
+      name:
+        (typeof saved.name === "string" ? saved.name.split(/[\\/]/).pop().trim() : "") ||
+        `Slide ${i + 1}`,
       state,
       error: typeof saved.error === "string" ? saved.error : null,
       resultHtml: result.html,
@@ -4263,6 +4393,7 @@ function importedProjectRecord(raw) {
       // keeps its legitimate 0 while junk is discarded.
       captureSeconds: num(saved.captureSeconds),
       textOnly: !!saved.textOnly,
+      truncated: !!saved.truncated,
       // Plain text sent to the API as context, never rendered as HTML — a
       // type check is the only sanitation it needs.
       transcriptContext:
