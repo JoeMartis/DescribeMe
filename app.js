@@ -286,6 +286,9 @@ const els = {
   exportBtn: document.getElementById("exportBtn"),
   exportBtnLabel: document.getElementById("exportBtnLabel"),
   exportResize: document.getElementById("exportResize"),
+  exportHeadingLevel: document.getElementById("exportHeadingLevel"),
+  exportBatchHeading: document.getElementById("exportBatchHeading"),
+  exportSlideCounts: document.getElementById("exportSlideCounts"),
 
   // rail
   railList: document.getElementById("railList"),
@@ -405,6 +408,9 @@ const STORAGE_KEYS = {
   // there would mean it never persisted for most people — the whole reason
   // it moved out of the header.
   exportResize: "describeme.exportResize",
+  exportHeadingLevel: "describeme.exportHeadingLevel",
+  exportBatchHeading: "describeme.exportBatchHeading",
+  exportSlideCounts: "describeme.exportSlideCounts",
 };
 
 // Not user-configurable — a fixed middle ground between processing a batch
@@ -421,6 +427,12 @@ function loadSettings() {
 
   const savedResize = localStorage.getItem(STORAGE_KEYS.exportResize);
   if (savedResize !== null) els.exportResize.checked = savedResize === "1";
+  const savedLevel = localStorage.getItem(STORAGE_KEYS.exportHeadingLevel);
+  if (savedLevel && ["2", "3", "4"].includes(savedLevel)) els.exportHeadingLevel.value = savedLevel;
+  const savedBatchHeading = localStorage.getItem(STORAGE_KEYS.exportBatchHeading);
+  if (savedBatchHeading !== null) els.exportBatchHeading.checked = savedBatchHeading === "1";
+  const savedCounts = localStorage.getItem(STORAGE_KEYS.exportSlideCounts);
+  if (savedCounts !== null) els.exportSlideCounts.checked = savedCounts === "1";
   // The splash shows the same choice, so it has to start from the same value
   // rather than its own markup default.
   els.onboardResize.checked = els.exportResize.checked;
@@ -486,6 +498,16 @@ els.verbosity.addEventListener("input", () => {
   updateVerbosityDisplay();
   persistSettings();
   updateControls();
+});
+
+els.exportHeadingLevel.addEventListener("change", () => {
+  localStorage.setItem(STORAGE_KEYS.exportHeadingLevel, els.exportHeadingLevel.value);
+});
+els.exportBatchHeading.addEventListener("change", () => {
+  localStorage.setItem(STORAGE_KEYS.exportBatchHeading, els.exportBatchHeading.checked ? "1" : "0");
+});
+els.exportSlideCounts.addEventListener("change", () => {
+  localStorage.setItem(STORAGE_KEYS.exportSlideCounts, els.exportSlideCounts.checked ? "1" : "0");
 });
 
 els.exportResize.addEventListener("change", () => {
@@ -3959,11 +3981,55 @@ function isoDuration(totalSeconds) {
  * app's own sanitizer instead would strip the /static/ src and then drop
  * the <img> entirely.
  */
-function exportBlockFor({ job, imageName }) {
+/**
+ * Retags every heading in a fragment so the shallowest one lands on
+ * `titleLevel`, keeping the gaps between levels intact — a description of
+ * h2 title + h3 subsections becomes h3 + h4 at titleLevel 3. The shift is
+ * relative because retagging only the top would flatten the outline.
+ *
+ * There is no h7, so a deep description at a deep starting level clamps at
+ * h6; the clamped levels lose their distinction from one another, which is
+ * why the caller counts clamps and reports them.
+ */
+function shiftHeadings(container, titleLevel) {
+  const headings = [...container.querySelectorAll("h1, h2, h3, h4, h5, h6")];
+  if (headings.length === 0) return { titleEls: [], clamped: 0 };
+  const levelOf = (el) => Number(el.tagName[1]);
+  const shallowest = Math.min(...headings.map(levelOf));
+  const delta = titleLevel - shallowest;
+  let clamped = 0;
+  const titleEls = [];
+  for (const el of headings) {
+    const wanted = levelOf(el) + delta;
+    const level = Math.min(6, Math.max(1, wanted));
+    if (level !== wanted) clamped += 1;
+    const replacement = document.createElement(`h${level}`);
+    for (const attr of el.attributes) replacement.setAttribute(attr.name, attr.value);
+    while (el.firstChild) replacement.appendChild(el.firstChild);
+    el.replaceWith(replacement);
+    if (levelOf(el) === shallowest) titleEls.push(replacement);
+  }
+  return { titleEls, clamped };
+}
+
+function exportBlockFor({ job, imageName, titleLevel, position, total }) {
   const container = document.createElement("div");
   container.innerHTML = job.resultHtml;
 
-  container.querySelectorAll("h2").forEach((h) => h.setAttribute("tabindex", "0"));
+  // Relative shift, then the slide title gets its tabindex — keyed to
+  // whatever level the title ended up on, not a hardcoded h2.
+  const { titleEls, clamped } = shiftHeadings(container, titleLevel);
+  titleEls.forEach((h) => h.setAttribute("tabindex", "0"));
+
+  // "Slide 3 of 12" ahead of the title, so heading navigation says where you
+  // are in the sequence. A span, not part of the title text, so the title
+  // still reads as itself.
+  if (position && titleEls.length > 0) {
+    const counter = document.createElement("span");
+    counter.className = "slide-count";
+    counter.textContent = `Slide ${position} of ${total}: `;
+    titleEls[0].prepend(counter);
+  }
 
   container.querySelectorAll("figcaption").forEach((caption) => {
     const p = document.createElement("p");
@@ -3989,14 +4055,14 @@ function exportBlockFor({ job, imageName }) {
   let anchor = null;
   const children = [...container.children];
   let i = 0;
-  if (children[i] && /^H[1-4]$/.test(children[i].tagName)) anchor = children[i++];
+  if (children[i] && /^H[1-6]$/.test(children[i].tagName)) anchor = children[i++];
   if (children[i] && children[i].tagName === "P") anchor = children[i];
 
   const imageNodes = [document.createTextNode("\n"), ...holder.childNodes, document.createTextNode("\n")];
   if (anchor) imageNodes.reverse().forEach((node) => anchor.after(node));
   else imageNodes.reverse().forEach((node) => container.prepend(node));
 
-  return container.innerHTML;
+  return { html: container.innerHTML, clamped };
 }
 
 // Downscales to EXPORT_RESIZE_WIDTH only when the image is wider than that
@@ -4104,11 +4170,33 @@ async function exportApprovedNow() {
   const imageNames = new Set();
   const entries = prepared.map((p) => ({ ...p, imageName: uniqueName(p.name, imageNames) }));
 
-  // The batch name opens the document as its <h1>: the fragment lands in a
-  // Studio HTML component where slide sections start at <h2>, so the page
-  // keeps a proper heading outline for screen-reader navigation.
-  const html =
-    `<h1>${escapeHtml(batch)}</h1>\n\n` + entries.map(exportBlockFor).join("\n\n") + "\n";
+  // The fragment lands inside a page that already has headings, so its
+  // titles sit at the configured level and everything below shifts with
+  // them. The batch heading, when asked for, sits one level above the
+  // titles — clamped at h1, so titles at h2 still get a parent.
+  const titleLevel = Number(els.exportHeadingLevel.value) || 3;
+  const counted = els.exportSlideCounts.checked;
+  const total = entries.length;
+  const blocks = entries.map((entry, i) =>
+    exportBlockFor({ ...entry, titleLevel, position: counted ? i + 1 : 0, total })
+  );
+  const clampedSlides = blocks.filter((b) => b.clamped > 0).length;
+
+  let html = "";
+  if (els.exportBatchHeading.checked) {
+    const batchLevel = Math.max(1, titleLevel - 1);
+    // The total up front is the half of this that matters most: it says how
+    // long the sequence is before anyone starts scrolling it.
+    const heading = counted
+      ? `${escapeHtml(batch)} — ${total} slide${total === 1 ? "" : "s"}`
+      : escapeHtml(batch);
+    html += `<h${batchLevel}>${heading}</h${batchLevel}>\n\n`;
+  } else if (counted) {
+    // No heading to carry it, so the count leads as a plain sentence — still
+    // ahead of the first slide, which is the point.
+    html += `<p>${total} slide${total === 1 ? "" : "s"}, described in order.</p>\n\n`;
+  }
+  html += blocks.map((b) => b.html).join("\n\n") + "\n";
 
   const files = [{ name: "description.html", content: html }];
   for (const { imageName, bytes } of entries) {
@@ -4134,6 +4222,14 @@ async function exportApprovedNow() {
   }
   if (skipped.length > 0) {
     notes.push(`Skipped ${skipped.join(", ")} — no image data.`);
+  }
+  if (clampedSlides > 0) {
+    // Not silent: the outline in those slides is flatter than the model
+    // wrote it, and the fix is a shallower starting level.
+    notes.push(
+      `${clampedSlides} slide${clampedSlides === 1 ? " has" : "s have"} subheadings too deep to fit below ` +
+        `h${titleLevel} — they were capped at h6. Start titles at a shallower level to keep every level distinct.`
+    );
   }
   setStatus(
     `Exported ${prepared.length} approved description${prepared.length === 1 ? "" : "s"} — ` +

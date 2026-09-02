@@ -381,6 +381,26 @@
         Resize images to 800px wide
       </label>
       <p class="hint">Downscales any exported image wider than 800px (recompressed as JPEG; PNGs stay lossless PNG). Narrower images are left untouched. Untick for full-resolution exports.</p>
+
+      <label for="exportHeadingLevel">Slide titles start at</label>
+      <select class="input" id="exportHeadingLevel">
+        <option value="2">Heading level 2 &lt;h2&gt;</option>
+        <option value="3" selected>Heading level 3 &lt;h3&gt; — for a Studio HTML component</option>
+        <option value="4">Heading level 4 &lt;h4&gt;</option>
+      </select>
+      <p class="hint">The export is a fragment pasted inside a page that already has its own headings, so its slide titles have to sit <em>below</em> them or the page's heading outline misrepresents the structure. Subheadings inside a description shift with the title, keeping the outline intact.</p>
+
+      <label class="radio-option">
+        <input type="checkbox" id="exportBatchHeading">
+        Open the file with the batch name as a heading
+      </label>
+      <p class="hint">Off by default: the page you paste into usually names the module already, so this would repeat it. Tick it if the export stands on its own.</p>
+
+      <label class="radio-option">
+        <input type="checkbox" id="exportSlideCounts" checked>
+        Number the slides — "Slide 3 of 12"
+      </label>
+      <p class="hint">Tells a screen-reader user how long the sequence is before they start through it, and where they are once inside. Counts the approved slides in this export, in rail order.</p>
     </fieldset>
 
     <fieldset class="field">
