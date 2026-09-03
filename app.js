@@ -43,7 +43,13 @@ Color, emphasis, callouts
 - Describe these by function, not appearance: what a highlighted term signifies,
   not that it is red or boxed.
 
-Wording — this text is read aloud, so these two matter
+Wording — this text is read aloud, so these matter
+- Use US spelling throughout: color, center, meter, liter, analyze, catalyze,
+  ionization, sulfur, aluminum, fiber, behavior, gray, esophagus, hemoglobin,
+  anemia, edema, fetus, leukocyte. Not colour, centre, metre, litre, analyse,
+  sulphur, aluminium, fibre, behaviour, grey, oesophagus, haemoglobin,
+  anaemia, oedema, foetus, leucocyte. A term printed on the image in another
+  spelling is quoted content, not your prose — transcribe that as it appears.
 - Call the image itself a visual, never a slide: the visual shows, elsewhere in
   the visual. This governs only what you call the thing you are describing.
   The word slide is correct and expected wherever it means something else — a
@@ -2334,7 +2340,14 @@ async function describeOne(job, { apiKey, model, verbosity, revision }) {
         headers: requestHeaders,
         body: JSON.stringify({
           model,
-          max_tokens: 4096,
+          // A ceiling, not a charge — only tokens actually generated are
+          // billed, so headroom is free. 4096 was reachable: MathML is
+          // enormously verbose (a single equation can run to hundreds of
+          // tokens of <mfrac>/<msub>/<mrow>), and the prompt also asks for a
+          // plain-language reading beside each one, so a math-heavy visual
+          // hit the cap and came back truncated with prose that was not
+          // long at all.
+          max_tokens: 16384,
           system: buildSystemPrompt(verbosity, revision),
           messages: [
             {
