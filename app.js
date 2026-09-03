@@ -44,8 +44,12 @@ Color, emphasis, callouts
   not that it is red or boxed.
 
 Wording — this text is read aloud, so these two matter
-- Call the image a "visual", never a "slide": "the visual shows", "elsewhere in
-  the visual". The word slide must not appear in your output.
+- Call the image itself a visual, never a slide: the visual shows, elsewhere in
+  the visual. This governs only what you call the thing you are describing.
+  The word slide is correct and expected wherever it means something else — a
+  microscope slide, a slide rule, a slide valve, rock that slides — and you
+  should use it freely there. Do not avoid the word; avoid it as a name for
+  the image.
 - Do not put quotation marks around terms, titles, labels, axis names or
   headings taken from the image. State them directly: write The axis is
   labelled Time in seconds, not The axis is labelled "Time in seconds". A
@@ -189,22 +193,22 @@ const VERBOSITY_LEVELS = [
 // changes how much elaboration this one slide gets.
 const REVISIONS = {
   more:
-    "REVISION: A previous description of this slide was too sparse. Describe spatial layout, " +
+    "REVISION: A previous description of this visual was too sparse. Describe spatial layout, " +
     "relationships between elements, and sequence or flow more thoroughly this time. Still use only " +
     "what is visibly present on the slide.",
   less:
-    "REVISION: A previous description of this slide was longer than it needed to be. Convey the same " +
+    "REVISION: A previous description of this visual was longer than it needed to be. Convey the same " +
     "instructional takeaway in noticeably fewer sentences, combining related points where nothing is lost.",
   // Unlike the two above, this one is not phrased as a revision of a previous
   // attempt: it is also used as the FIRST run for a slide the user has marked
   // OCR-only, where no previous description exists.
   textOnly:
-    "TEXT ONLY: This slide's content is on-screen text and math — there is nothing to describe " +
+    "TEXT ONLY: This visual's content is on-screen text and math — there is nothing to describe " +
     "visually. Override the instructions above: skip the opening summary sentence and any narrative " +
     "description, and return only a semantic transcription of what is written, exactly as it appears " +
     "and in reading order — a heading for a title, paragraphs or a list for supporting lines, and " +
     "MathML (with its plain-language reading) for any equation or expression. Do not add framing like " +
-    "\"This slide reads\" or restate that it's a title slide.",
+    "\"This visual reads\" or restate that it is a title card.",
 };
 
 function currentVerbosity() {
