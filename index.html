@@ -177,6 +177,7 @@
       <button type="button" class="btn btn-primary" id="onboardStart">Start describing slides</button>
       <button type="button" class="btn btn-ghost" id="onboardSkip">I'll do this later</button>
     </div>
+    <p class="hint">First time? The <a href="https://claude.ai/code/artifact/cd59ab2f-215c-41a9-926d-45d878cb7481" target="_blank" rel="noopener">manual<span class="visually-hidden"> (opens in a new tab)</span></a> has a five-minute quick start.</p>
   </div>
 </section>
 
@@ -214,6 +215,15 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
         <span class="btn-badge" id="settingsChipBadge" aria-hidden="true">!</span>
       </button>
+      <!-- An <a>, not a button: it navigates. Last in the row so the cog
+           stays immediately after the folder icon. The visible name is the
+           icon's title; the accessible name spells out that it leaves the
+           page, which WCAG 3.2.5 asks for when a link opens a new tab. -->
+      <a class="btn btn-icon" id="helpLink" href="https://claude.ai/code/artifact/cd59ab2f-215c-41a9-926d-45d878cb7481"
+         target="_blank" rel="noopener" title="Manual (opens in a new tab)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+        <span class="visually-hidden">Manual (opens in a new tab)</span>
+      </a>
     </div>
   </header>
 
@@ -329,6 +339,7 @@
       </button>
     </div>
     <p class="sheet-lede">Your API key is used only to call the API it belongs to, directly from this page in your browser: MIT Parley keys go to <code>parley.api.mit.edu</code>, Anthropic (<code>sk-ant-</code>) keys go to <code>api.anthropic.com</code>. It is never sent to any other server.</p>
+    <p class="hint">New here, or want the detail on any of these? Read the <a href="https://claude.ai/code/artifact/cd59ab2f-215c-41a9-926d-45d878cb7481" target="_blank" rel="noopener">DescribeMe manual<span class="visually-hidden"> (opens in a new tab)</span></a>.</p>
 
     <div class="field">
       <label for="apiKey">API key &mdash; MIT Parley or Anthropic</label>
