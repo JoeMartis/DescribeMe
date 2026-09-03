@@ -6,53 +6,163 @@ images, click **Describe all**, and get back semantic HTML (with MathML for
 equations) ready to embed next to each slide.
 
 The whole thing is static HTML/CSS/JS — no build step, no backend. It calls
-the MIT Parley API (an Anthropic-API-compatible proxy) directly from your
+the MIT Parley API (an Anthropic-API-compatible proxy) or the Anthropic
+API itself directly from your
 browser using an API key you supply, and is designed to be hosted for free on
 GitHub Pages.
 
 ## Using it
 
-1. Open the page.
-2. Expand **API Settings** and enter your MIT Parley API key
-   (`sk-parley-v1-...`).
-3. Choose whether to remember the key for this tab only, on this device, or
-   not at all (the default — nothing is written to storage, and the key only
-   lives in page memory until you reload).
-4. Pick a **Model**. The three options are the best fits for this task,
-   listed cheapest to most expensive, each with an estimated cost for a
-   single average slide:
-   - **Claude Haiku 4.5** (est. ~$0.005/slide) — fastest and cheapest; a
-     strong default for most slides.
-   - **Claude Sonnet 5** (est. ~$0.015/slide) — sharper on dense equations
-     and smaller text.
-   - **Claude Opus 5** (est. ~$0.025/slide) — most thorough; best for
-     crowded, multi-part figures.
+**First run.** A one-time setup screen asks for your API key — MIT Parley
+or Anthropic; the key's own prefix picks which API is called — how
+long to remember it (this tab only, this device, or not at all — the
+default), and a starting **Model**, listed cheapest to most expensive with a
+live per-slide cost estimate next to each:
 
-   These per-slide costs are rough estimates based on a typical image size
-   and description length — **not a budgeting tool**. Actual cost depends on
-   the specific image and how much text Claude generates for it.
-5. Set the **Description verbosity** slider — Concise, Standard, or Detailed.
-   All three still cover everything the system prompt requires (semantic
-   structure, MathML, figures, tables); the slider only changes how much
-   elaboration Claude adds on top of that minimum. It also updates the cost
-   estimates above, since verbosity is the main thing that moves output
-   length. Expand **System prompt used** below the slider to see the exact
-   prompt text Claude receives for the current verbosity setting.
-6. Drag and drop slide images (or click to browse) — PNG, JPEG, WebP, or GIF,
-   up to 5 MB each and 25 per batch. Large images are automatically resized
-   in your browser before upload.
-7. Click **Describe all**. A progress bar tracks the batch, and each slide
-   gets its own card with a rendered preview, copy buttons for the HTML and
-   plain text, and a collapsible raw HTML source view. Failed items get a
-   **Retry** button; you can **Stop** a batch mid-run, and remove or re-run
-   individual slides at any time. If any slides fail, they're named
-   explicitly (not just counted) so you know which ones to retry.
-8. For a title or section-divider slide that's just on-screen text, click
-   **Text only** on that slide's card to replace its description with a
-   plain transcription of the text instead of a full narrative description.
+- **Claude Haiku 4.5** — fastest and cheapest; fine for simple slides.
+- **Claude Sonnet 5** — sharper on dense equations and smaller text; the
+  default.
+- **Claude Opus 5** — most thorough; best for crowded, multi-part figures.
 
-Nothing is uploaded to any server other than the MIT Parley endpoint. There is
+The estimate is computed from per-model rates recorded in `app.js` (taken
+from Parley's published pricing — update them there if pricing changes),
+for a typical image and description length. It's a rough estimate, **not a
+budgeting tool**. All of this (plus the **Description verbosity**
+slider — Concise / Standard / Detailed, and a collapsible **System prompt
+used** view showing the exact prompt text for the current verbosity) stays
+reachable afterward from the gear icon in the header, which opens the same
+fields in a settings dialog.
+
+**The workspace** is two panes: a **Slides** rail on the left, and the
+selected slide's image plus its description on the right.
+
+1. Drop slide images anywhere in the workspace (or use **Add** in the rail) —
+   PNG, JPEG, WebP, or GIF, up to 25 per batch. Large images are resized
+   (and oversized files re-encoded) in your browser before upload, so
+   original file size barely matters — anything up to 50 MB is accepted.
+
+   Uploads can carry timestamps and transcripts through their names. An
+   image named `<stem>_HH-MM-SS.<ext>` (the exact convention **From
+   video**'s captures use) is treated as a frame from `<stem>` at that
+   time: it gets the timestamped `<figure>` caption in the export, and if a
+   caption file named `<stem>.srt` is dropped in with the images — before
+   or after them, order doesn't matter, and it takes no batch slot — the
+   transcript from the minute around each image's timestamp is attached as
+   context for its description, exactly as with dialog captures. So a whole
+   lecture round-trips: capture frames, export, and later re-upload the
+   images plus the `.srt` with everything still lining up.
+
+   Or use **From video** (in the header, or right on the empty workspace's
+   splash screen) to pull slides out of a lecture
+   recording: pick a video file from this computer, scrub to a slide, and
+   **Capture frame** adds it to the batch named `<video>_HH-MM-SS.jpg` after
+   the point it came from. **Capture & describe** does the same and starts
+   describing it immediately, and **Capture & OCR** starts it in text/math
+   transcription mode instead — the same OCR mode as the workspace button,
+   for title and bullet slides spotted right in the player. Playback speed (up to 3×) and volume sit under
+   the scrub bar — speed in particular makes skimming a long lecture for the
+   next slide much quicker. **Add transcript (.srt)** optionally attaches
+   the lecture's caption file — it must be named like the video, which is
+   what pairs them — and from then on each captured frame carries the
+   transcript from the minute around its timestamp. That excerpt rides along
+   with the describe request as context, so the description uses the
+   lecturer's own terminology instead of guessing at axis labels and
+   abbreviations; the prompt forbids adding anything from the transcript
+   that is not visible on the slide. Like the video, the transcript never
+   leaves the browser and is dropped when the dialog closes — only the
+   per-frame excerpts persist, saved with their slides. The timestamp is
+   kept with the slide and shows
+   up again in the export (see step 8). The video is read straight off your
+   disk through a `blob:` URL and is never uploaded, never persisted, and
+   released as soon as the dialog closes — only the frames you capture
+   become slides. Frames are grabbed at the same 1568px ceiling the API
+   uses, which also keeps a batch of captures from bloating autosave.
+2. Click **Describe all**. A progress card tracks the batch; you can **Stop**
+   mid-run. Each rail row shows that slide's status, and clicking one selects
+   it in the detail pane. The arrow buttons beside each row (or dragging a
+   row) reorder the batch — review order, <kbd>←</kbd>/<kbd>→</kbd>
+   navigation, and the export all follow the rail's order.
+3. For a slide that is just on-screen text and math — a title, a section
+   divider, a wall of bullets — **OCR text/math only** (next to **Describe this
+   slide**) skips the narrative description entirely and returns a semantic
+   transcription instead: headings, lists, and MathML for any equation. The
+   slide stays in OCR mode for retries, **Shorter**, and model redos;
+   **Describe this slide** or **More detail** switches it back to a
+   narrative description.
+4. For the selected slide, once described: read the rendered description,
+   check **HTML source** for the raw markup, or use **Copy HTML** / **Copy
+   text**. Equation markup is validated the moment a description lands —
+   browsers render *something* even for misnested MathML (usually a
+   scrambled stack a sighted reviewer skims past), so a structurally broken
+   equation shows a warning naming the fix instead of hiding in plain
+   sight. The check reruns live, so an edit that repairs the markup clears
+   it.
+5. **Edit** turns the description directly editable in place, with a
+   formatting toolbar (bold, italic, heading level, lists) that applies to
+   the selected text. For structural fixes beyond what the toolbar covers —
+   a list that should be a table, a paragraph that should be a heading —
+   open **HTML source** and use **Edit source** to change the markup
+   directly. Either way, saving runs the result back through the
+   same sanitizer before it's kept, and pushes the previous version onto the
+   undo stack. If a description needs more work instead, **More detail**,
+   **Shorter**, **Text only** (for title or section-divider slides that are
+   just on-screen text — skips the narrative description and returns a plain
+   transcription instead), or **Redo with a stronger model** re-run just that
+   slide with an adjusted prompt — the previous version is kept so **Undo
+   revision** can restore it.
+6. **Approve & next** (or press <kbd>A</kbd>) marks the slide ready for
+   export and jumps to the next unapproved one; <kbd>←</kbd>/<kbd>→</kbd>
+   move between slides at any time. Only approved slides go into the export.
+7. Failed slides show the error inline with a **Retry** button; any slide can
+   be removed from the batch from its detail pane, and **New batch** in the
+   rail clears all of them to start over (always behind a confirm — the
+   warning is sharper when descriptions would be lost).
+8. **Export as .zip** combines every approved slide, in rail order, into a
+   single `description.html` — one `<img src="/static/…">` (using each
+   slide's original filename, unless resized — see below) followed by its
+   description, ready to paste whole into a Studio HTML component under the
+   video(s) it describes. The zip also includes each slide's image file
+   under a `static/` folder, to upload into Studio's Files & Uploads under
+   that same name so the reference resolves. **Resize to 800px wide**,
+   next to the export button and on by default, downscales any exported
+   image wider than that; narrower images are left untouched — untick it
+   for full-resolution exports. PNGs stay lossless PNG; other
+   formats re-encode as high-quality JPEG. This runs against each slide's
+   original bytes, not whatever was resized for the API call.
+
+   Each slide's block is shaped for reading order: the `<h2>` title (with
+   `tabindex="0"` so slide sections are keyboard-reachable), the opening
+   summary paragraph, then the image, then the rest of the description — so
+   a listener hears what the slide is before meeting it. A slide captured
+   from a video gets its image in a `<figure>` whose `<figcaption>` reads
+   *Slide in video at 4:32*, tying the timestamp to the image for a screen
+   reader; uploaded slides get a plain `<img>`. The `<figure>` element is
+   reserved for the slide image alone — any figure markup inside a
+   description is unwrapped to paragraphs on the way out.
+
+Nothing is uploaded to any server other than the API your key belongs to
+(MIT Parley, or Anthropic for `sk-ant-` keys). There is
 no backend for this site — GitHub Pages only serves the static files.
+
+**Projects.** The folder icon in the header saves the current batch — slides,
+descriptions, edits, approvals, and the batch name — to your browser's
+IndexedDB, and lists every saved project so you can reopen one later, exactly
+as you left it. Like everything else here it's client-side only: a saved
+project lives in the browser it was saved in, and clearing the site's
+browsing data deletes it. To hand a batch to someone else (or move it to
+another machine), **Export** any saved project as a `.describeme.json` file
+and use **Import a project file** on the other side — the file carries the
+slides and descriptions, never your API key. Imported files are treated as
+untrusted: every description in one is re-run through the same sanitizer as
+model output before it's stored.
+
+**Auto-save.** Separately from named projects, the current batch is quietly
+autosaved to IndexedDB a moment after every change (and when the tab is
+hidden or closed), and restored on the next load — an accidental refresh
+mid-review no longer costs anything. **New batch** clears the autosave along
+with the batch. Named projects are still the way to keep more than one batch
+around, or to export one for someone else; the autosave only ever holds the
+latest state of the current one, in this browser.
 
 ## Making the API calls efficient
 
@@ -62,7 +172,10 @@ A few things keep batches fast and cheap:
   `<canvas>`) to at most 1568px on the long edge before upload — Claude
   downsamples larger images internally anyway, so sending them at full
   resolution only adds tokens and upload time without improving the
-  description. Small images are sent unmodified.
+  description. Small images are sent unmodified — unless the file's payload
+  would exceed the API's ~5 MB per-image cap (say, a many-frame GIF), in
+  which case it's re-encoded as JPEG at the same dimensions instead of
+  being rejected.
 - **Bounded concurrency.** Slides in a batch are described in parallel, up to
   3 at a time, instead of either running one at a time (slow) or firing
   everything at once (likely to hit rate limits and waste retries).
@@ -89,20 +202,31 @@ not just to produce accessible output:
   batch finishes with failures, the specific filenames are named — not just a
   count — so there's no need to manually scan the list to find out which
   slides need a retry.
+- **Keyboard slide navigation.** <kbd>←</kbd>/<kbd>→</kbd> move between
+  slides and <kbd>A</kbd> approves the selected one (ignored while focus is
+  in a field or the settings dialog is open), so reviewing a batch doesn't
+  require pointing at a rail row for every slide. Rail rows are real
+  `<button>`s with `aria-current` marking the selected one, not `<div>`s with
+  a synthetic click handler.
 - **Per-slide regions.** Each result is `role="region"` with an accessible
   name from its filename, so navigating by landmark (a common screen-reader
   technique) gives clear "which slide is this" context — independent of
   whatever heading levels (`<h2>`/`<h3>`) the generated description itself
   uses internally.
-- **Visible focus, semantic controls.** Focus outlines are never suppressed;
-  disclosures use `<button aria-expanded>`, grouped radio options use
-  `<fieldset>`/`<legend>`, and the "HTML source" view is a native
-  `<details>`/`<summary>` rather than a custom-built, keyboard-reimplemented
+- **Visible focus, semantic controls.** Keyboard focus always gets a
+  visible ring (via `:focus-visible`, so mouse clicks don't paint stray
+  outlines); settings use a native `<dialog>` (built-in focus trapping and Escape-to-
+  close), grouped radio options use `<fieldset>`/`<legend>`, and the "HTML
+  source" view is a native `<details>`/`<summary>` rather than a
+  custom-built, keyboard-reimplemented
   toggle.
 
 The **generated descriptions** are the other half of this: the prompt asks
 for semantic headings, list grouping, MathML with a plain-language reading
-alongside every equation, `<figure>`/`<figcaption>` for diagrams, real
+alongside every equation, paragraph-based diagram descriptions (`<figure>`
+is reserved for the slide image in the export, and any figure markup in a
+description — model-written or hand-edited — is unwrapped to paragraphs on
+the way out), real
 `<table>` markup with `<th>` for data, and color/emphasis described by what
 it means rather than how it looks — see `app.js`'s `SYSTEM_PROMPT` for the
 exact instructions. Rendering relies on the browser's native MathML support
@@ -120,24 +244,33 @@ exact instructions. Rendering relies on the browser's native MathML support
 No secrets or environment variables are needed at deploy time — the API key
 is entered by whoever uses the page, in their own browser.
 
-## About MIT Parley
+## About the API endpoints
 
-MIT Parley proxies requests to the Anthropic API. This app talks to it at a
-fixed base URL (`https://parley.api.mit.edu`) and sends requests to
-`/v1/messages` exactly as the Anthropic SDK would, using the key you enter in
-**API Settings**.
+The app sends requests to `/v1/messages` exactly as the Anthropic SDK
+would, using the key you enter during setup or in **Settings**. The key
+itself picks the host — there is no user-configurable base URL:
+
+- **MIT Parley** (`https://parley.api.mit.edu`), which proxies the
+  Anthropic API. Keys are issued at
+  [platform.parley.mit.edu/my-keys](https://platform.parley.mit.edu/my-keys).
+- **Anthropic** (`https://api.anthropic.com`) for keys starting `sk-ant-`,
+  from [console.anthropic.com](https://console.anthropic.com). These
+  requests carry Anthropic's `anthropic-dangerous-direct-browser-access`
+  opt-in header, which their API requires for direct browser calls.
 
 ## Security notes
 
-- Your API key is only ever sent as an `x-api-key` header on requests to MIT
-  Parley — it is never sent anywhere else, and this site has no server
-  component to intercept or log it.
+- Your API key is only ever sent as an `x-api-key` header on requests to
+  the API it belongs to (MIT Parley, or Anthropic for `sk-ant-` keys) — it
+  is never sent anywhere else, and this site has no server component to
+  intercept or log it.
 - By default the key is kept only in page memory and is gone as soon as you
   reload or close the tab. The "remember" options use your browser's
   `sessionStorage`/`localStorage`, entirely client-side.
-- This calls MIT Parley directly from a browser, which relies on Parley
-  allowing cross-origin (CORS) requests from this page's origin — Parley,
-  not this app, controls whether that's permitted. If requests fail with a
+- This calls the API directly from a browser, which relies on the API host
+  allowing cross-origin (CORS) requests from this page's origin — the host,
+  not this app, controls whether that's permitted. Anthropic permits it via
+  the browser-access header above; for Parley, If requests fail with a
   network error (not an HTTP error from the API), check your browser's
   DevTools console for a CORS message and, if you see one, ask MIT IT to
   allow browser access from this page's origin.
@@ -164,12 +297,29 @@ fixed base URL (`https://parley.api.mit.edu`) and sends requests to
   `<set>`) can rewrite an attribute like `href` *after* it was already
   checked, once the sanitized fragment is live in the page — removing the
   whole subtree closes both without needing to enumerate every SVG
-  sub-feature individually.
+  sub-feature individually. An `<img>` that ends up with no valid `src` after
+  that filtering is dropped entirely rather than left as a broken-image icon
+  — the model has no legitimate URL to reference in the first place, so this
+  only ever removes a hallucinated one. `contenteditable` is also stripped
+  from every element: the description preview is directly editable in place,
+  and a saved edit is re-run through this same sanitizer before it replaces
+  the stored HTML, so that attribute can never leak into a saved description
+  or the zip export.
 - A `Content-Security-Policy` meta tag adds a second, independent layer on
   top of that sanitizer: no inline or external scripts, no inline styles, no
-  `<object>`/`<embed>`, and `connect-src` restricted to the MIT Parley
-  endpoint — so even a sanitizer bug couldn't be used to run script or
-  exfiltrate data to another host.
+  `<object>`/`<embed>`, fonts restricted to this same origin (`font-src
+  'self'` — the two fonts are self-hosted from `fonts/`, see Files below),
+  and `connect-src` restricted to the two API endpoints — so even a
+  sanitizer bug couldn't be used to run script or exfiltrate data to another
+  host. The `.zip` and project-file exports are plain `<a download>` links
+  to in-browser blobs — downloads aren't governed by `img-src`, so the CSP
+  needs no allowance for them, and those exports never leave the browser.
+- `media-src 'self' blob:` is the one place the policy admits a `blob:` URL,
+  and it exists solely so **From video** can play a file you picked off your
+  own disk. It grants no network origin, so it cannot be used to load remote
+  media, and it is deliberately scoped to `media-src` alone — `default-src`
+  and `img-src` still refuse `blob:`, which is why slide previews go on
+  using `data:` URLs.
 
 ## Version number
 
@@ -192,10 +342,19 @@ falls back to showing "dev".
 
 ## Files
 
-- `index.html` — page structure and controls
-- `style.css` — styling (light/dark aware)
+- `index.html` — page structure: onboarding screen, workspace, settings
+  dialog, and the rail-row/detail-pane `<template>`s
+- `style.css` — styling: the Living Isle design system (bold poster colors,
+  thick ink outlines, flat "pop" shadows, playful display type); a single
+  warm palette, no dark-mode scope
 - `app.js` — settings, batch upload/queue handling, image optimization, cost
-  estimation, the API calls (with retry/backoff), sanitizing/rendering, and
-  copy-to-clipboard
+  estimation, the API calls (with retry/backoff), review/approve/revision
+  state, zip export, sanitizing/rendering, and copy-to-clipboard
+- `fonts/` — self-hosted `Bungee-Regular.woff2`, `BungeeShade-Regular.woff2`,
+  `Boogaloo-Regular.woff2`, and `Quicksand-Variable.woff2` (see the note at
+  the top of `style.css`); without them the fallback font stack is used and
+  nothing breaks
+- `preview-only.html` — a CSP-stripped copy of `index.html` used only for
+  taking design screenshots; not part of the deployed app
 - `version.js` — generated by `.githooks/pre-commit`; not hand-edited
 - `.githooks/pre-commit` — regenerates `version.js` on every commit

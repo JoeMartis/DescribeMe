@@ -1,373 +1,1459 @@
+/* ==========================================================================
+   DescribeMe — visual system
+   Living Isle (Sid & Marty Krofft-era design system): bold poster colors,
+   thick ink outlines, flat "pop" cardboard-cutout shadows, pill buttons that
+   lift on hover and slam flat on press, playful display type. Every color,
+   radius, shadow and font is a variable; retune at the top rather than in
+   the rules below.
+
+   Fonts are self-hosted from ./fonts/ (required — the CSP is
+   `default-src 'self'`, so Google Fonts' own CDN can't be used directly).
+   The brand is a single warm palette — no dark-mode scope is defined here,
+   matching the design system as specified.
+   ========================================================================== */
+
+@font-face {
+  font-family: "Bungee";
+  src: url("fonts/Bungee-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Bungee Shade";
+  src: url("fonts/BungeeShade-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Boogaloo";
+  src: url("fonts/Boogaloo-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Quicksand";
+  src: url("fonts/Quicksand-Variable.woff2") format("woff2-variations");
+  font-weight: 300 700;
+  font-display: swap;
+}
+
 :root {
-  --bg: #ffffff;
-  --fg: #1a1a1a;
-  --muted: #5a5a5a;
-  --panel-bg: #f7f7f9;
-  --border: #d8d8de;
-  --accent: #2952cc;
-  --accent-fg: #ffffff;
-  --error-bg: #fdecea;
-  --error-fg: #7a1f1f;
-  --focus: #2952cc;
+  /* Living Isle base palette */
+  --swamp-cream: #fff3d9;
+  --swamp-parchment: #ffe8b8;
+  --swamp-sunken: #f5e1be;
+  --ink-brown: #241a12;
+  --poster-red: #e63b1e;
+  --tangerine: #ff7a1a;
+  --mustard: #ffc93c;
+  --lime-pop: #9fd830;
+  --swamp-green: #2e9e4f;
+  --deep-teal: #0e6e67;
+  --sky-blue: #4fc3f7;
+  --electric-blue: #1e6fe0;
+  --grape: #8a2bb0;
+  --hot-pink: #ff4499;
+  --bubblegum: #ff9fc6;
+  --paper-white: #fffaf0;
+
+  /* App-role tokens: same names every rule below consumes, so retuning the
+     palette above is enough to reskin the whole app. */
+  --bg: var(--swamp-cream);
+  --surface: var(--swamp-parchment);
+  --panel: var(--paper-white);
+  --raised: #ffffff;
+  --fg: var(--ink-brown);
+  --muted: #6b5a45;
+  /* 0.62 composited over the header's parchment surface lands at 4.49:1 —
+     a hair under the 4.5:1 AA minimum; 0.66 clears it on every surface. */
+  --faint: rgba(36, 26, 18, 0.66);
+  --border: var(--ink-brown);
+
+  --accent: var(--poster-red);
+  --accent-press: #c22f16;
+  --accent-100: #ffe3db;
+  --accent-200: #ffc7b8;
+  --accent-300: #ffa98f;
+  --accent-700: #a82a14;
+  --accent-800: #7a1d0d;
+
+  --sage: var(--swamp-green);
+  --sage-press: #227d3d;
+  --sage-100: #e3f5e7;
+  --sage-200: #c3e9cb;
+  --sage-300: #9ed9ac;
+  --sage-700: #1f6b37;
+
+  --neutral-200: var(--swamp-parchment);
+  --neutral-300: var(--swamp-sunken);
+  --neutral-400: #d9c79a;
+  --neutral-700: var(--muted);
+
+  --font-heading: "Bungee", system-ui, sans-serif;
+  --font-display: "Bungee Shade", "Bungee", system-ui, sans-serif;
+  --font-accent: "Boogaloo", cursive;
+  --font-body: "Quicksand", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, Menlo, Consolas, monospace;
+
+  --radius-sm: 10px;
+  --radius-md: 18px;
+  --radius-lg: 28px;
+
+  --border-width: 3px;
+  --border-width-thick: 5px;
+
+  /* Flat cardboard-cutout shadows: hard offset, no blur */
+  --shadow-sm: 3px 3px 0 var(--ink-brown);
+  --shadow-md: 6px 6px 0 var(--ink-brown);
+  --shadow-lg: 10px 10px 0 var(--ink-brown);
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --duration-quick: 140ms;
+  --duration-bounce: 420ms;
+
+  --pattern-vortex: repeating-conic-gradient(
+    from 0deg,
+    var(--poster-red) 0deg 12deg, var(--tangerine) 12deg 24deg,
+    var(--mustard) 24deg 36deg, var(--lime-pop) 36deg 48deg,
+    var(--electric-blue) 48deg 60deg, var(--grape) 60deg 72deg,
+    var(--hot-pink) 72deg 84deg
+  );
+  --pattern-sunburst: repeating-conic-gradient(var(--mustard) 0deg 8deg, var(--tangerine) 8deg 16deg);
+
+  --focus: var(--grape);
+
+  --rail-width: 320px;
+  --header-height: 68px;
+
   font-size: 16px;
+  color-scheme: light;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #14151a;
-    --fg: #eceef2;
-    --muted: #a3a7b3;
-    --panel-bg: #1d1f26;
-    --border: #33353f;
-    --accent: #7ea0ff;
-    --accent-fg: #0c1226;
-    --error-bg: #3a1c1c;
-    --error-fg: #ffb4a9;
-    --focus: #9db8ff;
-  }
-}
-
-* { box-sizing: border-box; }
+*, *::before, *::after { box-sizing: border-box; }
 
 /* Any element with the hidden attribute must actually disappear, even if a
    more specific rule elsewhere sets its own `display`. */
 [hidden] { display: none !important; }
 
+html, body { height: 100%; }
+
 body {
   margin: 0;
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   background: var(--bg);
   color: var(--fg);
-  line-height: 1.5;
+  font-family: var(--font-body);
+  font-weight: 500;
+  font-size: 15px;
+  line-height: 1.55;
 }
+
+h1, h2, h3, h4 {
+  font-family: var(--font-heading);
+  font-weight: 400;
+  line-height: 1.25;
+  margin: 0;
+}
+
+p { margin: 0; }
+
+a { color: var(--grape); text-underline-offset: 3px; }
+a:hover { color: var(--poster-red); }
+
+code, kbd {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+}
+
+:focus { outline: none; }
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
+::selection { background: var(--mustard); }
 
 .skip-link {
   position: absolute;
-  left: -999px;
+  left: -9999px;
   top: 0;
-  background: var(--accent);
-  color: var(--accent-fg);
-  padding: 0.75rem 1rem;
   z-index: 100;
-}
-.skip-link:focus {
-  left: 0.5rem;
-  top: 0.5rem;
-}
-
-.site-header {
-  padding: 2rem 1.25rem 1rem;
-  max-width: 720px;
-  margin: 0 auto;
-}
-.site-header h1 { margin: 0 0 0.25rem; font-size: 1.75rem; display: flex; align-items: baseline; gap: 0.6rem; }
-.tagline { margin: 0; color: var(--muted); }
-
-.version-badge {
-  font-size: 0.7rem;
-  font-weight: 600;
-  color: var(--muted);
-  background: var(--panel-bg);
-  border: 1px solid var(--border);
+  background: var(--accent);
+  color: var(--paper-white);
+  padding: 0.75rem 1.25rem;
+  border: var(--border-width) solid var(--border);
   border-radius: 999px;
-  padding: 0.15rem 0.55rem;
-  letter-spacing: 0.02em;
+  font-family: var(--font-heading);
+  font-size: 0.85em;
 }
+.skip-link:focus { left: 8px; top: 8px; }
 
-main {
-  max-width: 720px;
+/* Only ever seen by someone with JavaScript turned off — and by crawlers that
+   do not run it. Styled anyway so that visitor gets a readable page rather
+   than a wall of default-serif text. */
+.noscript-intro {
+  max-width: 62ch;
   margin: 0 auto;
-  padding: 0 1.25rem 3rem;
-  display: flex;
-  flex-direction: column;
-  gap: 1.5rem;
+  padding: 48px 24px;
+  text-wrap: pretty;
+}
+.noscript-intro h1 { font-family: var(--font-heading); font-size: 28px; margin-bottom: 18px; }
+.noscript-intro p { margin-bottom: 14px; }
+.noscript-intro ul { margin: 0 0 14px; padding-left: 22px; }
+.noscript-intro li { margin-bottom: 6px; }
+
+.visually-hidden {
+  position: absolute;
+  width: 1px; height: 1px;
+  margin: -1px; padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
 }
 
-.panel {
-  background: var(--panel-bg);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 1.25rem;
-}
-.panel h2 { margin: 0 0 1rem; font-size: 1.1rem; }
+/* ---------- buttons ---------- */
+/* Pill + flat pop shadow, lift on hover, slam flat on press. */
 
-.disclosure {
-  background: none;
-  border: none;
-  color: inherit;
-  font: inherit;
-  font-weight: 600;
-  cursor: pointer;
-  padding: 0;
+.btn {
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
+  justify-content: center;
+  gap: 7px;
+  cursor: pointer;
+  font-family: var(--font-heading);
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+  padding: 11px 21px;
+  border-radius: 999px;
+  border: var(--border-width) solid var(--border);
+  background: var(--raised);
+  color: var(--fg);
+  text-decoration: none;
+  white-space: nowrap;
+  box-shadow: var(--shadow-sm);
+  transition: transform var(--duration-quick) var(--ease-out), box-shadow var(--duration-quick) var(--ease-out);
 }
-.disclosure-icon { display: inline-block; transition: transform 0.15s ease; }
-.disclosure[aria-expanded="true"] .disclosure-icon { transform: rotate(90deg); }
+.btn:hover:not(:disabled) { transform: translate(-2px, -2px); box-shadow: var(--shadow-md); background: var(--swamp-parchment); }
+.btn:active:not(:disabled) { transform: translate(3px, 3px); box-shadow: none; }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; }
+.btn:disabled:hover { background: var(--raised); }
 
-.panel-body {
-  margin-top: 1rem;
+/* The raw --accent/--sage swatches are too light for paper-white button
+   text to clear WCAG AA (4.5:1) at this font size — the -press/-700 shades
+   both do, so those are the button's resting colors, not just its
+   hover/active state. */
+.btn-primary {
+  background: var(--accent-press);
+  border-color: var(--border);
+  color: var(--paper-white);
+}
+.btn-primary:hover:not(:disabled) { background: var(--accent-800); }
+.btn-primary:active:not(:disabled) { background: var(--accent-800); }
+.btn-primary:disabled:hover { background: var(--accent-press); }
+
+/* "Something needs your attention" on an icon button, where there is no room
+   for words. Two cues, never colour on its own: the fill is a large luminance
+   change (so it survives greyscale and any colour blindness) and the badge is
+   a shape. Same red as the primary button, which already clears AA against
+   paper-white at this size. */
+.btn-alert {
+  background: var(--accent-press);
+  border-color: var(--border);
+  color: var(--paper-white);
+}
+.btn-alert:hover:not(:disabled) { background: var(--accent-800); }
+.btn-alert:active:not(:disabled) { background: var(--accent-800); }
+.btn-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 19px;
+  height: 19px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  border: var(--border-width) solid var(--border);
+  background: var(--mustard);
+  color: var(--ink-brown);
+  font-family: var(--font-heading);
+  font-size: 10px;
+  line-height: 1;
+}
+
+.btn-approve {
+  background: var(--sage-press);
+  border-color: var(--border);
+  color: var(--paper-white);
+}
+.btn-approve:hover:not(:disabled) { background: var(--sage-700); }
+
+.btn-small {
+  font-family: var(--font-heading);
+  font-size: 12px;
+  padding: 7px 15px;
+  box-shadow: var(--shadow-sm);
+}
+
+.btn-icon {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border-radius: 999px;
+}
+.btn-icon svg { width: 19px; height: 19px; }
+.btn-small svg { width: 14px; height: 14px; }
+.btn svg { flex-shrink: 0; }
+
+.btn-ghost { border-color: transparent; box-shadow: none; background: transparent; }
+
+/* A third weight below the plain button: still a real button with the full
+   outline and shadow, but visibly the least likely of a set. */
+.btn-quiet { background: var(--swamp-sunken); }
+.btn-quiet:hover:not(:disabled) { background: var(--swamp-parchment); }
+.btn-ghost:hover:not(:disabled) { box-shadow: none; background: var(--swamp-parchment); }
+
+/* .btn's default ink-brown text is nearly invisible against the onboarding
+   card's own ink-brown background — it only became visible on hover, once
+   the light hover background gave it something to contrast against. */
+.onboard-card .btn-ghost { color: var(--paper-white); }
+.onboard-card .btn-ghost:hover:not(:disabled) { color: var(--fg); }
+
+/* ---------- chips ---------- */
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--font-accent);
+  font-size: 14px;
+  padding: 7px 15px;
+  border-radius: 999px;
+  border: var(--border-width) solid var(--border);
+  background: var(--panel);
+  color: var(--fg);
+  white-space: nowrap;
+}
+.chip-cost {
+  background: var(--mustard);
+  border-color: var(--border);
+  color: var(--ink-brown);
+}
+.chip-cost strong { font-family: var(--font-heading); font-weight: 400; }
+/* .field stretches its children, which would stretch this pill across the
+   whole dialog — it should hug its text like every other chip. */
+.field > .chip-cost { align-self: flex-start; }
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--font-heading);
+  font-size: 11px;
+  padding: 5px 12px;
+  border: var(--border-width) solid var(--border);
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.tag-review { background: var(--mustard); color: var(--ink-brown); }
+.tag-approved { background: var(--sage-200); color: var(--sage-700); }
+
+/* ---------- onboarding ---------- */
+/* The vortex is the design system's signature moment — reserved for this
+   full-screen hero rather than the compact in-app header. */
+
+.onboarding {
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 56px 24px;
+  position: relative;
+  overflow: hidden;
+  background-image: var(--pattern-vortex);
+  background-size: 220% 220%;
+  background-position: center;
+}
+.onboard-card {
+  position: relative;
+  width: 100%;
+  max-width: 620px;
+  background: var(--ink-brown);
+  border: var(--border-width-thick) solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 44px 44px 36px;
+  /* --shadow-lg's 10px offset is wide enough, relative to this card's large
+     28px radius, that the shadow's rounded corner visibly parts ways with
+     the card's own at the two corners where only one adjacent edge carries
+     shadow (top-right, bottom-left) — the union of the two arcs reads as a
+     lumpy corner instead of a clean curve. A narrower offset plus a touch
+     of blur softens that seam while keeping the signature pop-shadow look. */
+  box-shadow: 6px 6px 3px var(--ink-brown);
+  color: var(--paper-white);
+}
+.onboard-brand {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 20px;
+  font-family: var(--font-heading);
+  font-size: 22px;
+}
+.onboard-card h1 {
+  font-family: var(--font-display);
+  font-size: clamp(1.9rem, 4vw, 2.75rem);
+  color: var(--mustard);
+  margin-bottom: 14px;
+}
+.onboard-lede { font-family: var(--font-accent); font-size: 18px; color: var(--paper-white); opacity: 0.9; max-width: 46ch; margin-bottom: 26px; text-wrap: pretty; }
+.onboard-card .field > label,
+.onboard-card fieldset.field > legend { color: var(--paper-white); }
+.onboard-card .hint { color: var(--bubblegum); }
+/* The global grape link color is tuned for light surfaces — on this dark
+   card it lands ~2.4:1. Bubblegum matches the surrounding hint text (the
+   underline still marks it as a link) and clears AA at ~9.4:1. */
+.onboard-card a { color: var(--bubblegum); }
+.onboard-card a:hover { color: var(--paper-white); }
+.onboard-actions { display: flex; align-items: center; gap: 14px; margin-top: 28px; }
+
+.model-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+}
+.model-option {
+  display: block;
+  border: var(--border-width) solid var(--border);
+  background: var(--paper-white);
+  color: var(--ink-brown);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  padding: 14px;
+  cursor: pointer;
+}
+.model-option:hover { transform: translate(-2px, -2px); box-shadow: var(--shadow-md); }
+.model-option input { position: absolute; opacity: 0; pointer-events: none; }
+.model-option:has(input:checked) {
+  background: var(--mustard);
+  box-shadow: var(--shadow-md);
+}
+.model-option:has(input:focus-visible) { outline: 3px solid var(--focus); outline-offset: 2px; }
+.model-name { font-family: var(--font-heading); font-size: 15px; margin-bottom: 4px; }
+.model-note { font-size: 12px; color: var(--muted); line-height: 1.4; margin-bottom: 8px; }
+.model-cost { font-family: var(--font-accent); font-size: 15px; color: var(--muted); }
+.model-option:has(input:checked) .model-cost { color: var(--accent-700); }
+/* --muted on the checked card's mustard is ~3.95:1 — under AA. The selected
+   model's note shouldn't be the least readable of the three. */
+.model-option:has(input:checked) .model-note { color: var(--ink-brown); }
+
+/* ---------- app shell ---------- */
+
+.app {
+  height: 100%;
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  overflow: hidden;
 }
-.panel-body[hidden] { display: none; }
 
-.field { display: flex; flex-direction: column; gap: 0.35rem; }
-.field label, fieldset.field legend { font-weight: 600; }
-fieldset.field {
+.app-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 26px;
+  background: var(--surface);
+  border-bottom: var(--border-width-thick) solid var(--border);
+  flex-wrap: wrap;
+}
+.brand {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  font-family: var(--font-heading);
+  font-size: 21px;
+}
+.version-badge {
+  font-family: var(--font-accent);
+  font-size: 13px;
+  color: var(--ink-brown);
+  background: var(--mustard);
+  border: var(--border-width) solid var(--border);
+  border-radius: 999px;
+  padding: 1px 9px;
+  transform: rotate(-2deg);
+}
+.header-rule { width: var(--border-width); height: 26px; background: var(--border); }
+/* Shrinkable, so the row gives here — truncating the batch name — before
+   the whole tools cluster wraps to a second header line. */
+.batch-meta { min-width: 0; flex: 0 1 auto; }
+.batch-name {
+  font-family: var(--font-heading);
+  font-size: 13px;
+  /* Visibly an input, not a label: this field spent its life styled as plain
+     text that only revealed itself on hover, and nobody discovered they
+     could rename the batch. The pencil is a background image so no markup
+     changes — it hides on focus, where the caret takes over the job. */
+  border: var(--border-width) solid rgba(36, 26, 18, 0.4);
+  border-radius: 999px;
+  background-color: var(--raised);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236b5a45' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 12px;
+  color: inherit;
+  padding: 3px 28px 3px 10px;
+  margin-left: -10px;
+  width: 24ch;
+  min-width: 11ch;
+  max-width: 100%;
+}
+.batch-name:hover { border-color: var(--border); }
+.batch-name:focus { border-color: var(--border); background-color: var(--paper-white); background-image: none; }
+.batch-summary { font-family: var(--font-accent); font-size: 13px; color: var(--faint); padding: 0 10px; }
+.header-spacer { flex: 1; }
+.header-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+.workspace {
+  flex: 1;
+  display: grid;
+  grid-template-columns: var(--rail-width) minmax(0, 1fr);
+  min-height: 0;
+}
+
+/* ---------- rail ---------- */
+
+.rail {
+  border-right: var(--border-width) solid var(--border);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--bg);
+}
+.rail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 18px 20px 12px;
+}
+.rail-head-actions { display: flex; align-items: center; gap: 8px; }
+.rail-head h2 { font-size: 18px; }
+/* A button that is really a file input — the input covers the whole button
+   invisibly, so it stays natively focusable and keyboard-operable. Used by
+   the rail's Add button and the projects dialog's Import button. */
+.rail-add, .file-btn { position: relative; overflow: hidden; }
+/* The input is opacity:0, so the default focus ring painted on it is
+   invisible — surface keyboard focus on the visible button instead. */
+.rail-add:has(input:focus-visible),
+.file-btn:has(input:focus-visible) { outline: 3px solid var(--focus); outline-offset: 3px; }
+/* Same problem, same fix, for the main upload control on the empty
+   workspace: its input covers the whole dropzone at opacity 0, so without
+   this a keyboard user Tabs onto the app's primary input and sees nothing. */
+.dropzone:has(input:focus-visible) { outline: 3px solid var(--focus); outline-offset: 4px; }
+.rail-add input[type="file"], .file-btn input[type="file"] {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+  font-size: 100px;
+}
+.rail-empty { padding: 0 20px 16px; font-family: var(--font-accent); font-size: 15px; color: var(--faint); text-wrap: pretty; }
+
+.rail-list {
+  flex: 1;
+  overflow: auto;
+  list-style: none;
+  margin: 0;
+  padding: 4px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.rail-list li { display: flex; align-items: center; gap: 5px; }
+.rail-list li.is-dragging { opacity: 0.45; }
+.rail-move { display: flex; flex-direction: column; gap: 3px; flex-shrink: 0; }
+.rail-move-btn {
+  width: 22px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  cursor: pointer;
+  border: var(--border-width) solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+}
+.rail-move-btn svg { width: 13px; height: 13px; }
+.rail-move-btn:hover:not(:disabled) {
+  background: var(--raised);
+  border-color: var(--border);
+  color: var(--fg);
+}
+.rail-move-btn:disabled { opacity: 0.25; cursor: default; }
+.rail-row {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 9px 11px;
+  border-radius: var(--radius-md);
+  border: var(--border-width) solid transparent;
+  background: var(--raised);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.rail-row:hover { border-color: var(--border); }
+.rail-row[aria-current="true"] {
+  background: var(--mustard);
+  border-color: var(--border);
+  box-shadow: var(--shadow-sm);
+}
+.rail-thumb {
+  width: 58px;
+  height: 38px;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  border: var(--border-width) solid var(--border);
+  background: var(--swamp-parchment);
+  flex-shrink: 0;
+}
+.rail-text { min-width: 0; flex: 1; }
+.rail-name {
+  display: block;
+  font-family: var(--font-heading);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rail-status {
+  display: block;
+  font-family: var(--font-accent);
+  font-size: 13px;
+  color: var(--faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dot {
+  width: 10px; height: 10px;
+  border-radius: 999px;
+  border: 2px solid var(--border);
+  background: var(--neutral-400);
+  flex-shrink: 0;
+}
+.dot-describing { background: var(--tangerine); animation: pulse 1.4s ease-in-out infinite; }
+.dot-done { background: var(--mustard); }
+.dot-approved { background: var(--sage); }
+.dot-error { background: var(--poster-red); }
+
+@keyframes pulse { 0%, 100% { opacity: 0.35 } 50% { opacity: 1 } }
+@media (prefers-reduced-motion: reduce) {
+  .dot-describing { animation: none; }
+}
+
+[data-state="describing"] .rail-status,
+[data-state="error"] .rail-status { color: var(--accent-700); }
+[data-state="approved"] .rail-status { color: var(--sage-700); }
+/* On the selected row's mustard background the faint/sage status colors drop
+   under 4.5:1 — the current slide's status is the one that most needs to be
+   readable, so it goes full ink there. */
+.rail-row[aria-current="true"] .rail-status { color: var(--ink-brown); }
+/* A slide with a transcript: green edge on the row, green name in its
+   status. inset box-shadow rather than border-left, so hover's and the
+   selected row's border colours leave it alone. */
+.rail-row[data-transcript="yes"] { box-shadow: inset 5px 0 0 var(--sage); }
+.rail-row[data-transcript="yes"][aria-current="true"] { box-shadow: inset 5px 0 0 var(--sage), var(--shadow-sm); }
+.rail-transcript-tag { color: var(--sage-700); }
+.rail-row[aria-current="true"] .rail-transcript-tag { color: var(--sage-press); }
+
+/* Loaded transcripts sit under the slide list. They are not slides — no
+   thumbnail, no selection, not draggable — so the row is dashed until it has
+   matched something, and takes the review green once it has. */
+.rail-transcripts { padding: 0 12px 4px; flex-shrink: 0; }
+.rail-transcripts summary {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  padding: 8px 11px 6px;
+  cursor: pointer;
+  list-style: none;
+  border-radius: var(--radius-sm);
+}
+.rail-transcripts summary::-webkit-details-marker { display: none; }
+.rail-transcripts summary::before {
+  content: "";
+  width: 0; height: 0;
+  border-left: 5px solid var(--accent-700);
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  transform: translateY(-1px);
+  transition: transform var(--duration-quick);
+}
+.rail-transcripts[open] summary::before { transform: rotate(90deg) translateX(-1px); }
+.rail-transcripts summary:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+.rail-transcripts-title {
+  font-family: var(--font-heading);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--accent-700);
+}
+.rail-transcripts-count { font-family: var(--font-accent); font-size: 13px; color: var(--accent-700); }
+@media (prefers-reduced-motion: reduce) {
+  .rail-transcripts summary::before { transition: none; }
+}
+.transcript-list { list-style: none; margin: 0; padding: 0 0 4px; display: flex; flex-direction: column; gap: 6px; }
+/* Compact: one line of name, one of verdict, an icon to detach. The name
+   keeps its tail (middle-ellipsised in JS) since that is what tells two
+   lecture files apart; the full name is in the tooltip. */
+.transcript-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 9px;
+  border-radius: var(--radius-sm);
+  border: 2px dashed var(--neutral-400);
+}
+.transcript-item[data-matched="yes"] {
+  border-style: solid;
+  border-color: var(--sage-300);
+  background: var(--sage-100);
+}
+.transcript-item .rail-name { font-size: 11px; }
+.transcript-item .rail-status { font-size: 12px; }
+/* The two-line "No match / expects slides named like …" has to be read in
+   full — that row is the one asking for a fix. */
+.transcript-item[data-matched="no"] .rail-status { color: var(--accent-700); white-space: normal; }
+.transcript-item[data-matched="yes"] .rail-status { color: var(--sage-700); }
+.dot-unmatched { background: var(--neutral-400); }
+.transcript-detach {
+  flex-shrink: 0;
+  width: 24px; height: 24px;
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 0;
+  border: var(--border-width) solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.transcript-detach svg { width: 12px; height: 12px; }
+.transcript-detach:hover { background: var(--raised); border-color: var(--border); color: var(--fg); }
+.transcript-detach:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+
+.rail-foot { padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+.rail-card {
+  background: var(--panel);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  padding: 15px 16px;
+}
+.rail-card-review { background: var(--sage-100); }
+.rail-card h3 { font-family: var(--font-heading); font-size: 12px; margin-bottom: 8px; }
+.rail-card p { font-size: 12px; color: var(--muted); margin-bottom: 11px; }
+.progress-track {
+  height: 12px;
+  border: var(--border-width) solid var(--border);
+  border-radius: 999px;
+  background: var(--swamp-parchment);
+  overflow: hidden;
+  margin-bottom: 11px;
+}
+.progress-fill {
+  height: 100%;
+  width: 0%;
+  background-image: var(--pattern-sunburst);
+  background-size: 200% 200%;
+  transition: width 0.25s ease;
+}
+.rail-card-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.rail-card-note { font-size: 12px; color: var(--faint); }
+
+/* ---------- detail pane ---------- */
+
+.detail {
+  min-height: 0;
+  overflow: auto;
+  padding: 24px 28px 40px;
+}
+
+.status { min-height: 1.2em; font-family: var(--font-accent); font-size: 14px; color: var(--faint); }
+
+
+.empty { max-width: 780px; margin: 0 auto; }
+.empty h1 { font-family: var(--font-display); font-size: 30px; margin: 12px 0 8px; color: var(--poster-red); }
+.empty-lede { font-family: var(--font-accent); font-size: 18px; color: var(--muted); max-width: 58ch; margin-bottom: 22px; text-wrap: pretty; }
+.empty-video-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin: 14px 0 18px;
+}
+.empty-or { font-family: var(--font-accent); font-size: 15px; color: var(--faint); }
+
+.dropzone {
+  position: relative;
+  border: var(--border-width-thick) dashed var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  padding: 62px 32px;
+  text-align: center;
+  transition: background var(--duration-quick) var(--ease-out), transform var(--duration-quick) var(--ease-bounce);
+}
+.dropzone:hover, .dropzone.dragover {
+  background: var(--mustard);
+  transform: rotate(-0.5deg) scale(1.008);
+}
+.dropzone input[type="file"] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+.dropzone-mark {
+  width: 82px; height: 82px;
+  border-radius: 999px;
+  border: var(--border-width) solid var(--border);
+  background: var(--paper-white);
+  color: var(--grape);
+  display: grid;
+  place-items: center;
+  margin: 0 auto 18px;
+  box-shadow: var(--shadow-sm);
+}
+.dropzone-mark svg { width: 34px; height: 34px; }
+.dropzone h2 { font-family: var(--font-heading); font-size: 22px; margin-bottom: 6px; }
+.dropzone-note { font-family: var(--font-accent); font-size: 16px; color: var(--muted); }
+
+.facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 14px;
+  margin-top: 20px;
+}
+.fact { background: var(--panel); border: var(--border-width) solid var(--border); border-radius: var(--radius-md); box-shadow: var(--shadow-sm); padding: 16px 18px; }
+.fact h3 { font-family: var(--font-heading); font-size: 12px; margin-bottom: 4px; }
+.fact p { font-size: 12px; color: var(--muted); line-height: 1.45; }
+
+.split {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: 24px;
+  align-items: start;
+}
+@media (max-width: 1180px) {
+  .split { grid-template-columns: minmax(0, 1fr); }
+  .slide-pane { position: static !important; }
+}
+@media (max-width: 880px) {
+  :root { --rail-width: 100%; }
+  .app { height: auto; overflow: visible; }
+  .workspace { grid-template-columns: minmax(0, 1fr); }
+  .rail { border-right: none; border-bottom: var(--border-width) solid var(--border); }
+  .rail-list { max-height: 260px; }
+}
+
+.slide-pane { position: sticky; top: 0; }
+.pane-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.kicker {
+  font-family: var(--font-accent);
+  font-size: 15px;
+  color: var(--faint);
+}
+.pane-nav { display: flex; gap: 6px; }
+.pane-nav .btn-icon { width: 34px; height: 34px; }
+.pane-nav svg { width: 15px; height: 15px; }
+
+.slide-frame {
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  border: var(--border-width) solid var(--border);
+  background: var(--swamp-parchment);
+  aspect-ratio: 16 / 10;
+  display: grid;
+  /* An implicit auto-sized grid track has no definite size, so the img's
+     height: 100% below can't resolve against it — it falls back to scaling
+     from the (percentage-resolvable) 100% width by the image's own aspect
+     ratio instead, which overflows the frame for anything taller than
+     16:10 and gets sliced off by overflow: hidden. Pin the track to 100%
+     of the frame so the percentage has something definite to resolve to. */
+  grid-template-columns: 100%;
+  grid-template-rows: 100%;
+  place-items: center;
+}
+.slide-frame img { width: 100%; height: 100%; object-fit: contain; }
+.washed { filter: saturate(0.7) contrast(0.9) brightness(1.05) opacity(0.96); }
+
+.slide-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--faint);
+}
+
+.refine-card {
+  margin-top: 18px;
+  background: var(--panel);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  padding: 16px 18px;
+}
+.refine-card h3 { font-family: var(--font-heading); font-size: 12px; margin-bottom: 8px; }
+.refine-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* Two deliberate rows — status pill + meta (with the destructive Remove
+   kept apart at the right), then the working pills together on one line —
+   instead of a single wrapping row, where the break point landed wherever
+   it happened to land and scattered the buttons. */
+.desc-head {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.desc-status { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.desc-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.desc-meta { font-family: var(--font-accent); font-size: 14px; color: var(--faint); }
+
+/* Formatting toolbar shown only while the preview is editable. */
+.edit-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  background: var(--paper-white);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+}
+.edit-tool {
+  min-width: 34px;
+  height: 30px;
+  padding: 0 11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-heading);
+  font-size: 12px;
+  border: var(--border-width) solid var(--border);
+  border-radius: 999px;
+  background: var(--raised);
+  color: var(--fg);
+  cursor: pointer;
+}
+.edit-tool:hover { background: var(--mustard); }
+.edit-tool:active { background: var(--swamp-parchment); }
+.edit-toolbar-sep {
+  width: 3px;
+  height: 20px;
+  border-radius: 2px;
+  background: var(--border);
+  opacity: 0.2;
+}
+.edit-toolbar-hint {
+  font-family: var(--font-accent);
+  font-size: 13px;
+  color: var(--faint);
+  margin-left: 4px;
+}
+
+.desc {
+  background: var(--panel);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: 30px 34px;
+}
+.result-preview { font-size: 16px; line-height: 1.6; }
+.result-preview > :first-child { margin-top: 0; }
+.result-preview p { margin: 0 0 16px; }
+.result-preview :is(h2, h3) { font-family: var(--font-heading); margin: 22px 0 8px; }
+.result-preview h2 { font-size: 19px; }
+.result-preview h3 { font-size: 16px; }
+.result-preview ul, .result-preview ol { margin: 0 0 16px; padding-left: 22px; }
+.result-preview li { margin-bottom: 4px; }
+.result-preview table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 14px;
+  margin: 0 0 16px;
+}
+.result-preview :is(th, td) {
+  text-align: left;
+  padding: 9px 12px;
+  border: 2px solid var(--border);
+}
+.result-preview th { font-family: var(--font-heading); font-size: 12px; background: var(--mustard); }
+.result-preview figure {
+  margin: 0 0 16px;
+  padding: 16px 18px;
+  background: var(--raised);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-md);
+}
+.result-preview figcaption { font-size: 12px; color: var(--faint); margin-top: 6px; }
+.result-preview math {
+  display: block;
+  background: var(--raised);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 18px;
+  margin: 0 0 10px;
+  font-size: 1.3em;
+  text-align: center;
+}
+.result-preview .sr-note {
+  display: block;
+  font-style: italic;
+  color: var(--muted);
+  font-size: 14px;
+  margin: 0 0 16px;
+}
+.result-preview[contenteditable="true"] {
+  outline: var(--border-width) dashed var(--grape);
+  outline-offset: 12px;
+  border-radius: 4px;
+}
+
+.source-details { margin-top: 14px; }
+.source-details summary {
+  cursor: pointer;
+  font-family: var(--font-heading);
+  font-size: 12px;
+  padding: 8px 0;
+}
+.source-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 6px;
+}
+.source-code {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--swamp-sunken);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 16px 18px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--neutral-700);
+  max-height: 280px;
+  overflow: auto;
+  margin: 10px 0 0;
+}
+/* The description's source panel is a textarea (editable); the settings
+   dialog's system-prompt view stays a plain <pre> and keeps the shared
+   sizing above. */
+textarea.source-code {
+  height: 280px;
+  max-height: none;
+  resize: vertical;
+}
+textarea.source-code:read-only { cursor: default; }
+textarea.source-code:not(:read-only) {
+  background: var(--paper-white);
+  color: var(--fg);
+  outline: var(--border-width) dashed var(--grape);
+  outline-offset: 4px;
+}
+
+.approve-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 18px;
+  padding: 15px 18px;
+  background: var(--sage-100);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+}
+.approve-bar p { flex: 1; min-width: 16ch; font-size: 13px; color: var(--muted); }
+.approve-bar .hint { font-family: var(--font-accent); font-size: 14px; color: var(--faint); }
+
+.error-pane { max-width: 720px; }
+.error-pane h2 { font-family: var(--font-heading); font-size: 22px; margin-bottom: 10px; }
+.error-pane p { color: var(--muted); font-size: 14px; margin-bottom: 16px; text-wrap: pretty; }
+.error-detail {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background: var(--swamp-sunken);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  color: var(--neutral-700);
+  margin-bottom: 20px;
+}
+.error-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+
+.error {
+  background: var(--bubblegum);
+  color: var(--ink-brown);
+  border: var(--border-width) solid var(--border);
+  padding: 12px 16px;
+  border-radius: var(--radius-md);
+  font-weight: 600;
+  font-size: 14px;
+  margin-bottom: 16px;
+}
+
+/* ---------- settings dialog ---------- */
+
+dialog.sheet {
   border: none;
   padding: 0;
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
+  background: transparent;
+  max-width: min(560px, 92vw);
+  max-height: 90vh;
 }
-.radio-option { font-weight: normal; display: flex; align-items: center; gap: 0.5rem; }
-
-input[type="text"],
-input[type="password"],
-input[type="number"],
-select {
-  padding: 0.55rem 0.7rem;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg);
+dialog.sheet::backdrop { background: rgba(36, 26, 18, 0.55); }
+.sheet-body {
+  background: var(--panel);
   color: var(--fg);
-  font: inherit;
+  border: var(--border-width-thick) solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 30px 32px;
+  box-shadow: var(--shadow-lg);
+  max-height: 90vh;
+  overflow: auto;
+}
+.sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 8px;
+}
+.sheet-head h2 { font-size: 22px; }
+.sheet-lede { font-size: 13px; color: var(--muted); margin-bottom: 22px; text-wrap: pretty; }
+.sheet-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 24px; flex-wrap: wrap; }
+
+/* ---------- projects dialog ---------- */
+.project-save-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
+.project-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.project-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--raised);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-md);
+}
+.project-text { flex: 1; min-width: 0; }
+.project-name-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.project-name { font-family: var(--font-heading); font-size: 13px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.project-meta { font-family: var(--font-accent); font-size: 13px; color: var(--faint); }
+/* Small enough to sit inside the name line without inflating the row. */
+.project-rename { width: 26px; height: 26px; flex-shrink: 0; }
+.project-rename svg { width: 12px; height: 12px; }
+/* Slightly separated from the preview it warns about. */
+.math-warning { margin: 10px 0 2px; }
+
+.project-rename-input {
+  font-family: var(--font-heading);
+  font-size: 13px;
+  padding: 4px 12px;
+  width: 100%;
+  min-width: 0;
+}
+
+.field { display: flex; flex-direction: column; gap: 8px; margin-bottom: 22px; }
+.field > label:not(.radio-option), fieldset.field legend { font-family: var(--font-heading); font-size: 12px; }
+fieldset.field { border: none; padding: 0; margin: 0 0 22px; }
+.hint { font-size: 13px; color: var(--faint); }
+
+.input {
+  font-family: var(--font-body);
+  font-size: 14px;
+  padding: 11px 16px;
+  border-radius: 999px;
+  border: var(--border-width) solid var(--border);
+  background: var(--raised);
+  color: var(--fg);
   width: 100%;
 }
+.input:focus-visible { outline: none; border-color: var(--focus); box-shadow: 3px 3px 0 var(--focus); }
+.input-row { display: flex; gap: 8px; }
+.input-row .input { flex: 1; }
 
-select { cursor: pointer; }
+.radio-option {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-family: var(--font-body);
+  font-size: 14px;
+  font-weight: 500;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: var(--border-width) solid var(--border);
+  background: var(--raised);
+  color: var(--ink-brown);
+  cursor: pointer;
+}
+.radio-option:hover { background: var(--swamp-parchment); }
+.radio-option:has(input:checked) { background: var(--mustard); }
+.radio-option input { accent-color: var(--grape); width: 18px; height: 18px; }
 
 input[type="range"] {
   width: 100%;
-  margin: 0.4rem 0 0.15rem;
-  accent-color: var(--accent);
+  margin: 4px 0 2px;
+  accent-color: var(--hot-pink);
   cursor: pointer;
 }
 .range-scale {
   display: flex;
   justify-content: space-between;
-  font-size: 0.75rem;
-  color: var(--muted);
+  font-family: var(--font-accent);
+  font-size: 14px;
+  color: var(--faint);
 }
 
-.input-with-button { display: flex; gap: 0.5rem; }
-.input-with-button input { flex: 1; }
+/* ---------- capture from video ---------- */
 
-.hint { margin: 0; font-size: 0.875rem; color: var(--muted); }
+/* Only the video dialog needs the extra width — Settings and Projects share
+   dialog.sheet and are text forms that read better narrow. */
+dialog.sheet-wide { max-width: min(880px, 94vw); }
+/* Every row above the video is overhead competing with it for height, so
+   this dialog runs tighter than the text-form sheets it shares styles with. */
+#videoDialog .sheet-lede { margin-bottom: 14px; }
+#videoDialog .approve-bar { margin-top: 14px; }
 
-code {
-  font-family: ui-monospace, Menlo, Consolas, monospace;
-  background: var(--border);
-  border-radius: 4px;
-  padding: 0.1rem 0.3rem;
-}
-
-button {
-  font: inherit;
-  cursor: pointer;
-  border-radius: 6px;
-  border: 1px solid var(--accent);
-  background: var(--accent);
-  color: var(--accent-fg);
-  padding: 0.6rem 1.1rem;
-  font-weight: 600;
-}
-button:disabled { opacity: 0.5; cursor: not-allowed; }
-button.secondary {
-  background: transparent;
-  color: var(--fg);
-  border-color: var(--border);
-  font-weight: 500;
-}
-button.small { padding: 0.35rem 0.7rem; font-size: 0.875rem; }
-
-button:focus-visible,
-input:focus-visible,
-[tabindex]:focus-visible {
-  outline: 3px solid var(--focus);
-  outline-offset: 2px;
-}
-
-.drop-zone {
-  border: 2px dashed var(--border);
-  border-radius: 12px;
-  padding: 2.5rem 1.5rem;
-  text-align: center;
-  cursor: pointer;
-  position: relative;
+/* The video's own name leads the row and gives way first — a lecture export
+   can run to fifty characters, and truncating it is better than letting it
+   push the buttons off the end. */
+.video-file-row {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 0.35rem;
-  background: linear-gradient(180deg, rgba(41, 82, 204, 0.035), transparent 60%);
-  transition: border-color 0.15s ease, background 0.15s ease, transform 0.15s ease;
+  gap: 12px;
+  /* Wraps rather than overflows: the two buttons cannot shrink, so on a
+     narrow dialog they have to be allowed to drop to a second line. */
+  flex-wrap: wrap;
+  margin-bottom: 14px;
 }
-.drop-zone:hover { border-color: var(--accent); }
-.drop-zone.dragover {
-  border-color: var(--accent);
-  background: rgba(41, 82, 204, 0.08);
-  transform: scale(1.005);
+.video-file-name {
+  /* Zero basis, not auto: a wrapping flex row breaks lines BEFORE it shrinks
+     anything, so an auto-basis name long enough to matter would always push
+     the buttons to a second line instead of ellipsizing. From zero it only
+     ever claims what is left over, and truncates there. */
+  flex: 1 1 0;
+  /* A floor rather than 0, so the row stays one line down to this width —
+     lecture exports have long names, and wrapping the buttons would cost the
+     height the video wants. Below the floor the row wraps, never overflows. */
+  min-width: 8ch;
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.drop-zone input[type="file"] {
+.video-file-row .file-btn { flex-shrink: 0; }
+.video-transcript-hint { margin: -6px 0 14px; text-wrap: pretty; }
+
+/* Deliberately NOT .slide-frame: that one pins a 16/10 box and letterboxes
+   whatever it holds, which spends a good part of the dialog on black bars
+   around a 16/9 recording — and the slide is the thing you are squinting at
+   to decide whether to capture. Here the border hugs the video itself, so
+   the frame is always exactly the shape of the footage. */
+.video-frame { text-align: center; }
+/* The chrome (border, matte, rounded corners) lives on this wrapper rather
+   than the <video> so the crop overlay's inset: 0 lands exactly on the
+   video's pixels — an overlay inside a bordered video would be offset by the
+   border width and every crop would be a few pixels off. */
+.video-box {
+  position: relative;
+  display: inline-block;
+  vertical-align: middle;
+  line-height: 0; /* kill the baseline gap under the inline video */
+  background: var(--ink-brown);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden; /* clip the video and marquee to the rounded corners */
+  max-width: 100%;
+}
+.video-frame video {
+  display: block;
+  /* Both dimensions auto under two maximums: the browser scales the footage
+     to fit while keeping its own proportions, so the box hugs the picture
+     and there is nothing left over to show as a bar. Percentages are no use
+     for the height — a percentage max-height resolves to none unless the
+     containing block's height is definite, and the video then renders full
+     size and gets cropped. */
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  /* Measured, not guessed: the rest of the dialog runs to 508px in its
+     tallest state (a two-line transcript hint plus an error line showing
+     after a capture), so this keeps the status line — where capture
+     confirmations land — on screen rather than under the fold. Clamped at
+     each end; below the floor the sheet body scrolls, as it always did.
+     Re-measure this if a row is added. The previous 485 was measured when
+     the transcript hint shared a row with the file buttons; it had been 27px
+     short of its own tallest state ever since that hint grew long enough to
+     wrap, and the dialog quietly scrolled there. */
+  max-height: clamp(120px, calc(90vh - 526px), 520px);
+}
+
+.video-crop-overlay {
   position: absolute;
   inset: 0;
-  opacity: 0;
-  cursor: pointer;
-  width: 100%;
-  height: 100%;
+  cursor: crosshair;
+  touch-action: none; /* the drag IS the gesture — don't scroll the sheet */
+}
+.video-crop-rect {
+  position: absolute;
+  display: block;
+  border: 2px solid var(--mustard);
+  /* One giant spread shadow dims everything outside the selection; the
+     wrapper's overflow: hidden clips it to the video. Cheaper and simpler
+     than four mask panels. */
+  box-shadow: 0 0 0 9999px rgba(36, 26, 18, 0.55);
+  pointer-events: none;
+}
+/* Crop acts on the picture; the group beside it acts on the batch. The rule
+   is the same one the header uses to separate identity from actions. */
+.capture-rule { width: var(--border-width); height: 26px; background: var(--border); flex-shrink: 0; }
+.capture-group { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.capture-label {
+  font-family: var(--font-heading);
+  font-size: 12px;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+#videoCropBtn[aria-pressed="true"] {
+  background: var(--mustard);
+  color: var(--ink-brown);
 }
 
-.drop-zone-icon {
-  width: 3rem;
-  height: 3rem;
-  color: var(--accent);
-  opacity: 0.85;
-  margin-bottom: 0.5rem;
-}
-
-.drop-zone-title {
-  margin: 0;
-  font-weight: 600;
-  font-size: 1.05rem;
-}
-.drop-zone-subtitle {
-  margin: 0;
-  color: var(--muted);
-  font-size: 0.9rem;
-}
-
-.button-row { display: flex; gap: 0.5rem; flex-wrap: wrap; }
-
-.image-list {
-  list-style: none;
-  margin: 1rem 0 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-
-.image-card {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 0.85rem;
-  background: var(--bg);
-}
-
-.image-card-header {
+/* The gap here is BETWEEN the three groups; inside a group it is 8px. One
+   even gap across eight controls read as eight equal things. */
+.video-transport {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  gap: 22px;
+  flex-wrap: wrap;
+  margin-top: 14px;
 }
-
-.image-card .thumb {
-  width: 56px;
-  height: 56px;
-  object-fit: cover;
-  border-radius: 6px;
-  border: 1px solid var(--border);
-  flex-shrink: 0;
-  background: var(--panel-bg);
+.video-tp-group { display: flex; align-items: center; gap: 8px; }
+/* Icon buttons are fixed-size by definition — without this the flex row
+   squeezes them and the glyph spills out of the circle. */
+.video-tp-group .btn-icon { flex: 0 0 auto; }
+.video-tp-seek {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
 }
-
-.image-card-meta { flex: 1; min-width: 0; }
-.image-card-name {
+/* The global range rule is written for the stacked settings slider; inside a
+   flex row its margin breaks centring against the icon buttons, and without
+   min-width: 0 it refuses to shrink below its intrinsic width. */
+.video-transport input[type="range"] {
+  /* Small basis on purpose: the row carries eight controls, and a large one
+     makes the total exceed the dialog so the volume silently wraps to a
+     second line. It grows into whatever is left over anyway. */
+  flex: 1 1 120px;
+  min-width: 0;
+  width: auto;
   margin: 0;
-  font-weight: 600;
-  overflow-wrap: anywhere;
 }
-.image-card-status { margin: 0.15rem 0 0; font-size: 0.85rem; }
-
-.image-card-controls { display: flex; gap: 0.4rem; flex-shrink: 0; }
-
-.image-card[data-state="describing"] .image-card-status { color: var(--accent); }
-.image-card[data-state="done"] .image-card-status { color: #1f7a3f; }
-@media (prefers-color-scheme: dark) {
-  .image-card[data-state="done"] .image-card-status { color: #6fd08c; }
+/* Tabular figures and a fixed min-width keep the row from reflowing as the
+   readout ticks, including when it grows past 10 minutes or an hour. */
+.video-time {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+  min-width: 9ch;
+  width: 9ch;
+  flex: 0 0 auto;
+  justify-content: center;
+  text-align: center;
+  background: var(--mustard);
+  /* --muted on mustard is under AA; the ink brown clears it. */
+  color: var(--ink-brown);
+  font-family: var(--font-heading);
+  font-weight: 400;
+  /* It is an <input> now — the jump-to-time field — so the chrome the
+     browser gives a text box has to be undone to keep it reading as the
+     chip it looks like. */
+  border: var(--border-width) solid var(--border);
+  cursor: text;
 }
-.image-card[data-state="error"] .image-card-status { color: var(--error-fg); }
+.video-time:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 
-.result-area { margin-top: 0.85rem; }
-.result-actions { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; flex-wrap: wrap; }
-
-.source-details { margin-top: 0.75rem; }
-.source-details summary {
-  cursor: pointer;
-  font-weight: 600;
-  padding: 0.3rem 0;
+/* .input is width: 100% for stacked form fields; in a flex row it must size
+   to its content instead. */
+.video-rate {
+  width: auto;
+  flex: 0 0 auto;
+  padding: 7px 14px;
+  font-family: var(--font-accent);
 }
-.source-details .source-code {
-  white-space: pre-wrap;
-  word-break: break-word;
-  background: var(--panel-bg);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 1rem;
-  max-height: 400px;
-  overflow: auto;
-  font-size: 0.85rem;
-  margin-top: 0.5rem;
-}
+/* Fixed basis, unlike the scrub bar: a volume control stretched across the
+   dialog reads as a second progress bar. Needs to out-specify the
+   .video-transport range rule above, which this row also matches. */
+.video-transport input[type="range"].video-volume { flex: 0 1 104px; }
 
-.progress-wrap { margin: 0.75rem 0; display: flex; flex-direction: column; gap: 0.35rem; }
-.progress-label { font-size: 0.875rem; color: var(--muted); }
-.progress-bar {
+/* ---------- easter egg ---------- */
+/* Summoned by app.js (five quick clicks on the header wordmark). Fixed to
+   the viewport edge, aria-hidden, pointer-events: none — he can't block a
+   click or a focus ring, only briefly improve someone's day. */
+.cameo {
+  position: fixed;
+  bottom: 0;
+  right: 44px;
+  width: 210px;
+  z-index: 300;
+  pointer-events: none;
+  transform: translateY(105%);
+}
+.cameo img {
+  display: block;
   width: 100%;
-  height: 0.6rem;
-  appearance: none;
-  -webkit-appearance: none;
-  border: none;
-  border-radius: 999px;
-  overflow: hidden;
-  background: var(--border);
+  height: auto;
+  filter: drop-shadow(0 4px 0 rgba(36, 26, 18, 0.25));
 }
-.progress-bar::-webkit-progress-bar { background: var(--border); border-radius: 999px; }
-.progress-bar::-webkit-progress-value { background: var(--accent); border-radius: 999px; transition: width 0.2s ease; }
-.progress-bar::-moz-progress-bar { background: var(--accent); border-radius: 999px; transition: width 0.2s ease; }
-
-.status { min-height: 1.2em; color: var(--muted); }
-.error {
-  background: var(--error-bg);
-  color: var(--error-fg);
-  padding: 0.75rem 1rem;
-  border-radius: 8px;
+.cameo.is-up { animation: cameo-in 4.5s cubic-bezier(0.34, 1.4, 0.64, 1) forwards; }
+@keyframes cameo-in {
+  0%   { transform: translateY(105%) rotate(0deg); }
+  16%  { transform: translateY(10%) rotate(-4deg); }
+  26%  { transform: translateY(14%) rotate(3deg); }
+  36%  { transform: translateY(11%) rotate(-2deg); }
+  82%  { transform: translateY(12%) rotate(0deg); }
+  100% { transform: translateY(105%) rotate(0deg); }
 }
-
-.result-preview {
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 1.25rem;
+@media (prefers-reduced-motion: reduce) {
+  .cameo.is-up { animation: cameo-in-calm 4.5s ease forwards; }
 }
-.result-preview :is(h2, h3) { margin-top: 1.25rem; }
-.result-preview :first-child { margin-top: 0; }
-.result-preview table {
-  border-collapse: collapse;
-  width: 100%;
-  margin: 0.75rem 0;
-}
-.result-preview th, .result-preview td {
-  border: 1px solid var(--border);
-  padding: 0.4rem 0.6rem;
-  text-align: left;
-}
-.result-preview figure {
-  margin: 1rem 0;
-  padding: 0.75rem;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-}
-.result-preview figcaption { color: var(--muted); font-size: 0.9rem; margin-top: 0.5rem; }
-.result-preview .sr-note { display: block; color: var(--muted); font-style: italic; margin-top: 0.25rem; }
-
-.site-footer {
-  max-width: 720px;
-  margin: 0 auto;
-  padding: 1rem 1.25rem 3rem;
-  color: var(--muted);
-  font-size: 0.85rem;
+@keyframes cameo-in-calm {
+  0%       { opacity: 0; transform: translateY(12%); }
+  12%, 84% { opacity: 1; transform: translateY(12%); }
+  100%     { opacity: 0; transform: translateY(12%); }
 }
