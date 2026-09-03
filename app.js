@@ -1654,7 +1654,7 @@ function renderDetail() {
       // Truncation is the root cause when both are set: a description that
       // stops mid-equation is malformed because it is unfinished.
       mathWarn.textContent = job.truncated
-        ? "This description was cut off — the model hit its output limit before it finished, so the end of the slide is missing. " +
+        ? "This description was cut off — the model hit its output limit before it finished, so the last part of the visual is left undescribed. " +
           "Try Shorter, a lower verbosity, or Redo with a stronger model."
         : (job.mathWarning || "This description's equation markup is malformed and will render scrambled.") +
           detail +
