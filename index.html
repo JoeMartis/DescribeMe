@@ -543,10 +543,17 @@
 
        <div class="video-tp-seek">
         <input type="range" id="videoScrub" min="0" max="0" step="0.01" value="0" aria-label="Seek through the video">
-        <!-- aria-live is off deliberately: this updates many times a second
-             during playback and would flood a screen reader. Capture
-             confirmations are announced through #videoStatus instead. -->
-        <p class="chip video-time" aria-live="off"><strong id="videoTimeLabel">0:00</strong></p>
+        <!-- The readout is also the way in: type a time and press Enter to
+             jump there, which the scrub bar cannot do precisely on a long
+             lecture. Its value is left alone while it has focus, so typing
+             is not overwritten by playback ticking underneath.
+             No aria-live — an input's own value changes are not announced,
+             and this updates many times a second during playback. -->
+        <input class="chip video-time" id="videoTimeInput" type="text" value="0:00"
+               inputmode="numeric" autocomplete="off" spellcheck="false"
+               aria-label="Current time — type a time and press Enter to jump there"
+               aria-describedby="videoTimeHint">
+        <span class="visually-hidden" id="videoTimeHint">Accepts seconds, minutes and seconds, or hours, minutes and seconds — 272, 4:32, or 1:04:32.</span>
        </div>
 
        <div class="video-tp-group">

@@ -1388,17 +1388,25 @@ dialog.sheet-wide { max-width: min(880px, 94vw); }
 /* Tabular figures and a fixed min-width keep the row from reflowing as the
    readout ticks, including when it grows past 10 minutes or an hour. */
 .video-time {
-  /* It is a <p>, so it arrives with default vertical margins that make the
-     whole transport row 26px taller than the controls in it. */
   margin: 0;
   font-variant-numeric: tabular-nums;
   min-width: 9ch;
+  width: 9ch;
+  flex: 0 0 auto;
   justify-content: center;
+  text-align: center;
   background: var(--mustard);
   /* --muted on mustard is under AA; the ink brown clears it. */
   color: var(--ink-brown);
+  font-family: var(--font-heading);
+  font-weight: 400;
+  /* It is an <input> now — the jump-to-time field — so the chrome the
+     browser gives a text box has to be undone to keep it reading as the
+     chip it looks like. */
+  border: var(--border-width) solid var(--border);
+  cursor: text;
 }
-.video-time strong { font-family: var(--font-heading); font-weight: 400; }
+.video-time:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 
 /* .input is width: 100% for stacked form fields; in a flex row it must size
    to its content instead. */

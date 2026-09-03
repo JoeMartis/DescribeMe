@@ -43,6 +43,15 @@ Color, emphasis, callouts
 - Describe these by function, not appearance: what a highlighted term signifies,
   not that it is red or boxed.
 
+Wording — this text is read aloud, so these two matter
+- Call the image a "visual", never a "slide": "the visual shows", "elsewhere in
+  the visual". The word slide must not appear in your output.
+- Do not put quotation marks around terms, titles, labels, axis names or
+  headings taken from the image. State them directly: write The axis is
+  labelled Time in seconds, not The axis is labelled "Time in seconds". A
+  screen reader announces the punctuation, and it reads as hesitation. Real
+  quoted speech is the only exception.
+
 Constraints
 - Do not include <img> elements. You have no URL for the original slide to
   reference, so any <img> you emit will render as a broken image — describe
@@ -56,7 +65,9 @@ Constraints
   visible on the graph.
 - Be complete but not padded; every sentence should carry information a sighted
   viewer would receive.
-- Do not start with "This slide" but rather name the type of visual diagram on the slide, such as "A line graph shows…" "A diagram illustrates." etc.
+- Do not open by naming the medium at all — no This slide, no This visual.
+  Name the kind of thing it is instead: A line graph shows…, A reaction
+  pathway illustrates…, and so on.
 
 OUTPUT: Return the HTML only — no code fences, no commentary — ready to embed, using semantic screen-reader-friendly markup.`;
 
@@ -347,7 +358,7 @@ const els = {
   videoBack: document.getElementById("videoBack"),
   videoFwd: document.getElementById("videoFwd"),
   videoScrub: document.getElementById("videoScrub"),
-  videoTimeLabel: document.getElementById("videoTimeLabel"),
+  videoTimeInput: document.getElementById("videoTimeInput"),
   videoRate: document.getElementById("videoRate"),
   videoMute: document.getElementById("videoMute"),
   videoSoundOnIcon: document.getElementById("videoSoundOnIcon"),
@@ -3075,8 +3086,56 @@ function setVideoStatus(message) {
 
 function updateVideoTime() {
   const video = els.videoEl;
-  els.videoTimeLabel.textContent = formatClock(video.currentTime);
+  // Never while the field has focus: the readout doubles as the jump-to-time
+  // input, and playback ticks several times a second — it would eat what is
+  // being typed, character by character.
+  if (document.activeElement !== els.videoTimeInput) {
+    els.videoTimeInput.value = formatClock(video.currentTime);
+  }
   if (Number.isFinite(video.duration)) els.videoScrub.value = String(video.currentTime);
+}
+
+/**
+ * Seconds from a typed time, or null. Accepts what someone reading a
+ * timestamp off a transcript or a slide deck would actually type: 272,
+ * 4:32, 1:04:32, and any of those with decimal seconds. Minutes and seconds
+ * must be in range so that 4:75 is a typo rather than 5:15.
+ */
+function parseClock(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return null;
+  const parts = raw.split(":");
+  if (parts.length > 3) return null;
+  const nums = parts.map((p) => (/^\d*\.?\d+$/.test(p.trim()) ? Number(p.trim()) : NaN));
+  if (nums.some((n) => !Number.isFinite(n))) return null;
+  // Only the last part may carry a fraction; the others are whole units.
+  if (nums.slice(0, -1).some((n) => !Number.isInteger(n))) return null;
+  if (parts.length > 1 && nums.slice(1).some((n) => n >= 60)) return null;
+  const [h, m, s] = [0, 0, 0].map((_, i) => nums[nums.length - 3 + i] || 0);
+  return parts.length === 1 ? nums[0] : h * 3600 + m * 60 + s;
+}
+
+/** Jump to whatever is typed in the time field. */
+function seekToTypedTime() {
+  const video = els.videoEl;
+  const seconds = parseClock(els.videoTimeInput.value);
+  if (seconds === null) {
+    setVideoError("That time could not be read — try 4:32, 1:04:32, or a number of seconds.");
+    els.videoTimeInput.value = formatClock(video.currentTime);
+    return;
+  }
+  setVideoError("");
+  // A file with no duration cannot be clamped against one; the media element
+  // refuses a seek past the end on its own.
+  const end = Number.isFinite(video.duration) ? video.duration : Infinity;
+  const target = Math.max(0, Math.min(seconds, end));
+  video.currentTime = target;
+  els.videoTimeInput.value = formatClock(target);
+  if (target !== seconds) {
+    setVideoStatus(`${formatClock(seconds)} is past the end — moved to ${formatClock(target)}.`);
+  } else {
+    setVideoStatus(`Moved to ${formatClock(target)}.`);
+  }
 }
 
 /**
@@ -3630,6 +3689,39 @@ els.videoScrub.addEventListener("input", () => {
   els.videoEl.currentTime = Number(els.videoScrub.value);
 });
 
+// Enter jumps; Escape abandons the edit and puts the real time back. Both
+// stopPropagation so the dialog's own keydown handler does not also act.
+els.videoTimeInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    e.stopPropagation();
+    seekToTypedTime();
+    videoTimeEdited = false;
+  } else if (e.key === "Escape") {
+    e.preventDefault();
+    e.stopPropagation();
+    videoTimeEdited = false;
+    els.videoTimeInput.value = formatClock(els.videoEl.currentTime);
+    els.videoTimeInput.blur();
+  }
+});
+// Tabbing away with something typed should honour it rather than discard it —
+// but only if it WAS typed. Comparing the field against the clock instead
+// would seek backwards whenever someone focused the field during playback and
+// left without editing, since the readout freezes while it has focus.
+let videoTimeEdited = false;
+els.videoTimeInput.addEventListener("input", () => {
+  videoTimeEdited = true;
+});
+els.videoTimeInput.addEventListener("blur", () => {
+  if (videoTimeEdited) seekToTypedTime();
+  videoTimeEdited = false;
+  els.videoTimeInput.value = formatClock(els.videoEl.currentTime);
+});
+// Select the whole thing on focus, so typing replaces the readout instead of
+// landing in the middle of it.
+els.videoTimeInput.addEventListener("focus", () => els.videoTimeInput.select());
+
 els.videoRate.addEventListener("change", () => {
   els.videoEl.playbackRate = Number(els.videoRate.value) || 1;
 });
@@ -4026,8 +4118,8 @@ function exportBlockFor({ job, imageName, titleLevel, position, total }) {
   // still reads as itself.
   if (position && titleEls.length > 0) {
     const counter = document.createElement("span");
-    counter.className = "slide-count";
-    counter.textContent = `Slide ${position} of ${total}: `;
+    counter.className = "visual-count";
+    counter.textContent = `Visual ${position} of ${total}: `;
     titleEls[0].prepend(counter);
   }
 
@@ -4046,7 +4138,7 @@ function exportBlockFor({ job, imageName, titleLevel, position, total }) {
   // and its timestamp is 0.
   holder.innerHTML = Number.isFinite(job.captureSeconds)
     ? `<figure>\n<img src="/static/${escapeHtml(imageName)}" alt="">\n` +
-      `<figcaption>Slide in video at <time datetime="${isoDuration(job.captureSeconds)}">${formatClock(job.captureSeconds)}</time></figcaption>\n</figure>`
+      `<figcaption>Visual in video at <time datetime="${isoDuration(job.captureSeconds)}">${formatClock(job.captureSeconds)}</time></figcaption>\n</figure>`
     : `<img src="/static/${escapeHtml(imageName)}" alt="">`;
 
   // Placement anchor: a leading heading, then the summary paragraph right
@@ -4188,13 +4280,13 @@ async function exportApprovedNow() {
     // The total up front is the half of this that matters most: it says how
     // long the sequence is before anyone starts scrolling it.
     const heading = counted
-      ? `${escapeHtml(batch)} — ${total} slide${total === 1 ? "" : "s"}`
+      ? `${escapeHtml(batch)} — ${total} visual${total === 1 ? "" : "s"}`
       : escapeHtml(batch);
     html += `<h${batchLevel}>${heading}</h${batchLevel}>\n\n`;
   } else if (counted) {
     // No heading to carry it, so the count leads as a plain sentence — still
     // ahead of the first slide, which is the point.
-    html += `<p>${total} slide${total === 1 ? "" : "s"}, described in order.</p>\n\n`;
+    html += `<p>${total} visual${total === 1 ? "" : "s"}, described in order.</p>\n\n`;
   }
   html += blocks.map((b) => b.html).join("\n\n") + "\n";
 
