@@ -1013,8 +1013,13 @@ code, kbd {
   border-radius: var(--radius-md);
 }
 .result-preview figcaption { font-size: 12px; color: var(--faint); margin-top: 6px; }
+/* `block math`, not `block`: the second half is the *inner* display type, and
+   dropping it turns <math> into an ordinary flow container. Its children keep
+   the UA stylesheet's `block math`, so unless a single <mrow> happens to wrap
+   the whole equation, every token becomes its own block box and the equation
+   renders as a vertical stack of one symbol per line. */
 .result-preview math {
-  display: block;
+  display: block math;
   background: var(--raised);
   border: var(--border-width) solid var(--border);
   border-radius: var(--radius-md);
