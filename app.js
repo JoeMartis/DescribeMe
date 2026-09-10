@@ -4322,19 +4322,22 @@ function exportBlockFor({ job, imageName, titleLevel, position, total }) {
   const holder = document.createElement("div");
   // Number.isFinite, not truthiness: a frame captured at 0:00 is legitimate
   // and its timestamp is 0.
+  // The caption leads the figure. <figure> takes a <figcaption> as either its
+  // first or its last child, and first is the one that reads in order here:
+  // the title says what the visual is, the caption says where in the
+  // recording it comes from, and only then does the image itself arrive.
   holder.innerHTML = Number.isFinite(job.captureSeconds)
-    ? `<figure>\n<img src="/static/${escapeHtml(imageName)}" alt="">\n` +
-      `<figcaption>Visual in video at <time datetime="${isoDuration(job.captureSeconds)}">${formatClock(job.captureSeconds)}</time></figcaption>\n</figure>`
+    ? `<figure>\n` +
+      `<figcaption>Visual in video at <time datetime="${isoDuration(job.captureSeconds)}">${formatClock(job.captureSeconds)}</time></figcaption>\n` +
+      `<img src="/static/${escapeHtml(imageName)}" alt="">\n</figure>`
     : `<img src="/static/${escapeHtml(imageName)}" alt="">`;
 
-  // Placement anchor: a leading heading, then the summary paragraph right
-  // after it. A description that opens some other way gets the image first,
-  // as before.
-  let anchor = null;
-  const children = [...container.children];
-  let i = 0;
-  if (children[i] && /^H[1-6]$/.test(children[i].tagName)) anchor = children[i++];
-  if (children[i] && children[i].tagName === "P") anchor = children[i];
+  // Placement anchor: the leading heading, and nothing else. The figure goes
+  // between the title and the description's own opening sentence, so a block
+  // reads title → timestamp → image → summary → the rest, with the prose
+  // running unbroken from the summary onward.
+  const first = container.children[0];
+  const anchor = first && /^H[1-6]$/.test(first.tagName) ? first : null;
 
   const imageNodes = [document.createTextNode("\n"), ...holder.childNodes, document.createTextNode("\n")];
   if (anchor) imageNodes.reverse().forEach((node) => anchor.after(node));
