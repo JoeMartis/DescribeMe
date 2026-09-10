@@ -649,12 +649,20 @@
       </div>
       <p class="slide-meta js-slide-meta"></p>
       <div class="refine-card js-refine" hidden>
-        <h3>Not quite right?</h3>
-        <div class="refine-actions">
+        <h3 class="js-refine-title">Not quite right?</h3>
+        <div class="refine-actions js-refine-actions">
           <button type="button" class="btn btn-small js-refine-detail">More detail</button>
           <button type="button" class="btn btn-small js-refine-short">Shorter</button>
           <button type="button" class="btn btn-small js-refine-textonly">Text only</button>
           <button type="button" class="btn btn-small js-refine-model">Redo with a stronger model</button>
+        </div>
+        <!-- Shown instead of the refine buttons on a description a person
+             wrote: the model never saw this slide, so "More detail" and
+             "Shorter" would not refine anything — they'd replace the writing
+             with a first draft. This offers that plainly, once. -->
+        <div class="refine-actions refine-authored js-refine-authored" hidden>
+          <button type="button" class="btn btn-small js-refine-instead">Describe with Claude instead</button>
+          <span class="hint">Replaces what you wrote. Undo revision brings it back.</span>
         </div>
       </div>
     </div>
@@ -733,6 +741,10 @@
                a description, so it reads before the describe action. -->
           <button type="button" class="btn js-pending-ocr" hidden>OCR text/math only</button>
           <button type="button" class="btn btn-primary js-pending-primary"></button>
+          <!-- Opens the editor on an empty description without sending the
+               image anywhere. Sits after the Claude actions because it is the
+               deliberate alternative to them, not the default. -->
+          <button type="button" class="btn js-pending-write" hidden>Write description</button>
           <button type="button" class="btn js-pending-remove">Remove from batch</button>
         </div>
       </div>

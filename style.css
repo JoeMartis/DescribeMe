@@ -919,6 +919,10 @@ code, kbd {
 }
 .refine-card h3 { font-family: var(--font-heading); font-size: 12px; margin-bottom: 8px; }
 .refine-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+/* One button and a line explaining it, rather than a row of equal pills —
+   the text needs centring against the taller button, and room to wrap. */
+.refine-authored { align-items: center; }
+.refine-authored .hint { flex: 1 1 12ch; }
 
 /* Two deliberate rows — status pill + meta (with the destructive Remove
    kept apart at the right), then the working pills together on one line —

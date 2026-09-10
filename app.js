@@ -788,9 +788,16 @@ function jobStatusMeta(job) {
         dot: "dot-describing",
       };
     case "done":
-      return job.approved
-        ? { state: "approved", text: "Approved", dot: "dot-approved" }
-        : { state: "done", text: "Described · needs review", dot: "dot-done" };
+      if (job.approved) return { state: "approved", text: "Approved", dot: "dot-approved" };
+      // A hand-written description is never "described" — nothing described
+      // it. It also skips "needs review": the person reviewing it is the
+      // person who just wrote it.
+      if (job.authored) {
+        return isBlankDescription(job)
+          ? { state: "done", text: "Writing…", dot: "dot-describing" }
+          : { state: "done", text: "Written by you · not approved", dot: "dot-done" };
+      }
+      return { state: "done", text: "Described · needs review", dot: "dot-done" };
     case "error":
       return batchRunning && runScope === "batch"
         ? { state: "error", text: "Failed · retry once this batch finishes", dot: "dot-error" }
@@ -1211,6 +1218,8 @@ async function addFiles(fileList, meta) {
       resultText: "",
       approved: false,
       edited: false,
+      authored: false,
+      priorState: null,
       history: [],
       durationMs: null,
       usedModel: null,
@@ -1594,7 +1603,11 @@ function renderDetail() {
   } else if (job.width) {
     metaBits.push(`${job.width}×${job.height}, sent unmodified`);
   }
+  // Where the model name and the request time would go, on a slide that never
+  // made a request. Saying so here rather than beside the word count keeps it
+  // next to the other facts about what was sent.
   if (job.usedModel) metaBits.push(MODEL_SHORT_NAMES[job.usedModel] || job.usedModel);
+  else if (job.authored) metaBits.push("Not sent to Claude");
   if (job.durationMs) metaBits.push(`${(job.durationMs / 1000).toFixed(1)}s`);
   q(".js-slide-meta").textContent = metaBits.join(" · ");
   // Detaching lives with the slide, since that is where the transcript now
@@ -1621,6 +1634,16 @@ function renderDetail() {
     // Refine actions
     const refine = q(".js-refine");
     refine.hidden = false;
+    // A description a person wrote has nothing for the refine buttons to work
+    // from: describeOne sends the image and the revision instruction, never
+    // the current text, so "Shorter" would discard the writing and start over.
+    // Offer that as the one thing it actually is instead.
+    if (job.authored) {
+      q(".js-refine-title").textContent = "Rather have Claude try?";
+      q(".js-refine-actions").hidden = true;
+      q(".js-refine-authored").hidden = false;
+      q(".js-refine-instead").addEventListener("click", () => refineJob(job.id, null));
+    }
     q(".js-refine-detail").addEventListener("click", () => refineJob(job.id, "more"));
     q(".js-refine-short").addEventListener("click", () => refineJob(job.id, "less"));
     q(".js-refine-textonly").addEventListener("click", () => refineJob(job.id, "textOnly"));
@@ -1636,8 +1659,16 @@ function renderDetail() {
     // Description
     q(".js-desc-head").hidden = false;
     const tag = q(".js-tag");
-    tag.textContent = job.approved ? "Approved" : "Needs your review";
-    tag.className = `tag ${job.approved ? "tag-approved" : "tag-review"}`;
+    // "Needs your review" is for the model's work. You don't review your own
+    // writing — you approve it when you're happy with it.
+    tag.textContent = job.approved
+      ? "Approved"
+      : job.authored
+        ? "Not approved yet"
+        : "Needs your review";
+    // js-tag stays in the list: assigning className wholesale used to drop it,
+    // leaving the live pane with a tag no `.js-` lookup could find again.
+    tag.className = `tag js-tag ${job.approved ? "tag-approved" : "tag-review"}`;
 
     const words = job.resultText.trim().split(/\s+/).filter(Boolean).length;
     const features = [];
@@ -1646,7 +1677,11 @@ function renderDetail() {
     if (figures) features.push(`${figures} figure${figures === 1 ? "" : "s"}`);
     const tables = (job.resultHtml.match(/<table/gi) || []).length;
     if (tables) features.push(`${tables} table${tables === 1 ? "" : "s"}`);
-    if (job.edited) features.push("edited by you");
+    // "written by you" subsumes "edited by you" — a hand-written description
+    // that was then edited is still entirely a person's, and saying both
+    // would read as though the model had a hand in it.
+    if (job.authored) features.push("written by you");
+    else if (job.edited) features.push("edited by you");
     q(".js-desc-meta").textContent = [`${words} words`, ...features].join(" · ");
 
     // Checked live on every render (so an edit that fixes the math clears
@@ -1730,11 +1765,21 @@ function renderDetail() {
     const detail = q(".js-pending-detail");
     const primary = q(".js-pending-primary");
     const ocrBtn = q(".js-pending-ocr");
+    const writeBtn = q(".js-pending-write");
     const remove = q(".js-pending-remove");
 
     ocrBtn.addEventListener("click", () => describeSingleJob(job.id, "ocr"));
+    writeBtn.addEventListener("click", () => startWriting(job.id));
     remove.disabled = job.state === "describing";
     remove.addEventListener("click", () => removeJob(job.id));
+
+    // Writing by hand touches no shared run state, so a batch is only a
+    // reason to withhold it because that batch already has this slide queued
+    // and would overwrite what was written. "invalid" is excluded for a
+    // different reason: the export packs each description with its image, and
+    // a slide whose image never decoded is dropped from the zip — a
+    // description written there would go nowhere.
+    writeBtn.hidden = batchRunning || job.state === "describing" || job.state === "invalid";
 
     // A per-slide action (describeSingleJob) is a no-op while a batch run
     // owns the shared apiKey/model/verbosity + inFlightControllers state, but
@@ -1852,6 +1897,13 @@ function toggleApprove(jobId) {
   const job = jobs.get(jobId);
   if (!job || job.state !== "done") return;
   commitPendingEdit(); // approve what's on screen, not the pre-edit version
+  // An empty hand-written draft has just been discarded by that commit, or
+  // was restored empty from an autosave written while the editor was open.
+  // Either way there is nothing to put in the export.
+  if (job.state !== "done" || isBlankDescription(job)) {
+    setStatus(`Nothing to approve for ${job.name} yet — write a description first.`);
+    return;
+  }
   job.approved = !job.approved;
   markDirty();
   renderRailRow(job);
@@ -1880,6 +1932,71 @@ function updateToolbarPressed() {
     ?.setAttribute("aria-pressed", String(document.queryCommandState("italic")));
 }
 document.addEventListener("selectionchange", updateToolbarPressed);
+
+// ---------- Writing a description by hand ----------
+//
+// Not every description has to come from the model. Someone may already have
+// the text — written earlier, supplied by the department, carried over from a
+// previous course — and the only thing they want from this app is the review,
+// export and MathML plumbing around it. Before this, the editor was reachable
+// only through a description, so getting your own words in meant paying for a
+// request whose output you were about to delete.
+//
+// A hand-written description is a normal "done" job in every respect: it
+// reviews, edits, approves and exports the same way. Two things mark it —
+// job.authored (nobody but a person has ever written this one) and the absence
+// of usedModel/durationMs, since no request was ever made.
+
+/**
+ * Whether a description is empty enough that approving it would put nothing in
+ * the export. Not a text test alone: domFragmentToText drops <math>, so an
+ * equations-only description has no text but plenty of content.
+ */
+function isBlankDescription(job) {
+  if (job.resultText.trim()) return false;
+  return !/<(math|img|table)[\s>]/i.test(job.resultHtml);
+}
+
+/** Flip a not-yet-described slide into an empty description and open the
+    editor on it. Nothing is sent anywhere. */
+function startWriting(jobId) {
+  const job = jobs.get(jobId);
+  if (!job || batchRunning || job.resultHtml) return;
+  job.authored = true;
+  // Where to put the slide back if they leave the box empty — an invalid
+  // image must not come back as "pending" and slip into the next batch.
+  job.priorState = job.state;
+  job.state = "done";
+  job.approved = false;
+  // An empty contenteditable has no block to type into: Chromium puts the
+  // caret nowhere useful and formatBlock has nothing to act on. One empty
+  // paragraph is the smallest thing that behaves like a document.
+  job.resultHtml = "<p><br></p>";
+  job.resultText = "";
+  renderJobState(job);
+  toggleEdit(job.id);
+  setStatus(
+    `Writing a description for ${job.name}. Nothing is sent to Claude — ` +
+      `save it with Save changes, or leave it empty to go back.`
+  );
+}
+
+/** Undo startWriting: the box was left empty, so the slide was never really
+    described. Puts it back where it came from rather than leaving an empty
+    "needs review" description that could be approved into the export. */
+function discardAuthoring(job) {
+  job.state = job.priorState || "pending";
+  job.priorState = null;
+  job.authored = false;
+  job.edited = false;
+  job.approved = false;
+  job.resultHtml = "";
+  job.resultText = "";
+  job.mathWarning = null;
+  // Every entry can only be a draft of the blank description being discarded
+  // — there was no model description under it to go back to.
+  job.history = [];
+}
 
 function toggleEdit(jobId) {
   const job = jobs.get(jobId);
@@ -1918,9 +2035,24 @@ function commitEdit() {
     return;
   }
   const fragment = sanitizeHtmlFragment(preview.innerHTML);
-  job.history.push(snapshotOf(job));
   const holder = document.createElement("div");
   holder.appendChild(fragment.cloneNode(true));
+
+  // Checked before history is touched: discarding an empty hand-written draft
+  // has to leave nothing behind, including an "Undo revision" offering to
+  // restore the empty box.
+  if (job.authored && isBlankDescription({ resultHtml: holder.innerHTML, resultText: domFragmentToText(fragment) })) {
+    editMode = null;
+    preview.removeAttribute("contenteditable");
+    discardAuthoring(job);
+    renderJobState(job);
+    updateControls();
+    markDirty();
+    setStatus(`Nothing written for ${job.name} — it's back to not described yet.`);
+    return;
+  }
+
+  job.history.push(snapshotOf(job));
   job.resultHtml = holder.innerHTML;
   job.resultText = domFragmentToText(fragment);
   job.edited = true;
@@ -1930,10 +2062,18 @@ function commitEdit() {
   job.truncated = false;
   editMode = null;
   preview.removeAttribute("contenteditable");
+  // The rail too, not just the pane: a hand-written slide reads "Writing…"
+  // until there are words in it, and saving is exactly when that stops
+  // being true.
+  renderRailRow(job);
   renderDetail();
   updateControls();
   markDirty();
-  setStatus(`Your edits to ${job.name} were saved.`);
+  setStatus(
+    job.authored
+      ? `Your description of ${job.name} was saved.`
+      : `Your edits to ${job.name} were saved.`
+  );
 }
 
 /** Raw-source counterpart to toggleEdit/commitEdit — the only way to fix a
@@ -1972,9 +2112,23 @@ function commitSourceEdit() {
     return;
   }
   const fragment = sanitizeHtmlFragment(textarea.value);
-  job.history.push(snapshotOf(job));
   const holder = document.createElement("div");
   holder.appendChild(fragment.cloneNode(true));
+
+  // Same discard path as commitEdit — emptying the source is as much a "never
+  // mind" as emptying the rendered preview.
+  if (job.authored && isBlankDescription({ resultHtml: holder.innerHTML, resultText: domFragmentToText(fragment) })) {
+    editMode = null;
+    textarea.readOnly = true;
+    discardAuthoring(job);
+    renderJobState(job);
+    updateControls();
+    markDirty();
+    setStatus(`Nothing written for ${job.name} — it's back to not described yet.`);
+    return;
+  }
+
+  job.history.push(snapshotOf(job));
   job.resultHtml = holder.innerHTML;
   job.resultText = domFragmentToText(fragment);
   job.edited = true;
@@ -1984,10 +2138,15 @@ function commitSourceEdit() {
   job.truncated = false;
   editMode = null;
   textarea.readOnly = true;
+  renderRailRow(job); // same reason as commitEdit
   renderDetail();
   updateControls();
   markDirty();
-  setStatus(`Your edits to ${job.name} were saved.`);
+  setStatus(
+    job.authored
+      ? `Your description of ${job.name} was saved.`
+      : `Your edits to ${job.name} were saved.`
+  );
 }
 
 /**
@@ -2002,6 +2161,10 @@ function snapshotOf(job) {
     html: job.resultHtml,
     text: job.resultText,
     edited: !!job.edited,
+    // Undoing a "Describe with Claude instead" has to put back not just the
+    // words a person wrote but the fact that they wrote them — otherwise the
+    // restored description claims a model that never produced it.
+    authored: !!job.authored,
     mathWarning: job.mathWarning || null,
     truncated: !!job.truncated,
     usedModel: job.usedModel || null,
@@ -2015,6 +2178,7 @@ function restoreSnapshot(job, snap) {
   // Entries from older saves and from imported project files hold {html,
   // text} only; leave the rest of the job alone rather than blanking it.
   if ("edited" in snap) job.edited = !!snap.edited;
+  if ("authored" in snap) job.authored = !!snap.authored;
   if ("mathWarning" in snap) job.mathWarning = snap.mathWarning || null;
   if ("truncated" in snap) job.truncated = !!snap.truncated;
   if ("usedModel" in snap) job.usedModel = snap.usedModel || null;
@@ -2746,6 +2910,11 @@ function applyResult(job, rawHtml) {
   const fragment = sanitizeHtmlFragment(rawHtml);
   const holder = document.createElement("div");
   holder.appendChild(fragment.cloneNode(true));
+  // The model has now written this slide, so it is no longer a hand-written
+  // one — this is the only place a model result becomes the description, so
+  // it is the only place the flag has to be cleared.
+  job.authored = false;
+  job.priorState = null;
   job.resultHtml = holder.innerHTML;
   job.resultText = domFragmentToText(fragment);
   job.mathWarning = rawMathIsWellFormed(rawHtml)
@@ -4582,6 +4751,8 @@ function serializeProject() {
       resultText: job.resultText,
       approved: job.approved,
       edited: job.edited,
+      authored: !!job.authored,
+      priorState: job.priorState || null,
       history: job.history,
       durationMs: job.durationMs,
       usedModel: job.usedModel,
@@ -4934,6 +5105,12 @@ function importedProjectRecord(raw) {
       resultText: result.text,
       approved: dataUrlOk && !!saved.approved && state === "done",
       edited: !!saved.edited,
+      // Only meaningful on a description that exists — a "pending" slide
+      // claiming to be hand-written would show the wrong pane. priorState is
+      // deliberately not carried across: discardAuthoring falls back to
+      // "pending", which is where an imported slide belongs anyway.
+      authored: !!saved.authored && state === "done" && !!result.html,
+      priorState: null,
       history: Array.isArray(saved.history)
         ? saved.history.map((entry) => sanitizeToStored(entry && entry.html))
         : [],
