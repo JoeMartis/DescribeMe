@@ -404,6 +404,7 @@ const els = {
   railFileInput: document.getElementById("railFileInput"),
   railTranscripts: document.getElementById("railTranscripts"),
   railTranscriptsCount: document.getElementById("railTranscriptsCount"),
+  railTranscriptsTitle: document.getElementById("railTranscriptsTitle"),
   transcriptList: document.getElementById("transcriptList"),
   newBatchBtn: document.getElementById("newBatchBtn"),
   progressCard: document.getElementById("progressCard"),
@@ -1019,24 +1020,41 @@ function renderRailRow(job) {
   // separate list. Context from the video dialog (or from before a reload,
   // when the file itself is gone) is just "transcript".
   const source = job.transcriptContext ? transcriptFor(job) : null;
+  // A slide past the cliff says so in words, not only in the edge colour.
+  // Without this the only difference between a covered slide and one the
+  // captions never reached is a 5px bar changing hue and a filename going
+  // missing — nothing a screen reader conveys, and nothing visible in
+  // greyscale.
+  const gap = job.transcriptContext ? null : transcriptGapFor(job);
   const statusText = job.transcriptContext
     ? `${meta.text} · ${source ? middleEllipsis(source.name, 18) : "transcript"}`
-    : meta.text;
+    : gap
+      ? `${meta.text} · no captions`
+      : meta.text;
   const statusLabel = job.transcriptContext
     ? `${meta.text}, with transcript${source ? ` ${source.name}` : ""}`
-    : meta.text;
+    : gap
+      ? `${meta.text}, no captions for this moment in ${gap.name}`
+      : meta.text;
   const statusEl = row.querySelector(".rail-status");
   if (job.transcriptContext) {
     const tag = document.createElement("span");
     tag.className = "rail-transcript-tag";
     tag.textContent = source ? middleEllipsis(source.name, 18) : "transcript";
     statusEl.replaceChildren(`${meta.text} · `, tag);
+  } else if (gap) {
+    const tag = document.createElement("span");
+    tag.className = "rail-transcript-gap";
+    tag.textContent = "no captions";
+    statusEl.replaceChildren(`${meta.text} · `, tag);
   } else {
     statusEl.textContent = statusText;
   }
   statusEl.title = source ? source.name : "";
   // The green edge is the at-a-glance cue that this slide has a transcript.
-  row.dataset.transcript = job.transcriptContext ? "yes" : "no";
+  // Three states, not two: has context, should have had context and didn't,
+  // or was never in a transcript's scope at all. The middle one is the cliff.
+  row.dataset.transcript = job.transcriptContext ? "yes" : transcriptGapFor(job) ? "gap" : "no";
   row.setAttribute("aria-current", String(job.id === selectedJobId));
   const dot = row.querySelector(".dot");
   dot.className = `dot ${meta.dot}`;
@@ -1049,6 +1067,34 @@ function renderRailRow(job) {
 /** The workspace transcript that stamped this slide's context, if any. */
 function transcriptFor(job) {
   return transcriptEntries().find((e) => e.attached.has(job.id)) || null;
+}
+
+/**
+ * The loaded transcript whose name pairs with this slide, whether or not it
+ * had captions to give it. transcriptFor() answers "what is attached"; this
+ * answers "what should have been" — and the gap between the two is the case
+ * that used to pass in silence.
+ *
+ * A captions file that stops before the recording does (a truncated export, a
+ * partial transcript) leaves every later slide with no terminology grounding.
+ * Those slides described fine, just worse, and nothing anywhere said why: the
+ * slide showed no transcript line because it had none, and the unmatched
+ * drawer skipped the file because it had matched *something*.
+ */
+function transcriptNamedFor(job) {
+  return transcriptEntries().find((e) => jobMatchesTranscript(e, job)) || null;
+}
+
+/** How far a transcript's captions actually run, in seconds. */
+function transcriptRunsThrough(entry) {
+  return entry.cues.reduce((max, cue) => Math.max(max, cue.end), 0);
+}
+
+/** A slide whose name pairs with a loaded transcript that had no captions for
+    its moment. Returns that transcript, or null. */
+function transcriptGapFor(job) {
+  if (job.transcriptContext) return null;
+  return transcriptNamedFor(job);
 }
 
 /**
@@ -1076,6 +1122,7 @@ let unmatchedTranscriptsShown = 0;
 function renderTranscripts() {
   els.transcriptList.replaceChildren();
   let shown = 0;
+  let anyPartial = false;
   for (const entry of transcriptEntries()) {
     // Worked out live against the batch, so the row is right after slides
     // are added, removed or reloaded. Three outcomes for a slide whose NAME
@@ -1088,16 +1135,27 @@ function renderTranscripts() {
     const attachedJobs = byName.filter((job) => job.transcriptContext && entry.attached.has(job.id));
     const hadOther = byName.filter((job) => job.transcriptContext && !entry.attached.has(job.id));
     const noCaptions = byName.filter((job) => !job.transcriptContext);
-    if (attachedJobs.length > 0 || hadOther.length > 0) continue; // shown on its slides
+    // A transcript that reached every slide it names has nothing to report.
+    // One that reached SOME of them used to be treated the same way — the
+    // partial case fell through "shown on its slides" and the slides it
+    // missed showed nothing, which is how a captions file that stops halfway
+    // through a lecture went unnoticed. Partial coverage is now a row.
+    //
+    // Both halves of this condition matter: a transcript that names no slide
+    // at all has an empty noCaptions too, so testing that alone silently
+    // dropped the "No match" row this list was built for.
+    if (byName.length > 0 && noCaptions.length === 0) continue;
+    const partial = attachedJobs.length > 0 || hadOther.length > 0;
+    if (partial) anyPartial = true;
     shown += 1;
-    const lastEnd = entry.cues.reduce((max, cue) => Math.max(max, cue.end), 0);
+    const lastEnd = transcriptRunsThrough(entry);
 
     const li = document.createElement("li");
     li.className = "transcript-item";
-    li.dataset.matched = "no";
+    li.dataset.matched = partial ? "partial" : "no";
 
     const dot = document.createElement("span");
-    dot.className = "dot dot-unmatched";
+    dot.className = partial ? "dot dot-partial" : "dot dot-unmatched";
     dot.setAttribute("aria-hidden", "true");
 
     const text = document.createElement("span");
@@ -1116,7 +1174,20 @@ function renderTranscripts() {
     // filenames literally. The time is one this transcript actually covers.
     const middle = entry.cues[Math.floor(entry.cues.length / 2)];
     const example = `${entry.baseStem}_${formatStampForName(middle ? middle.start : 0)}.png`;
-    if (noCaptions.length > 0) {
+    if (partial) {
+      // The cliff, stated as a count and a boundary rather than a list of
+      // times: with eight missed slides the times are noise, and "where do
+      // the captions stop" is the question that leads to the fix.
+      const covered = attachedJobs.length + hadOther.length;
+      const n = noCaptions.length;
+      status.append(
+        `${n} of ${covered + n} slide${covered + n === 1 ? "" : "s"} got no captions`,
+        document.createElement("br"),
+        // Short enough to survive the row's two-line clamp — the trailing
+        // clause that used to sit here was cut off mid-word.
+        `captions run through ${formatClock(lastEnd)}`
+      );
+    } else if (noCaptions.length > 0) {
       // The name is right; the time is not covered. Say so, with the times
       // and how far the captions run, so the fix is obvious.
       status.append(
@@ -1135,8 +1206,20 @@ function renderTranscripts() {
     detach.className = "transcript-detach";
     detach.innerHTML =
       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>';
-    detach.setAttribute("aria-label", `Detach transcript ${entry.name}`);
-    detach.title = "Detach";
+    // On a partial row this button would strip the slides that DID get
+    // captions — the opposite of what someone reading "8 of 20 got none"
+    // is after. Same control, but it says what it will cost.
+    const reached = attachedJobs.length + hadOther.length;
+    if (partial) {
+      detach.setAttribute(
+        "aria-label",
+        `Detach transcript ${entry.name} — removes captions from the ${reached} slide${reached === 1 ? "" : "s"} that have them`
+      );
+      detach.title = `Detach — removes captions from the ${reached} slide${reached === 1 ? "" : "s"} that have them`;
+    } else {
+      detach.setAttribute("aria-label", `Detach transcript ${entry.name}`);
+      detach.title = "Detach";
+    }
     detach.addEventListener("click", () => detachTranscript(entry));
 
     li.append(dot, text, detach);
@@ -1144,6 +1227,10 @@ function renderTranscripts() {
   }
   els.railTranscripts.hidden = shown === 0;
   els.railTranscriptsCount.textContent = shown > 0 ? String(shown) : "";
+  // A partially-covered transcript is not "unmatched" — it matched, and then
+  // ran out. Calling it unmatched sends someone to check filenames that are
+  // already correct, which is the wrong end of the problem.
+  els.railTranscriptsTitle.textContent = anyPartial ? "Transcripts to check" : "Unmatched transcripts";
   // A newly unmatched file is the thing this drawer exists for, so it opens
   // for one; a drawer someone closed stays closed otherwise.
   if (shown > unmatchedTranscriptsShown) els.railTranscripts.open = true;
@@ -1680,6 +1767,20 @@ function renderDetail() {
   const transcriptSource = job.transcriptContext ? transcriptFor(job) : null;
   if (job.transcriptContext) {
     metaBits.push(transcriptSource ? `Transcript ${transcriptSource.name}` : "Transcript context attached");
+  } else {
+    // The silent case, said out loud. A slide the transcript should have
+    // covered but did not was indistinguishable here from a slide with no
+    // transcript at all — and it is the one that comes back weaker, because
+    // it was described without the lecturer's own terminology.
+    const gap = transcriptGapFor(job);
+    if (gap) {
+      const through = formatClock(transcriptRunsThrough(gap));
+      metaBits.push(
+        Number.isFinite(job.captureSeconds)
+          ? `No captions near ${formatClock(job.captureSeconds)} — ${gap.name} runs through ${through}`
+          : `No captions for this slide — ${gap.name} runs through ${through}`
+      );
+    }
   }
   if (job.resized) {
     metaBits.push(

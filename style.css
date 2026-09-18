@@ -664,7 +664,19 @@ code, kbd {
    selected row's border colours leave it alone. */
 .rail-row[data-transcript="yes"] { box-shadow: inset 5px 0 0 var(--sage); }
 .rail-row[data-transcript="yes"][aria-current="true"] { box-shadow: inset 5px 0 0 var(--sage), var(--shadow-sm); }
+/* A slide a transcript SHOULD have covered and didn't — the captions ran out
+   before this timestamp. Amber rather than green: it was described without
+   the lecturer's terminology, which is a weaker description, not a broken
+   one. The edge is the only difference from a slide with no transcript at
+   all, so the detail pane says which in words too — colour is never the only
+   carrier. */
+.rail-row[data-transcript="gap"] { box-shadow: inset 5px 0 0 var(--mustard); }
+.rail-row[data-transcript="gap"][aria-current="true"] { box-shadow: inset 5px 0 0 var(--mustard), var(--shadow-sm); }
 .rail-transcript-tag { color: var(--sage-700); }
+/* The cliff, in the rail: same shape as the transcript tag, amber instead of
+   green, and carrying its own words so the colour is never the only cue. */
+.rail-transcript-gap { color: var(--accent-700); }
+.rail-row[aria-current="true"] .rail-transcript-gap { color: var(--accent-800); }
 .rail-row[aria-current="true"] .rail-transcript-tag { color: var(--sage-press); }
 
 /* Loaded transcripts sit under the slide list. They are not slides — no
@@ -726,6 +738,9 @@ code, kbd {
 .transcript-item[data-matched="no"] .rail-status { color: var(--accent-700); white-space: normal; }
 .transcript-item[data-matched="yes"] .rail-status { color: var(--sage-700); }
 .dot-unmatched { background: var(--neutral-400); }
+/* Partial coverage: the file paired, then ran out. Amber, matching the edge
+   on the slides it missed. */
+.dot-partial { background: var(--mustard); }
 .transcript-detach {
   flex-shrink: 0;
   width: 24px; height: 24px;
