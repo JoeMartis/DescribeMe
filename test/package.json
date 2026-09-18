@@ -1,0 +1,12 @@
+{
+  "name": "describeme-test",
+  "private": true,
+  "type": "module",
+  "description": "Browser regression suites for DescribeMe. The app itself has no dependencies and no build step; this folder is the only place npm is involved.",
+  "scripts": {
+    "test": "node run.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.48.0"
+  }
+}
