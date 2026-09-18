@@ -144,6 +144,12 @@ const RETRY_MAX_DELAY_MS = 15000;
 const USER_INSTRUCTION_TEXT =
   "Describe this STEM lecture slide following the system instructions.";
 
+// The text/math counterpart. Worth swapping rather than reusing the line
+// above: this is the last thing the model reads before the image, and asking
+// it to "describe this slide" there undercut the whole mode.
+const OCR_USER_INSTRUCTION_TEXT =
+  "Transcribe the text and mathematics on this image, following the system instructions.";
+
 // Cheapest to most expensive; also the order "redo with a stronger model"
 // steps through.
 const MODEL_LADDER = ["claude-haiku-4-5", "claude-sonnet-5", "claude-opus-5"];
@@ -194,6 +200,69 @@ const VERBOSITY_LEVELS = [
   },
 ];
 
+// Transcription is a different job from description, so it gets its own
+// prompt rather than a rebuttal appended to the description one.
+//
+// It used to be the latter: an 88-word "override the instructions above"
+// stapled to 791 words of detailed, imperative instruction to describe. The
+// override named three things to stop doing, which left every other rule live
+// — spell out each symbol on first use, name the figure type first, open with
+// "A line graph shows…", say what a highlighted term signifies, report the
+// trend, order for teaching rather than reading. Those are all content the
+// image does not carry, and authors were right that the mode added it.
+//
+// Nothing here argues with anything. The rules that would have to be
+// suppressed are simply absent, and the list of things not to do is the
+// substance of the mode rather than an exception to a longer text.
+const OCR_SYSTEM_PROMPT = `ROLE: You transcribe the text and mathematics printed on STEM lecture visuals,
+for blind and low-vision learners who use screen readers.
+
+INPUT: The image is attached to this message.
+
+TASK: Return semantic HTML carrying what is written on the image, and nothing
+else. This is a transcription, not a description.
+
+What to transcribe
+- Every piece of text on the image, in the order it reads: down the page, and
+  across within a row. Follow the page, not a teaching order.
+- Use the markup that matches what each piece of text IS: <h2>/<h3> for a title
+  or a section heading, <p> for a line of prose, <ul>/<ol> for a bulleted or
+  numbered list, <table> with <th> headers for a table.
+- Transcribe words exactly as printed, keeping their spelling and
+  capitalization. The words on the image are quoted content, not your prose.
+
+Equations
+- Render every equation and expression in MathML, well-formed: close every tag,
+  and give <mfrac>, <msub>, <msup>, <mover>, <munder> and <mroot> exactly two
+  child elements each — wrap multi-token numerators, denominators and bases in
+  <mrow>.
+- Follow each one with a plain-language reading in a <span class="sr-note">
+  (e.g., "read as: delta G equals delta H minus T delta S"). This reading is
+  the one thing you may add that is not printed on the image: MathML alone is
+  not reliably spoken, and the reading is how the equation is heard.
+
+What not to do — this is the substance of the task
+- Do not open with a summary, a topic sentence, or any framing. Begin with the
+  first thing written on the image.
+- Do not name what kind of thing the image is. No "A line graph shows", no
+  "This is a title card".
+- Do not expand, spell out or define an abbreviation, symbol or acronym that
+  the image does not itself expand. If it shows ΔG, write ΔG and stop.
+- Do not explain, interpret, or say what anything means, signifies or implies.
+- Do not describe layout, position, color, emphasis, or any figure, diagram,
+  chart or photograph. Where the image contains one, transcribe the text
+  printed inside it — labels, axis titles, legend entries, callouts — and say
+  nothing about the graphic itself.
+- Do not report a trend, a relationship, or a takeaway.
+- Do not reorder, group, merge or summarize. Reading order, as written.
+- Add no word that is not printed on the image, other than the plain-language
+  reading of an equation.
+
+If the image carries no text or mathematics at all, return a single <p> saying
+that it has none to transcribe.
+
+OUTPUT: Return the HTML only — no code fences, no commentary.`;
+
 // Per-slide revision instructions. These are appended after the verbosity
 // addendum, so the structural requirements still apply — a revision only
 // changes how much elaboration this one slide gets.
@@ -205,16 +274,9 @@ const REVISIONS = {
   less:
     "REVISION: A previous description of this visual was longer than it needed to be. Convey the same " +
     "instructional takeaway in noticeably fewer sentences, combining related points where nothing is lost.",
-  // Unlike the two above, this one is not phrased as a revision of a previous
-  // attempt: it is also used as the FIRST run for a slide the user has marked
-  // OCR-only, where no previous description exists.
-  textOnly:
-    "TEXT ONLY: This visual's content is on-screen text and math — there is nothing to describe " +
-    "visually. Override the instructions above: skip the opening summary sentence and any narrative " +
-    "description, and return only a semantic transcription of what is written, exactly as it appears " +
-    "and in reading order — a heading for a title, paragraphs or a list for supporting lines, and " +
-    "MathML (with its plain-language reading) for any equation or expression. Do not add framing like " +
-    "\"This visual reads\" or restate that it is a title card.",
+  // There is deliberately no textOnly entry. Transcription is a mode, carried
+  // by job.textOnly and served by OCR_SYSTEM_PROMPT above — not a revision
+  // appended to the description prompt, which is what made it leak.
 };
 
 function currentVerbosity() {
@@ -224,7 +286,32 @@ function currentVerbosity() {
   return VERBOSITY_LEVELS[Number(els.verbosity.value)] || VERBOSITY_LEVELS[0];
 }
 
-function buildSystemPrompt(verbosity, revision) {
+/** The user turn: the mode's instruction, plus this slide's transcript
+    excerpt when it has one. */
+function buildUserText(job) {
+  const instruction = job.textOnly ? OCR_USER_INSTRUCTION_TEXT : USER_INSTRUCTION_TEXT;
+  if (!job.transcriptContext) return instruction;
+  const framing = job.textOnly
+    ? "TRANSCRIPT CONTEXT — what the lecturer was saying around the moment this image was shown. " +
+      "Use it for one thing only: resolving what a word or symbol on the image actually says when " +
+      "the rendering is ambiguous. Do not expand abbreviations it expands, do not add terms from it, " +
+      "do not quote it, and do not transcribe any of it. Nothing from here belongs in your output " +
+      "unless it is also printed on the image."
+    : "TRANSCRIPT CONTEXT — what the lecturer was saying around the moment this slide was shown. " +
+      "Use it only to interpret what is visible: correct spellings and terminology, expand " +
+      "abbreviations, name symbols the way the course does. Do not add information from it that is " +
+      "not on the slide, do not quote it, and do not describe it.";
+  return `${instruction}\n\n${framing}\n\n${job.transcriptContext}`;
+}
+
+function buildSystemPrompt(verbosity, revision, textOnly) {
+  if (textOnly) {
+    // No verbosity addendum: it only ever talks about how much to describe,
+    // and at Detailed it says "describe spatial layout … in more depth",
+    // which is the opposite of this mode. A transcription's length is set by
+    // what is written on the image, not by a slider.
+    return revision ? `${OCR_SYSTEM_PROMPT}\n\n${revision}` : OCR_SYSTEM_PROMPT;
+  }
   let prompt = SYSTEM_PROMPT;
   if (verbosity.promptAddendum) prompt += `\n\n${verbosity.promptAddendum}`;
   if (revision) prompt += `\n\n${revision}`;
@@ -2371,20 +2458,16 @@ async function refineJob(jobId, revisionKey, overrideModel) {
   job.error = null;
 
   // The refine buttons steer the slide's MODE, not just this one request —
-  // job.textOnly is what describeOne falls back to whenever no explicit
-  // revision rides along (Retry, Redo with a stronger model). Without this,
-  // OCR → "More detail" → "Redo with Opus" snapped back to a bare
-  // transcription, undoing the narrative the user had just steered toward.
-  // "Text only" is sticky like the OCR button; "More detail" is a request
-  // for narrative, so it clears the mode; "Shorter" keeps whatever mode the
-  // slide is in — a shorter transcription is still a transcription, so the
-  // text-only framing must ride along with it.
+  // job.textOnly selects the prompt in buildSystemPrompt, so it is the whole
+  // of the mode — it survives Retry and Redo with a stronger model without
+  // each caller knowing about it. "Text only" turns it on; "More detail" is a
+  // request for narrative, so it turns it off; "Shorter" leaves it as it is,
+  // since a shorter transcription is still a transcription.
   if (revisionKey === "textOnly") job.textOnly = true;
   else if (revisionKey === "more") job.textOnly = false;
-  let revision = revisionKey ? REVISIONS[revisionKey] : "";
-  if (revisionKey === "less" && job.textOnly) {
-    revision = `${REVISIONS.textOnly}\n\n${REVISIONS.less}`;
-  }
+  // REVISIONS has no textOnly entry any more — the flag above carries it, so
+  // that key contributes no appended text.
+  const revision = (revisionKey && REVISIONS[revisionKey]) || "";
 
   batchRunning = true;
   runScope = "single";
@@ -2457,12 +2540,6 @@ async function describeOne(job, { apiKey, model, verbosity, revision }) {
   // decoding; a request for it would carry an undefined image payload.
   if (!jobs.has(job.id) || !job.base64) return;
 
-  // A slide marked OCR-only stays OCR-only down every path that reaches here
-  // — Describe all, Retry, Redo with a stronger model — without each caller
-  // having to know about the flag. An explicit revision (the refine buttons)
-  // still wins, so "More detail" on an OCR slide does what it says.
-  if (!revision && job.textOnly) revision = REVISIONS.textOnly;
-
   job.state = "describing";
   job.attempt = 1;
   job.requestSent = false;
@@ -2512,7 +2589,7 @@ async function describeOne(job, { apiKey, model, verbosity, revision }) {
           // hit the cap and came back truncated with prose that was not
           // long at all.
           max_tokens: 16384,
-          system: buildSystemPrompt(verbosity, revision),
+          system: buildSystemPrompt(verbosity, revision, job.textOnly),
           messages: [
             {
               role: "user",
@@ -2531,13 +2608,13 @@ async function describeOne(job, { apiKey, model, verbosity, revision }) {
                   // terminology (the lecturer said "SSP scenarios", so the
                   // axis label isn't guessed at) without licensing the model
                   // to describe things the slide doesn't show.
-                  text: job.transcriptContext
-                    ? `${USER_INSTRUCTION_TEXT}\n\nTRANSCRIPT CONTEXT — what the lecturer was saying ` +
-                      `around the moment this slide was shown. Use it only to interpret what is visible: ` +
-                      `correct spellings and terminology, expand abbreviations, name symbols the way the ` +
-                      `course does. Do not add information from it that is not on the slide, do not quote ` +
-                      `it, and do not describe it.\n\n${job.transcriptContext}`
-                    : USER_INSTRUCTION_TEXT,
+                  //
+                  // Transcription gets its own framing. The description
+                  // version tells the model to "expand abbreviations", which
+                  // is the exact thing this mode must not do — a transcript
+                  // that says "Gibbs free energy" would otherwise license
+                  // writing that where the image shows only ΔG.
+                  text: buildUserText(job),
                 },
               ],
             },
@@ -4529,7 +4606,15 @@ function updateVerbosityDisplay() {
   els.verbosityHint.textContent = verbosity.hint;
   els.verbosity.setAttribute("aria-valuetext", verbosity.label);
   annotateModelOptionsWithCostEstimates();
-  els.systemPromptPreview.textContent = buildSystemPrompt(verbosity);
+  // Both prompts, because there are two. This panel exists so someone whose
+  // batch reads wrong can see why, and a slide in text/math mode is sent
+  // something entirely different — showing only the description prompt would
+  // send them looking for a cause that is not in the text they are reading.
+  els.systemPromptPreview.textContent =
+    `── DESCRIBING A VISUAL (verbosity: ${verbosity.label}) ──\n\n` +
+    buildSystemPrompt(verbosity) +
+    `\n\n\n── TEXT & MATH ONLY (verbosity does not apply) ──\n\n` +
+    buildSystemPrompt(verbosity, "", true);
 }
 
 function annotateModelOptionsWithCostEstimates() {
