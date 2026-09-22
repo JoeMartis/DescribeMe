@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- One page, one entry. Submit this URL in Google Search Console and Bing
+     Webmaster Tools: a project-repo robots.txt cannot advertise it, because
+     robots.txt is only ever read from the root of the origin
+     (https://joemartis.github.io/robots.txt), which belongs to the
+     joemartis.github.io repository rather than this one. -->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://joemartis.github.io/DescribeMe/</loc>
+    <lastmod>2026-08-21</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+</urlset>
