@@ -48,6 +48,10 @@ Suites write downloads and screenshots to `test/.out/`, which is gitignored.
 | `regress7.mjs` | Jump-to-time in the video dialog: the three formats, rejections, Escape |
 | `regress8.mjs` | Write description — the hand-authored path, and that it makes no API call |
 | `regress9.mjs` | The order of the parts inside one exported description block |
+| `regress10.mjs` | Text & math mode sends a transcription prompt, read off the wire — not a description prompt with a rebuttal stapled on |
+| `regress11.mjs` | Refine choices stay on the slide they were pressed on, and do not leak into the next slide's request |
+| `regress12.mjs` | The transcript cliff — captions that stop before the recording does, and every place that has to say so |
+| `regress13.mjs` | Cost: the `usage` block the API returns, cache read/write rates, Parley's cost header, and the ledger surviving undo |
 
 ## Writing one
 

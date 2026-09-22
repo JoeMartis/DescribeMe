@@ -366,7 +366,15 @@
       <p class="chip chip-cost" id="costChip">
         <span id="costChipLabel">Est. per slide</span> <strong id="costChipValue">—</strong>
       </p>
-      <p class="hint"><strong>Estimates only</strong> — actual cost varies with the image and how much text Claude generates. They count prose, so a visual carrying several equations can run several times higher: MathML markup is verbose, and each equation also gets a spoken reading beside it. Good for comparing the three models, not for budgeting.</p>
+      <!-- Only filled in once something has actually been billed: the token
+           counts the API reported back, and whether prompt caching is earning
+           its keep. Hidden while the chip is still showing an estimate. -->
+      <p class="hint" id="costDetail" hidden></p>
+      <!-- Written by updateControls(), because it has to stop saying
+           "estimates only" the moment the chip above starts showing a real
+           bill. Both wordings are COST_HINT in app.js; the lead stays a
+           separate element so swapping the text keeps the emphasis. -->
+      <p class="hint"><strong id="costHintLead"></strong> <span id="costHint"></span></p>
     </div>
 
     <div class="field">

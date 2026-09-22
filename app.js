@@ -351,21 +351,246 @@ const MODEL_PRICING = {
 function estimateAverageSlideCostUsd(modelId, verbosity) {
   const pricing = MODEL_PRICING[modelId];
   if (!pricing) return null;
-  const inputTokens =
+  const promptTokens =
     estimateTokenCount(SYSTEM_PROMPT) +
     estimateTokenCount(verbosity.promptAddendum) +
-    estimateTokenCount(USER_INSTRUCTION_TEXT) +
-    ESTIMATED_IMAGE_TOKENS;
-  return (
-    (inputTokens / 1e6) * pricing.inputPerMTok +
-    (verbosity.estimatedOutputTokens / 1e6) * pricing.outputPerMTok
-  );
+    estimateTokenCount(USER_INSTRUCTION_TEXT);
+  const inputRate = pricing.inputPerMTok / 1e6;
+  const outputCost = verbosity.estimatedOutputTokens * (pricing.outputPerMTok / 1e6);
+
+  // A Parley key gets prompt caching whether or not we ask for it, and cached
+  // tokens are not billed at the plain input rate — so an estimate that
+  // ignored it would sit noticeably below the measured total that replaces it.
+  // What Parley's default breakpoints mean for a batch of slides:
+  //   - the prompt is written once and read back on every slide after the
+  //     first, at a tenth of the rate;
+  //   - the image sits after the last-turn breakpoint and is different every
+  //     time, so it is written at the 1-hour premium and never read back.
+  // The second is the expensive half, and it is the reason this is not simply
+  // a discount. See the note above readUsage().
+  if (!keyIsAnthropic(els.apiKey.value)) {
+    return (
+      promptTokens * inputRate * CACHE_READ_RATE_MULTIPLIER +
+      ESTIMATED_IMAGE_TOKENS * inputRate * CACHE_WRITE_RATE_MULTIPLIER["1h"] +
+      outputCost
+    );
+  }
+  return (promptTokens + ESTIMATED_IMAGE_TOKENS) * inputRate + outputCost;
 }
 
 function formatUsd(amount, decimals) {
   // These are sub-cent amounts — show enough precision to distinguish the
   // three models without implying false accuracy.
   return `$${amount.toFixed(decimals == null ? 4 : decimals)}`;
+}
+
+// ---------- Actual cost, from what the API reports back ----------
+//
+// The estimate above is a guess made before the request. Every response also
+// carries a `usage` block saying what was really billed, so once a slide has
+// been described there is no reason to keep showing a guess.
+//
+// This matters more than it looks, because caching is in play. MIT Parley
+// turns prompt caching on by default (parley-docs.mit.edu/prompt-caching) and
+// inserts breakpoints at the system prompt and the last turn — we send no
+// cache_control of our own and no x-parley-v1-cache header, so that default
+// applies to every request from here. A direct Anthropic key caches nothing,
+// since the Messages API only caches where a cache_control marker asks it to.
+// Either way the estimate is wrong: cached tokens are not billed at the plain
+// input rate.
+
+// Cache token rates, as multiples of the model's ordinary input rate. A read
+// is a tenth of an input token; a write is a premium over one, and which
+// premium depends on the entry's lifetime — 1.25x for the 5-minute window,
+// 2x for the 1-hour one. Parley's default for Claude models is 1 hour.
+const CACHE_READ_RATE_MULTIPLIER = 0.1;
+const CACHE_WRITE_RATE_MULTIPLIER = { "5m": 1.25, "1h": 2 };
+
+// The two things the hint under the cost chip has to be able to say. Which one
+// is on screen depends on whether anything has actually been billed yet, so
+// the chip and the hint can never disagree about what kind of number it is.
+const COST_HINT = {
+  estimate: {
+    lead: "Estimates only",
+    body:
+      "— actual cost varies with the image and how much text Claude generates. They count prose, " +
+      "so a visual carrying several equations can run several times higher: MathML markup is " +
+      "verbose, and each equation also gets a spoken reading beside it. Good for comparing the " +
+      "three models, not for budgeting.",
+  },
+  billed: {
+    lead: "Measured, not estimated",
+    body:
+      "— the total above is what the API reported for the requests this session actually sent, " +
+      "and each described slide carries its own figure. Anything introduced with “roughly” is " +
+      "still an estimate.",
+  },
+};
+
+/**
+ * Normalize the `usage` block of a Messages API response.
+ *
+ * Note what `input_tokens` is: the UNCACHED REMAINDER, not the whole prompt.
+ * The prompt's real size is input + cache_creation + cache_read, which is why
+ * a cached request can report a few hundred input tokens for a prompt of
+ * several thousand. Summing the three is the only way to get the true figure.
+ *
+ * The cache fields are absent on a response that used no caching, so every
+ * one of them is read defensively — a missing field is zero, not a failure.
+ */
+function readUsage(payload) {
+  const u = payload && typeof payload.usage === "object" && payload.usage ? payload.usage : null;
+  if (!u) return null;
+  const n = (v) => (Number.isFinite(v) && v >= 0 ? v : 0);
+  // cache_creation breaks the write down by TTL when the server sends it.
+  // Without it we cannot tell a 1.25x write from a 2x one, so we assume the
+  // 1-hour window — Parley's default, and the more expensive of the two, so
+  // the number errs high rather than flattering the bill.
+  const byTtl = u.cache_creation && typeof u.cache_creation === "object" ? u.cache_creation : null;
+  const write5m = n(byTtl && byTtl.ephemeral_5m_input_tokens);
+  const write1h = n(byTtl && byTtl.ephemeral_1h_input_tokens);
+  const writeTotal = n(u.cache_creation_input_tokens);
+  return {
+    inputTokens: n(u.input_tokens),
+    outputTokens: n(u.output_tokens),
+    cacheReadTokens: n(u.cache_read_input_tokens),
+    cacheWriteTokens: writeTotal,
+    // Fall back to attributing the whole write to the 1-hour bucket when the
+    // breakdown is missing or does not add up to the total it breaks down.
+    cacheWrite5mTokens: write5m + write1h === writeTotal ? write5m : 0,
+    cacheWrite1hTokens: write5m + write1h === writeTotal ? write1h : writeTotal,
+  };
+}
+
+/** What a single request actually cost, in USD, or null on an unpriced model. */
+function usageCostUsd(usage, modelId) {
+  const pricing = MODEL_PRICING[modelId];
+  if (!pricing || !usage) return null;
+  const inputRate = pricing.inputPerMTok / 1e6;
+  return (
+    usage.inputTokens * inputRate +
+    usage.cacheReadTokens * inputRate * CACHE_READ_RATE_MULTIPLIER +
+    usage.cacheWrite5mTokens * inputRate * CACHE_WRITE_RATE_MULTIPLIER["5m"] +
+    usage.cacheWrite1hTokens * inputRate * CACHE_WRITE_RATE_MULTIPLIER["1h"] +
+    usage.outputTokens * (pricing.outputPerMTok / 1e6)
+  );
+}
+
+/**
+ * Parley puts the billed cost of a non-streaming request in a response header.
+ * It is the authoritative number where it arrives — but it is a custom header
+ * on a cross-origin response, so the browser only lets us read it if Parley
+ * lists it in Access-Control-Expose-Headers. When it doesn't, this is null and
+ * the figure computed from `usage` stands in. Both are shown the same way; the
+ * detail line says which one is on screen.
+ */
+function reportedCostUsd(response) {
+  const header = response.headers.get("x-parley-v1-cost");
+  if (!header) return null;
+  const value = parseFloat(header.replace(/^\$/, ""));
+  return Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+/**
+ * Everything billed since the page was opened.
+ *
+ * Deliberately separate from the per-slide figures, and deliberately
+ * monotonic: refining a slide five times and undoing all five costs five
+ * requests' worth of money, and a ledger that a click of Undo could reduce
+ * would be lying about the bill. Opening a saved project does not restore it —
+ * the label says "this session", and nothing in the file was billed to it.
+ */
+const spend = {
+  requests: 0,
+  usd: 0,
+  measured: true, // false once any request came back on a model we have no rate for
+  inputTokens: 0,
+  outputTokens: 0,
+  cacheReadTokens: 0,
+  cacheWriteTokens: 0,
+  models: new Set(),
+};
+
+function recordSpend(usage, modelId, headerCost) {
+  spend.requests += 1;
+  spend.models.add(modelId);
+  spend.inputTokens += usage.inputTokens;
+  spend.outputTokens += usage.outputTokens;
+  spend.cacheReadTokens += usage.cacheReadTokens;
+  spend.cacheWriteTokens += usage.cacheWriteTokens;
+  const cost = headerCost != null ? headerCost : usageCostUsd(usage, modelId);
+  if (cost == null) spend.measured = false;
+  else spend.usd += cost;
+}
+
+function formatTokens(n) {
+  return n.toLocaleString();
+}
+
+function setCostHint(hint) {
+  els.costHintLead.textContent = hint.lead;
+  els.costHint.textContent = hint.body;
+}
+
+/** One slide's token counts, in a sentence. */
+function describeUsage(usage) {
+  if (!usage) return "no usage reported";
+  const parts = [
+    `${formatTokens(usage.inputTokens)} input`,
+    `${formatTokens(usage.outputTokens)} output`,
+  ];
+  // Only worth saying where it happened. On a request that used no caching
+  // both are zero and the two numbers above are the whole story.
+  if (usage.cacheReadTokens) parts.push(`${formatTokens(usage.cacheReadTokens)} read from cache`);
+  if (usage.cacheWriteTokens) parts.push(`${formatTokens(usage.cacheWriteTokens)} written to cache`);
+  return `${parts.join(", ")} tokens`;
+}
+
+/** The usage/cost fields of one slide in an imported project file, or blanks. */
+function sanitizeSavedUsage(saved) {
+  const blank = { usage: null, costUsd: null, costMeasured: false };
+  const u = saved && typeof saved.usage === "object" && saved.usage ? saved.usage : null;
+  if (!u) return blank;
+  const fields = [
+    "inputTokens",
+    "outputTokens",
+    "cacheReadTokens",
+    "cacheWriteTokens",
+    "cacheWrite5mTokens",
+    "cacheWrite1hTokens",
+  ];
+  const usage = {};
+  for (const key of fields) {
+    if (!Number.isFinite(u[key]) || u[key] < 0) return blank;
+    usage[key] = u[key];
+  }
+  return {
+    usage,
+    costUsd: Number.isFinite(saved.costUsd) && saved.costUsd >= 0 ? saved.costUsd : null,
+    costMeasured: !!saved.costMeasured,
+  };
+}
+
+/**
+ * The cache line under the cost chip. Its job is to answer one question the
+ * usage numbers alone don't: is caching doing anything, or is every request
+ * paying the write premium on a prefix nothing ever reads back?
+ */
+function cacheSummaryLine() {
+  if (spend.cacheWriteTokens === 0 && spend.cacheReadTokens === 0) {
+    return "No prompt caching on these requests.";
+  }
+  const parts = [
+    `${formatTokens(spend.cacheReadTokens)} tokens read from cache`,
+    `${formatTokens(spend.cacheWriteTokens)} written`,
+  ];
+  // Writes with no reads across several requests is the expensive shape: the
+  // breakpoint is landing after content that never repeats, so the premium is
+  // paid every time and never earned back.
+  if (spend.cacheReadTokens === 0 && spend.requests > 1) {
+    return `${parts.join(", ")} — nothing has been read back yet, so the write premium is not being earned.`;
+  }
+  return `${parts.join(", ")}.`;
 }
 
 // ---------- Elements ----------
@@ -391,6 +616,9 @@ const els = {
   settingsChipBadge: document.getElementById("settingsChipBadge"),
   costChipLabel: document.getElementById("costChipLabel"),
   costChipValue: document.getElementById("costChipValue"),
+  costDetail: document.getElementById("costDetail"),
+  costHintLead: document.getElementById("costHintLead"),
+  costHint: document.getElementById("costHint"),
   exportBtn: document.getElementById("exportBtn"),
   exportBtnLabel: document.getElementById("exportBtnLabel"),
   exportResize: document.getElementById("exportResize"),
@@ -1397,6 +1625,9 @@ async function addFiles(fileList, meta) {
       history: [],
       durationMs: null,
       usedModel: null,
+      usage: null,
+      costUsd: null,
+      costMeasured: false,
       railEl: null,
       videoName: null,
       captureSeconds: null,
@@ -1622,21 +1853,50 @@ function updateControls() {
   els.settingsChip.classList.toggle("btn-alert", !hasApiKey);
   els.settingsChipBadge.hidden = hasApiKey;
 
-  // Settings — cost estimate. Always an estimate; never a bill. Off-screen
-  // until the dialog is open, but still recomputed here so it is correct the
-  // moment it appears and moves live as the model and verbosity change.
+  // Settings — cost. An estimate until something has actually been billed,
+  // and the measured total after that. Off-screen until the dialog is open,
+  // but still recomputed here so it is correct the moment it appears and
+  // moves live as the model and verbosity change.
   const perSlide = estimateAverageSlideCostUsd(els.model.value, currentVerbosity());
-  if (perSlide == null) {
+  const notYetDescribed = jobList().filter((j) => j.state !== "done").length;
+  if (spend.requests > 0) {
+    // Real money, so the wording changes with it: this is no longer an
+    // estimate and must not keep the word. The ">" covers the case where a
+    // request came back on a model with no rate configured — the total is
+    // then a floor, not a figure.
+    els.costChipLabel.textContent = "Billed this session";
+    els.costChipValue.textContent = `${spend.measured ? "" : "> "}${formatUsd(spend.usd, 4)}`;
+    const detail = [
+      `${spend.requests} request${spend.requests === 1 ? "" : "s"} · ` +
+        `${formatTokens(spend.inputTokens)} input, ${formatTokens(spend.outputTokens)} output tokens.`,
+      cacheSummaryLine(),
+    ];
+    if (perSlide != null && notYetDescribed > 0) {
+      detail.push(
+        `${notYetDescribed} slide${notYetDescribed === 1 ? "" : "s"} not yet described — ` +
+          `roughly ${formatUsd(perSlide * notYetDescribed, 3)} more at these settings.`
+      );
+    }
+    els.costDetail.textContent = detail.join(" ");
+    els.costDetail.hidden = false;
+    setCostHint(COST_HINT.billed);
+  } else if (perSlide == null) {
     // The label has to be reset too — otherwise an unpriced model inherits
     // whatever the last priced one wrote, e.g. "Est. this batch —".
     els.costChipLabel.textContent = "Est. per slide";
     els.costChipValue.textContent = "—";
+    els.costDetail.hidden = true;
+    setCostHint(COST_HINT.estimate);
   } else if (jobs.size === 0) {
     els.costChipLabel.textContent = "Est. per slide";
     els.costChipValue.textContent = formatUsd(perSlide);
+    els.costDetail.hidden = true;
+    setCostHint(COST_HINT.estimate);
   } else {
     els.costChipLabel.textContent = "Est. this batch";
     els.costChipValue.textContent = `≈ ${formatUsd(perSlide * jobs.size, 3)}`;
+    els.costDetail.hidden = true;
+    setCostHint(COST_HINT.estimate);
   }
 
   // Header — export
@@ -1797,7 +2057,25 @@ function renderDetail() {
   if (job.usedModel) metaBits.push(MODEL_SHORT_NAMES[job.usedModel] || job.usedModel);
   else if (job.authored) metaBits.push("Not sent to Claude");
   if (job.durationMs) metaBits.push(`${(job.durationMs / 1000).toFixed(1)}s`);
-  q(".js-slide-meta").textContent = metaBits.join(" · ");
+  // The billed cost of the request that wrote this description — a measured
+  // number, not the model picker's estimate. The token counts sit in the
+  // accessible name rather than the line itself, which is already long.
+  if (Number.isFinite(job.costUsd)) {
+    const cost = document.createElement("span");
+    cost.textContent = formatUsd(job.costUsd);
+    cost.title = describeUsage(job.usage);
+    cost.setAttribute("aria-label", `Cost ${formatUsd(job.costUsd)} — ${describeUsage(job.usage)}`);
+    metaBits.push(cost);
+  }
+  // metaBits is a mix of strings and (for the cost) an element, so it is
+  // joined by hand rather than with Array.join, which would stringify the
+  // element to "[object HTMLSpanElement]".
+  const metaEl = q(".js-slide-meta");
+  metaEl.replaceChildren();
+  metaBits.forEach((bit, i) => {
+    if (i > 0) metaEl.append(" · ");
+    metaEl.append(bit);
+  });
   // Detaching lives with the slide, since that is where the transcript now
   // shows. It detaches the FILE — every slide it reached — and says so.
   if (transcriptSource) {
@@ -2357,6 +2635,13 @@ function snapshotOf(job) {
     truncated: !!job.truncated,
     usedModel: job.usedModel || null,
     durationMs: Number.isFinite(job.durationMs) ? job.durationMs : null,
+    // What the request that produced THIS text cost. It travels with the text
+    // so that undoing back to an earlier description also puts back that
+    // description's cost, instead of labelling old words with a new price.
+    // The session ledger is untouched by undo — see `spend`.
+    usage: job.usage || null,
+    costUsd: Number.isFinite(job.costUsd) ? job.costUsd : null,
+    costMeasured: !!job.costMeasured,
   };
 }
 
@@ -2371,6 +2656,11 @@ function restoreSnapshot(job, snap) {
   if ("truncated" in snap) job.truncated = !!snap.truncated;
   if ("usedModel" in snap) job.usedModel = snap.usedModel || null;
   if ("durationMs" in snap) job.durationMs = snap.durationMs;
+  if ("usage" in snap) {
+    job.usage = snap.usage || null;
+    job.costUsd = Number.isFinite(snap.costUsd) ? snap.costUsd : null;
+    job.costMeasured = !!snap.costMeasured;
+  }
 }
 
 function undoRevision(jobId) {
@@ -2776,6 +3066,18 @@ async function describeOne(job, { apiKey, model, verbosity, revision }) {
       }
 
       applyResult(job, textBlock.text);
+      // What this request actually cost, replacing the pre-flight estimate.
+      // Recorded before the job is marked done so renderJobState() below has
+      // it. A response with no usage block (older proxy, unexpected shape)
+      // leaves job.usage null and the slide simply shows no cost, rather than
+      // showing a guess dressed up as a measurement.
+      job.usage = readUsage(payload);
+      if (job.usage) {
+        const headerCost = reportedCostUsd(response);
+        job.costUsd = headerCost != null ? headerCost : usageCostUsd(job.usage, model);
+        job.costMeasured = headerCost != null;
+        recordSpend(job.usage, model, headerCost);
+      }
       // A 200 can still be an unfinished answer. stop_reason "max_tokens"
       // means the model ran out of room and the HTML simply stops — often
       // mid-equation, where the unterminated <math> also slips past the
@@ -4945,6 +5247,9 @@ function serializeProject() {
       history: job.history,
       durationMs: job.durationMs,
       usedModel: job.usedModel,
+      usage: job.usage || null,
+      costUsd: Number.isFinite(job.costUsd) ? job.costUsd : null,
+      costMeasured: !!job.costMeasured,
       dataUrl: job.previewDataUrl,
       mediaType: job.mediaType,
       width: job.width,
@@ -5305,6 +5610,12 @@ function importedProjectRecord(raw) {
         : [],
       durationMs: num(saved.durationMs),
       usedModel: MODEL_LADDER.includes(saved.usedModel) ? saved.usedModel : null,
+      // Token counts and a price, straight out of an untrusted file. They are
+      // only ever displayed, never summed into the session ledger, but a
+      // negative or non-numeric field would still render as nonsense — so
+      // every one is checked, and a usage block missing any of them is
+      // dropped whole rather than shown with holes in it.
+      ...sanitizeSavedUsage(saved),
       dataUrl: dataUrlOk
         ? saved.dataUrl
         : "data:image/svg+xml;utf8," +
