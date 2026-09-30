@@ -46,6 +46,29 @@ check("N1  it sits before New batch, in the order the two are used",
            kids.indexOf(document.getElementById("newBatchBtn"));
   }));
 
+// The rail head now carries three controls beside the heading. At the old
+// 320px they did not fit, and a flex row that does not fit does not wrap by
+// default — it overflows: Add hung 68px past the rail's right edge and sat on
+// top of the detail pane. This is that regression, checked at three widths so
+// a later label change cannot quietly bring it back.
+for (const width of [1920, 1400, 900]) {
+  await page.setViewportSize({ width, height: 900 });
+  await page.waitForTimeout(200);
+  const fit = await page.evaluate(() => {
+    const railRight = document.querySelector(".rail").getBoundingClientRect().right;
+    const head = document.querySelector(".rail-head");
+    const past = [...head.querySelectorAll("#railSaveBtn, #newBatchBtn, .rail-add, #railHeading")]
+      .filter((el) => el.getBoundingClientRect().right > railRight + 1)
+      .map((el) => el.id || el.className);
+    return { overflowing: head.scrollWidth > head.clientWidth + 1, past };
+  });
+  check(`N1  the rail head stays inside the rail at ${width}px`,
+    !fit.overflowing && fit.past.length === 0,
+    fit.past.length ? `past the edge: ${fit.past.join(", ")}` : `scrollWidth overflow=${fit.overflowing}`);
+}
+await page.setViewportSize({ width: 1280, height: 900 });
+await page.waitForTimeout(200);
+
 // ---------- N2: filenames are legible without hovering
 // The ask was for a hover or magnifier. The text column is ~150px, about 16
 // characters, so a tooltip alone would still leave every row reading the

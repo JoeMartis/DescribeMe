@@ -123,7 +123,13 @@
 
   --focus: var(--grape);
 
-  --rail-width: 320px;
+  /* Sized to the rail head, which carries the heading plus Save, New batch
+     and Add — that row needs about 400px, and at the old 320px it overflowed
+     into the detail pane. The extra width pays for itself twice: slide
+     exports share long prefixes, and a wider text column means most of them
+     now fit on one line instead of two. Below 880px the rail goes full-width
+     and stacks (see the media query), so this only applies to desktop. */
+  --rail-width: 420px;
   --header-height: 68px;
 
   font-size: 16px;
@@ -528,10 +534,21 @@ code, kbd {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  /* The rail is sized to fit this row (see --rail-width), but wrapping is
+     kept as the backstop: the row carries three controls beside the heading
+     now, and without it a flex row that does not fit simply overflows — Add
+     hung 68px past the rail's right edge and sat on top of the detail pane.
+     With wrap it can never do that again, whatever the labels say. */
+  flex-wrap: wrap;
   gap: 10px;
   padding: 18px 20px 12px;
 }
-.rail-head-actions { display: flex; align-items: center; gap: 8px; }
+.rail-head-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
 /* The Save button's saved state. Colour alone would not carry it — the label
    changes from "Save" to "Saved" and the aria-label says so too, so this is
    the third cue, not the only one. */
