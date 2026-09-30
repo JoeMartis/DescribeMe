@@ -532,6 +532,10 @@ code, kbd {
   padding: 18px 20px 12px;
 }
 .rail-head-actions { display: flex; align-items: center; gap: 8px; }
+/* The Save button's saved state. Colour alone would not carry it — the label
+   changes from "Save" to "Saved" and the aria-label says so too, so this is
+   the third cue, not the only one. */
+.rail-head-actions .is-saved { color: var(--swamp-green); }
 .rail-head h2 { font-size: 18px; }
 /* A button that is really a file input — the input covers the whole button
    invisibly, so it stays natively focusable and keyboard-operable. Used by
@@ -619,13 +623,27 @@ code, kbd {
 }
 .rail-text { min-width: 0; flex: 1; }
 .rail-name {
-  display: block;
+  /* Two lines, not one. The text column is only ~148px, which is about 16
+     characters — and slide exports run to names like
+     M3_ASSIGNMENT_EXPLANATION_01.png that are identical for the first 20 of
+     them. Cut to one line, every row in a batch read the same, and the rail
+     is where slides get put in order. Two lines fit a typical export whole.
+     overflow-wrap because these names are one unbroken token with nowhere
+     for a line to break; the clamp still ellipsises anything longer. */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
   font-family: var(--font-heading);
   font-size: 12px;
-  white-space: nowrap;
+  line-height: 1.25;
   overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
 }
+/* The transcript drawer passes its names through middleEllipsis already, so
+   they are pre-shortened and belong on one line. (Its font-size is set with
+   the rest of the drawer's type, further down.) */
+.transcript-item .rail-name { -webkit-line-clamp: 1; line-clamp: 1; }
 .rail-status {
   display: block;
   font-family: var(--font-accent);
@@ -1194,8 +1212,19 @@ dialog.sheet::backdrop { background: rgba(36, 26, 18, 0.55); }
   border-radius: var(--radius-md);
 }
 .project-text { flex: 1; min-width: 0; }
-.project-name-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.project-name { font-family: var(--font-heading); font-size: 13px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+/* align-items rather than center: the name can now run to two lines, and a
+   centred rename pencil would drift away from the first line it belongs to. */
+.project-name-row { display: flex; align-items: flex-start; gap: 6px; min-width: 0; }
+/* Wraps instead of truncating. Saved projects are routinely several versions
+   of one long name — UCE_MODELING_… told you nothing about which save you
+   were looking at, and the part that distinguishes them is at the end.
+   overflow-wrap: anywhere because these names are one unbroken token: with
+   normal wrapping rules there is nowhere for the line to break. */
+.project-name {
+  font-family: var(--font-heading);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
 .project-meta { font-family: var(--font-accent); font-size: 13px; color: var(--faint); }
 /* Small enough to sit inside the name line without inflating the row. */
 .project-rename { width: 26px; height: 26px; flex-shrink: 0; }
@@ -1267,6 +1296,12 @@ input[type="range"] {
 /* Only the video dialog needs the extra width — Settings and Projects share
    dialog.sheet and are text forms that read better narrow. */
 dialog.sheet-wide { max-width: min(880px, 94vw); }
+/* Between the two. Project names are now shown in full rather than
+   truncated, and at the standard 560px the name column came out around
+   130px — enough to wrap a real export name onto four lines. The extra
+   width buys the room those names need without making a short list of
+   projects float in a near-empty sheet. */
+dialog.sheet-projects { max-width: min(720px, 94vw); }
 /* Every row above the video is overhead competing with it for height, so
    this dialog runs tighter than the text-form sheets it shares styles with. */
 #videoDialog .sheet-lede { margin-bottom: 14px; }

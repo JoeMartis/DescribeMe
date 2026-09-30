@@ -203,8 +203,13 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" width="16" height="16"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
         <span id="exportBtnLabel">Export as .zip</span>
       </button>
-      <button type="button" class="btn btn-icon" id="projectsBtn" aria-haspopup="dialog" aria-label="Projects">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+      <!-- Labelled rather than icon-only. The folder alone was being missed:
+           nothing on screen said where saved work lived, and the icon's
+           meaning was only available on hover. The word is the accessible
+           name now, so aria-label would only duplicate it. -->
+      <button type="button" class="btn" id="projectsBtn" aria-haspopup="dialog">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" width="19" height="19"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+        Projects
       </button>
       <!-- Still the only way into Settings. The state it used to spell out
            lives in aria-label/title now, so it is not lost for screen readers
@@ -233,6 +238,12 @@
       <div class="rail-head">
         <h2 id="railHeading">Slides</h2>
         <div class="rail-head-actions">
+          <!-- Left of New batch on purpose. Saving used to be reachable only
+               from inside the Projects dialog, so the moment a batch was
+               about to be cleared was exactly the moment saving was two
+               clicks away. Here it sits beside the button it protects
+               against, in the order the two are used. -->
+          <button type="button" class="btn btn-small btn-ghost" id="railSaveBtn" hidden>Save</button>
           <button type="button" class="btn btn-small btn-ghost" id="newBatchBtn" hidden>New batch</button>
           <span class="btn btn-small rail-add">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
@@ -452,7 +463,7 @@
      Projects — save the current batch (slides, descriptions, approvals)
      to this browser's IndexedDB and come back to it later.
      ══════════════════════════════════════════════════════════════════ -->
-<dialog class="sheet" id="projectsDialog" aria-labelledby="projectsTitle">
+<dialog class="sheet sheet-projects" id="projectsDialog" aria-labelledby="projectsTitle">
   <div class="sheet-body">
     <div class="sheet-head">
       <h2 id="projectsTitle">Projects</h2>

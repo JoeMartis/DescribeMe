@@ -52,6 +52,7 @@ Suites write downloads and screenshots to `test/.out/`, which is gitignored.
 | `regress11.mjs` | Refine choices stay on the slide they were pressed on, and do not leak into the next slide's request |
 | `regress12.mjs` | The transcript cliff — captions that stop before the recording does, and every place that has to say so |
 | `regress13.mjs` | Cost: the `usage` block the API returns, cache read/write rates, Parley's cost header, and the ledger surviving undo |
+| `regress14.mjs` | The rail's Save button and what "Saved" means, the New batch warning, and filenames shown in full in the rail and the Projects dialog |
 
 ## Writing one
 

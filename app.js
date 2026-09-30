@@ -635,6 +635,7 @@ const els = {
   railTranscriptsTitle: document.getElementById("railTranscriptsTitle"),
   transcriptList: document.getElementById("transcriptList"),
   newBatchBtn: document.getElementById("newBatchBtn"),
+  railSaveBtn: document.getElementById("railSaveBtn"),
   progressCard: document.getElementById("progressCard"),
   progressLabel: document.getElementById("progressLabel"),
   progressFill: document.getElementById("progressFill"),
@@ -1138,7 +1139,14 @@ function createRailRow(job) {
   thumb.src = job.previewDataUrl;
   thumb.alt = "";
 
-  row.querySelector(".rail-name").textContent = job.name;
+  // Slide exports share long prefixes — "M3_ASSIGNMENT_E…" tells you nothing
+  // about which slide it is, and putting a batch in order is exactly what the
+  // rail is for. The name gets two lines (see .rail-name), which fits a
+  // typical export in full; title covers anything longer, and the row's
+  // aria-label already carries the whole name for anyone who cannot hover.
+  const nameEl = row.querySelector(".rail-name");
+  nameEl.textContent = job.name;
+  nameEl.title = job.name;
   row.addEventListener("click", () => selectJob(job.id));
 
   li.querySelector(".js-move-up").addEventListener("click", () => moveJob(job.id, -1));
@@ -1714,11 +1722,15 @@ els.batchName.addEventListener("input", () => {
 function newBatch() {
   if (jobs.size === 0 || batchRunning) return;
   const described = jobList().some((j) => j.state === "done");
-  const ok = window.confirm(
-    described
-      ? "Start a new batch? The current slides and their descriptions go away unless you've saved or exported them."
-      : `Start a new batch? This clears the ${jobs.size} queued slide${jobs.size === 1 ? "" : "s"}.`
-  );
+  // Three wordings, because the old one said "unless you've saved or
+  // exported them" without knowing whether anything had in fact been saved —
+  // which reads as boilerplate and gets clicked through. isBatchSaved knows.
+  const message = isBatchSaved()
+    ? `Start a new batch? "${els.batchName.value.trim() || "This batch"}" is saved, so you can reopen it from Projects.`
+    : described
+      ? "Start a new batch? These slides and their descriptions have NOT been saved as a project — Save first if you want them back."
+      : `Start a new batch? This clears the ${jobs.size} queued slide${jobs.size === 1 ? "" : "s"}.`;
+  const ok = window.confirm(message);
   if (!ok) return;
   jobs.clear();
   // The next batch is a different lecture until proven otherwise — a stale
@@ -1731,6 +1743,10 @@ function newBatch() {
   currentProjectId = null;
   els.batchName.value = "Untitled batch";
   delete els.batchName.dataset.userNamed;
+  // Whatever was saved belonged to the batch just cleared. Leaving it would
+  // let the next batch inherit a "Saved" it never earned, if it happened to
+  // match — unlikely, but the point of this control is to be trustworthy.
+  savedSignature = null;
   setError("");
   renderAll();
   // The New batch button itself just hid (no slides left) — without a new
@@ -1909,6 +1925,23 @@ function updateControls() {
   // Rail — head
   els.newBatchBtn.hidden = jobs.size === 0;
   els.newBatchBtn.disabled = batchRunning;
+  // Save sits beside it and appears on the same condition. It stays enabled
+  // once saved and says so instead of going disabled: a disabled control
+  // reads as broken, and saving again after a save is harmless.
+  els.railSaveBtn.hidden = jobs.size === 0;
+  els.railSaveBtn.disabled = batchRunning;
+  const saved = isBatchSaved();
+  els.railSaveBtn.textContent = saved ? "Saved" : "Save";
+  els.railSaveBtn.classList.toggle("is-saved", saved);
+  els.railSaveBtn.title = saved
+    ? "This batch is saved. Saving again updates it."
+    : "Save this batch as a project before you clear it";
+  els.railSaveBtn.setAttribute(
+    "aria-label",
+    saved
+      ? `Save project — ${els.batchName.value.trim() || "this batch"} is already saved`
+      : `Save ${els.batchName.value.trim() || "this batch"} as a project`
+  );
 
   // Rail — describe card
   els.describeCard.hidden = jobs.size === 0 || batchRunning;
@@ -2682,6 +2715,13 @@ function undoRevision(jobId) {
 // ---------- File input / drag & drop ----------
 
 els.newBatchBtn.addEventListener("click", newBatch);
+// Saves in place without opening the dialog — the point of the button is to
+// be one click at the moment work is about to be cleared. setError is cleared
+// first so a previous failure does not sit under a save that then succeeds.
+els.railSaveBtn.addEventListener("click", () => {
+  setError("");
+  saveCurrentProject();
+});
 
 [els.fileInput, els.railFileInput].forEach((input) => {
   input.addEventListener("change", (e) => {
@@ -5135,6 +5175,67 @@ let autosaveDirty = false;
 // very record it was about to restore.
 let autosaveReady = false;
 
+/**
+ * Whether the batch on screen has been written to a NAMED project since it
+ * last changed — what the Save button's label and the New batch warning read.
+ *
+ * Derived from a signature rather than kept as a flag. A flag would have to
+ * be cleared wherever the batch changes, and the honest place to do that is
+ * markDirty(), which renderAll() calls on every render — so the flag would
+ * be cleared by the very render that had just drawn "Saved", and go stale
+ * one frame later. Comparing signatures cannot drift: it also correctly
+ * reports "saved" if someone changes something and changes it back.
+ *
+ * Not the same question as autosaveDirty, which the autosave clears every
+ * 1.5 seconds. That one says "the browser has a copy", which is nearly
+ * always true and so is no help in deciding whether work is about to be lost.
+ */
+let savedSignature = null;
+
+/**
+ * Everything about the batch that a save would capture, cheaply.
+ *
+ * Deliberately not serializeProject() — that carries every slide's base64,
+ * and this runs on every render. Descriptions are hashed rather than
+ * included for the same reason; the hash is only ever compared against
+ * another hash of the same function, so collisions cost a stale label, not
+ * data.
+ */
+function batchSignature() {
+  const parts = [els.batchName.value];
+  for (const job of jobList()) {
+    parts.push(
+      [
+        job.id,
+        job.name,
+        job.state,
+        job.approved ? 1 : 0,
+        job.edited ? 1 : 0,
+        job.authored ? 1 : 0,
+        job.textOnly ? 1 : 0,
+        job.captureSeconds,
+        hashString(job.resultHtml || ""),
+        hashString(job.transcriptContext || ""),
+      ].join("\u0001")
+    );
+  }
+  return parts.join("\u0002");
+}
+
+/** FNV-1a, 32-bit. Fast, and good enough to tell two descriptions apart. */
+function hashString(text) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(36);
+}
+
+function isBatchSaved() {
+  return savedSignature !== null && jobs.size > 0 && savedSignature === batchSignature();
+}
+
 function markDirty() {
   autosaveDirty = true;
   clearTimeout(autosaveTimer);
@@ -5194,9 +5295,13 @@ async function restoreAutosave() {
     if (!record || !Array.isArray(record.jobs) || record.jobs.length === 0) return;
     if (jobs.size > 0) return; // the user already started something this load
     loadProjectRecord(record);
-    // loadProjectRecord treats the record as a named project — undo the two
+    // loadProjectRecord treats the record as a named project — undo the three
     // assumptions that don't hold for the shadow record.
     currentProjectId = record.projectId || null;
+    // A restored autosave is recovered work, not saved work: it lives in one
+    // browser under a name nobody chose, and the Save button has to keep
+    // offering to make it a real project.
+    savedSignature = null;
     // The linked project may have been deleted after this autosave was
     // written — a dangling id would make "Save current batch" silently
     // resurrect the deleted project.
@@ -5306,16 +5411,20 @@ function loadProjectRecord(record) {
   els.batchName.value = record.name;
   els.batchName.dataset.userNamed = "1"; // don't auto-rename a named project
   currentProjectId = record.id;
+  // What is on screen is exactly what is in the store, so nothing is at risk
+  // until the next edit. Before renderAll, which reads it. The autosave
+  // restore path below clears it again — a shadow record is not a project.
+  savedSignature = batchSignature();
   renderAll();
 }
 
 async function saveCurrentProject() {
   if (jobs.size === 0) {
-    setProjectsError("Nothing to save yet — add some slides first.");
+    reportProjectsProblem("Nothing to save yet — add some slides first.");
     return;
   }
   if (batchRunning) {
-    setProjectsError("Wait for the current batch to finish before saving.");
+    reportProjectsProblem("Wait for the current batch to finish before saving.");
     return;
   }
   // What's saved must be what's on screen — including an unsaved edit.
@@ -5325,13 +5434,29 @@ async function saveCurrentProject() {
   try {
     await projectStoreRequest("readwrite", (store) => store.put(record));
   } catch (err) {
-    setProjectsError(`Couldn't save: ${err.message || err}`);
+    reportProjectsProblem(`Couldn't save: ${err.message || err}`);
     return;
   }
   currentProjectId = record.id;
   markDirty(); // refresh the autosave's link to this named project
+  // The batch on screen is now exactly what is in the store. Taken after
+  // commitPendingEdit and serializeProject above, so it describes what was
+  // actually written.
+  savedSignature = batchSignature();
   announceProjects(`Project "${record.name}" saved.`);
   await refreshProjectList();
+  renderAll();
+}
+
+/**
+ * A problem with saving or opening a project. The Projects dialog shows it,
+ * and so does the workspace when that dialog is closed — the rail's Save
+ * button can fail with the dialog shut, and an error written only inside a
+ * closed dialog is an error nobody reads.
+ */
+function reportProjectsProblem(message) {
+  setProjectsError(message);
+  if (!els.projectsDialog.open) setError(message);
 }
 
 async function openProject(id) {
