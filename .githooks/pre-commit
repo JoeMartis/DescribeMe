@@ -3,7 +3,20 @@
 # count, so it increases with every commit without a manually-tracked
 # counter that could drift. HEAD at this point is the commit being built
 # on top of, so the commit about to be created is count(HEAD) + 1.
+#
+# VERSION_OFFSET subtracts off the commit count as of the reset to v1 (the
+# commit before this one), so the badge restarts at 1 here and keeps
+# incrementing by 1 per commit from there — without touching git history.
+# Bumping it again later means the same thing: set it to the current
+# count(HEAD) at the commit you want to become v1.
+#
+# Raised from 82 to 87 when the old default branch was merged in. That merge
+# brought 3 unreachable commits plus the merge commit itself into the count,
+# which would have jumped the badge from v3 straight to v8 without a single
+# change to the app. 87 absorbs those 4 and the offset commit, so the next
+# commit is v4 and the sequence stays continuous.
+VERSION_OFFSET=87
 count=$(git rev-list --count HEAD 2>/dev/null || echo 0)
-version=$((count + 1))
+version=$((count + 1 - VERSION_OFFSET))
 echo "window.APP_VERSION = \"$version\";" > version.js
 git add version.js
