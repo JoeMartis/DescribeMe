@@ -253,6 +253,15 @@
           </span>
         </div>
       </div>
+      <!-- Offered, never applied on its own. Slides exported by the video
+           team carry their position in the video in their names, and this
+           puts them in that order on request. It appears only when it would
+           change something, and offers Undo afterwards, because a sort can
+           undo a batch someone has already arranged by hand. -->
+      <div class="rail-sort" id="railSort" hidden>
+        <p class="rail-sort-text" id="railSortText"></p>
+        <button type="button" class="btn btn-small" id="railSortBtn"></button>
+      </div>
       <p class="rail-empty" id="railEmpty">Nothing queued yet. Drop your slide exports on the right and they'll line up here.</p>
       <ul class="rail-list" id="railList"></ul>
       <!-- Transcripts dropped in with the slides. Shown so a caption file

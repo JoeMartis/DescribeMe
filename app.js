@@ -636,6 +636,9 @@ const els = {
   transcriptList: document.getElementById("transcriptList"),
   newBatchBtn: document.getElementById("newBatchBtn"),
   railSaveBtn: document.getElementById("railSaveBtn"),
+  railSort: document.getElementById("railSort"),
+  railSortText: document.getElementById("railSortText"),
+  railSortBtn: document.getElementById("railSortBtn"),
   progressCard: document.getElementById("progressCard"),
   progressLabel: document.getElementById("progressLabel"),
   progressFill: document.getElementById("progressFill"),
@@ -1215,6 +1218,108 @@ function moveJob(jobId, delta) {
   moveJobTo(jobId, idx + delta);
 }
 
+// ---------- Sorting by slide position ----------
+// The video team's exporter writes each slide's position in its video into
+// the file name, and slides arrive in whatever order the files were picked.
+// The rail offers to put them in position order. It never does it unasked:
+// a batch may already have been arranged by hand.
+
+// What Undo needs: the order before the sort, and the order the sort made.
+// Undo is offered only while the batch is still in exactly the sorted
+// order — the first hand move, added slide or removed one retires it.
+let sortUndo = null;
+
+/** Compare video names the way a person reads them: S2 before S10. */
+function compareNatural(a, b) {
+  return String(a || "").localeCompare(String(b || ""), undefined, { numeric: true, sensitivity: "base" });
+}
+
+/**
+ * The batch's ids in slide-position order, or null when there is nothing to
+ * sort — fewer than two slides carry a position.
+ *
+ * Only slides that carry a position move, and only among the places those
+ * slides already hold; a hand-taken screenshot in the middle of the batch
+ * stays exactly where it was. Within that, slides group by video, so the
+ * fifth slide of one section does not land between the fourth and fifth of
+ * another, and ties fall to the time in the video.
+ */
+function positionOrder() {
+  const ids = [...jobs.keys()];
+  const slots = ids.map((id, i) => (Number.isInteger(jobs.get(id).slidePosition) ? i : -1)).filter((i) => i >= 0);
+  if (slots.length < 2) return null;
+  const sorted = slots
+    .map((i) => jobs.get(ids[i]))
+    .sort(
+      (a, b) =>
+        compareNatural(a.videoName, b.videoName) ||
+        a.slidePosition - b.slidePosition ||
+        (a.captureSeconds || 0) - (b.captureSeconds || 0)
+    );
+  const out = ids.slice();
+  slots.forEach((slot, k) => (out[slot] = sorted[k].id));
+  return out;
+}
+
+function sameOrder(a, b) {
+  return a.length === b.length && a.every((id, i) => id === b[i]);
+}
+
+/** Put the batch in this order. The ids must be exactly the batch's ids. */
+function setJobOrder(order) {
+  commitPendingEdit();
+  const entries = order.map((id) => [id, jobs.get(id)]);
+  jobs.clear();
+  for (const [id, job] of entries) jobs.set(id, job);
+  for (const [, job] of entries) {
+    const li = job.railEl?.closest("li");
+    if (li) els.railList.appendChild(li);
+  }
+  renderAll();
+}
+
+function sortByPosition() {
+  const current = [...jobs.keys()];
+  if (sortUndo && sameOrder(current, sortUndo.after)) {
+    setJobOrder(sortUndo.before);
+    sortUndo = null;
+    setStatus("Put the slides back in the order they were in.");
+    return;
+  }
+  const target = positionOrder();
+  if (!target || sameOrder(target, current)) return;
+  sortUndo = { before: current, after: target };
+  setJobOrder(target);
+  setStatus("Sorted the slides by their position in the video.");
+}
+
+/**
+ * The offer to sort, or to undo one — shown only when either would do
+ * something. Not disabled during a batch: the move arrows and dragging
+ * aren't either, and a reorder mid-batch is already something the rail
+ * allows.
+ */
+function renderSortOffer() {
+  const current = [...jobs.keys()];
+  if (sortUndo && !sameOrder(current, sortUndo.after)) sortUndo = null;
+
+  if (sortUndo) {
+    els.railSortText.textContent = "Sorted by slide position.";
+    els.railSortBtn.textContent = "Undo sort";
+    els.railSort.hidden = false;
+    return;
+  }
+  const target = positionOrder();
+  if (!target || sameOrder(target, current)) {
+    els.railSort.hidden = true;
+    return;
+  }
+  const n = current.filter((id) => Number.isInteger(jobs.get(id).slidePosition)).length;
+  els.railSortText.textContent = `${n} slides are numbered by their position in the video.`;
+  els.railSortBtn.textContent = "Sort by position";
+  els.railSort.hidden = false;
+}
+
 let draggedJobId = null;
 
 function wireRowDrag(li, jobId) {
@@ -1476,9 +1581,11 @@ function renderTranscripts() {
 /** Does this slide's name (or recorded source video) point at this transcript? */
 function jobMatchesTranscript(entry, job) {
   const stems = new Set(entry.stems.map(stemKey));
-  if (job.videoName && Number.isFinite(job.captureSeconds)) return stems.has(stemKey(job.videoName));
-  const stamp = timestampFromName(job.name);
-  return !!stamp && stems.has(stemKey(normalizeStem(stamp.prefix)));
+  if (job.videoName && Number.isFinite(job.captureSeconds) && stems.has(stemKey(job.videoName))) return true;
+  // Otherwise ask the file name — every reading of it, not just the first,
+  // so a slide whose name could split two ways pairs with whichever video
+  // is actually loaded. See nameReadings.
+  return !!readingForStems(job.name, stems);
 }
 
 function detachTranscript(entry) {
@@ -1639,20 +1746,29 @@ async function addFiles(fileList, meta) {
       railEl: null,
       videoName: null,
       captureSeconds: null,
+      // Where the video team's exporter says this slide sits in its video —
+      // "…_0001_00-00-01" or "…_00-00-01-03". Null for anything else. Only
+      // ever used to offer a sort; it never moves a slide by itself.
+      slidePosition: null,
       textOnly: false,
       transcriptContext: null,
       ...meta,
     };
 
-    // An upload named on the capture convention — <stem>_HH-MM-SS.<ext> —
-    // carries its own timestamp, and pairs with a workspace transcript of
-    // that stem. Only when no meta supplied one: a dialog capture already
-    // knows its timestamp and its transcript, and they are authoritative.
+    // An upload named on the capture convention — <stem>_HH-MM-SS.<ext> — or
+    // on either of the video team's exporter conventions carries its own
+    // timestamp, and pairs with a workspace transcript of that stem. Only
+    // when no meta supplied one: a dialog capture already knows its
+    // timestamp and its transcript, and they are authoritative.
     if (!Number.isFinite(job.captureSeconds)) {
-      const stamp = timestampFromName(file.name);
+      // A loaded transcript gets the first say in where the name splits —
+      // see nameReadings — and the name's own best guess is the fallback.
+      const stamp =
+        readingForStems(file.name, new Set(workspaceTranscripts.keys())) || timestampFromName(file.name);
       if (stamp) {
         job.captureSeconds = stamp.seconds;
         job.videoName = normalizeStem(stamp.prefix);
+        job.slidePosition = stamp.position;
         const transcript = workspaceTranscripts.get(stemKey(job.videoName));
         if (transcript && !job.transcriptContext) {
           job.transcriptContext = excerptFromCues(transcript.cues, stamp.seconds);
@@ -1921,6 +2037,9 @@ function updateControls() {
     c.approved === 0
       ? "Export as .zip"
       : `Export ${c.approved} approved as .zip`;
+
+  // Rail — the offer to sort by slide position
+  renderSortOffer();
 
   // Rail — head
   els.newBatchBtn.hidden = jobs.size === 0;
@@ -2715,6 +2834,7 @@ function undoRevision(jobId) {
 // ---------- File input / drag & drop ----------
 
 els.newBatchBtn.addEventListener("click", newBatch);
+els.railSortBtn.addEventListener("click", sortByPosition);
 // Saves in place without opening the dialog — the point of the button is to
 // be one click at the moment work is about to be cleared. setError is cleared
 // first so a previous failure does not sit under a save that then succeeds.
@@ -3558,37 +3678,91 @@ function transcriptEntries() {
 }
 
 /**
- * "Lecture_3_00-04-32.jpg" -> { prefix: "Lecture_3", seconds: 272 }, or null
- * for a name without the trailing timestamp. Deliberately strict — exactly
- * HH-MM-SS at the end of the stem — so ordinary filenames with digits don't
- * get read as timestamps.
+ * "Lecture_3_00-04-32.jpg" -> { prefix: "Lecture_3", seconds: 272, position: null },
+ * or null for a name without a timestamp. The first of nameReadings() — see
+ * there for why a name can have more than one.
  */
 function timestampFromName(name) {
+  return nameReadings(name)[0] || null;
+}
+
+/**
+ * Every way a slide's file name can be read as "this video, at this moment",
+ * most likely first. Each reading is { prefix, seconds, position }.
+ *
+ * Three shapes. The first is our own capture convention; the other two are
+ * what the video team's exporter writes, and both carry the slide's position
+ * in the video as well as its time:
+ *
+ *   Lecture_3_00-04-32                       video, then HH-MM-SS
+ *   UCE_0004_M3_V3_S5_Selin_0001_00-00-01    video, position, then the time
+ *   UCE_0004_M3_V3_S5_Selin_00-00-01-03      video, the time, then position
+ *
+ * Before these were understood, the third read as 1:03 into a video called
+ * "…_Selin_00" — a wrong time that went into the export as "Visual in video
+ * at 1:03" — and the second as the right time in a video called
+ * "…_Selin__0001". Neither matched its transcript.
+ *
+ * More than one reading because a name alone cannot always say where the
+ * video name stops. "Lecture_2024_00-04-32" is either the 2024th slide of
+ * "Lecture" or a slide of "Lecture_2024". Returning both lets a loaded
+ * transcript settle it (see readingForStems): whichever reading names a
+ * transcript that exists is the right one. Only with no transcript loaded
+ * does the order here decide, and then only the video name is in question —
+ * the time is the same in every reading.
+ */
+function nameReadings(name) {
   const stem = name.replace(/\.[^.]+$/, "");
-  // Underscore separator only — it is what the capture writes, and the looser
-  // [_\s-] read GNOME's "Screenshot from 2026-08-20 14-30-05.png" as a frame
-  // fourteen and a half hours into a video. Minutes and seconds are range-
-  // checked for the same reason: a real capture never writes 12-99-99.
-  // Underscore OR hyphen before the stamp: capture writes "_", but a person
-  // naming files by hand in a name that already uses hyphens
-  // ("Splitting-Cells-00-02-23") will not switch separators for us. A
-  // browser's duplicate-download suffix ("… (1).png") or macOS's " copy"
+  // A browser's duplicate-download suffix ("… (1).png") or macOS's " copy"
   // after the stamp must not hide it — the file is the same frame.
-  const m = stem.match(/[_-](\d{2})-(\d{2})-(\d{2})(?:\s*\(\d+\)|[ _-]copy(?:\s*\d+)?)?$/i);
-  if (!m) return null;
-  const prefix = stem.slice(0, m.index);
-  // GNOME's "Screenshot from 2026-08-20 14-30-05.png" is a date and a clock,
-  // not a lecture and an offset into it — and it would otherwise become a
-  // frame fourteen and a half hours into a video called "Screenshot from
-  // 2026-08-20". A prefix that ends in a date is a screenshot.
-  if (/\d{4}-\d{2}-\d{2}\s*$/.test(prefix) || !prefix.replace(/[\s_-]+$/, "")) return null;
-  const minutes = Number(m[2]);
-  const seconds = Number(m[3]);
-  if (minutes > 59 || seconds > 59) return null;
-  return {
-    prefix,
-    seconds: Number(m[1]) * 3600 + minutes * 60 + seconds,
+  const DUP = String.raw`(?:\s*\(\d+\)|[ _-]copy(?:\s*\d+)?)?$`;
+  const readings = [];
+  const add = (prefix, hh, mm, ss, position) => {
+    // GNOME's "Screenshot from 2026-08-20 14-30-05.png" is a date and a
+    // clock, not a lecture and an offset into it — and it would otherwise
+    // become a frame fourteen and a half hours into a video called
+    // "Screenshot from 2026-08-20". A prefix that ends in a date is a
+    // screenshot. An empty prefix is no video at all.
+    if (/\d{4}-\d{2}-\d{2}\s*$/.test(prefix) || !prefix.replace(/[\s_-]+$/, "")) return;
+    // Range-checked: a real timestamp never says 12-99-99.
+    if (Number(mm) > 59 || Number(ss) > 59) return;
+    const seconds = Number(hh) * 3600 + Number(mm) * 60 + Number(ss);
+    if (readings.some((r) => r.prefix === prefix && r.seconds === seconds)) return;
+    readings.push({ prefix, seconds, position: position == null ? null : Number(position) });
   };
+
+  // Time, then position: "…_Selin_00-00-01-03". Four hyphen-joined groups
+  // after an UNDERSCORE. The underscore is what keeps a hand-named
+  // "Splitting-Cells-00-02-23" out of this reading — a name written with
+  // hyphens throughout puts a hyphen before its stamp too.
+  let m = stem.match(new RegExp(String.raw`_(\d{2})-(\d{2})-(\d{2})-(\d{1,4})` + DUP, "i"));
+  if (m) add(stem.slice(0, m.index), m[1], m[2], m[3], m[4]);
+
+  // Position, then time: "…_Selin_0001_00-00-01", and "…_Selin__0001_…"
+  // with a doubled underscore, which the exporter also writes. A position
+  // starts with a 0, as the exporter pads it: that keeps a year
+  // ("Lecture_2024_…") or a lecture number from being read as one.
+  m = stem.match(new RegExp(String.raw`_+(0\d{2,4})_(\d{2})-(\d{2})-(\d{2})` + DUP, "i"));
+  if (m) add(stem.slice(0, m.index), m[2], m[3], m[4], m[1]);
+
+  // Our own capture convention, "Lecture_3_00-04-32". Underscore OR hyphen
+  // before the stamp: capture writes "_", but a person naming files by hand
+  // in a name that already uses hyphens ("Splitting-Cells-00-02-23") will
+  // not switch separators for us. Always offered, last, so that any of the
+  // readings above can still be overruled by a transcript that names it.
+  m = stem.match(new RegExp(String.raw`[_-](\d{2})-(\d{2})-(\d{2})` + DUP, "i"));
+  if (m) add(stem.slice(0, m.index), m[1], m[2], m[3], null);
+
+  return readings;
+}
+
+/**
+ * The reading of a slide's name that pairs it with one of these transcript
+ * stems (already stemKey'd), or null. This is what decides where a name like
+ * "Lecture_2024_00-04-32" splits: by the transcript actually loaded.
+ */
+function readingForStems(name, stemKeys) {
+  return nameReadings(name).find((r) => stemKeys.has(stemKey(normalizeStem(r.prefix)))) || null;
 }
 
 function isTranscriptFile(file) {
@@ -3664,16 +3838,15 @@ async function registerWorkspaceTranscript(file) {
 
   let attached = 0;
   for (const job of jobs.values()) {
-    const seconds = Number.isFinite(job.captureSeconds)
-      ? job.captureSeconds
-      : (() => {
-          const stamp = timestampFromName(job.name);
-          return stamp && stems.has(stemKey(normalizeStem(stamp.prefix))) ? stamp.seconds : null;
-        })();
-    if (seconds === null) continue;
-    // For name-derived matches the stem check happened above; for jobs that
-    // already carry a timestamp, pair on their recorded source video.
-    if (Number.isFinite(job.captureSeconds) && !stems.has(stemKey(job.videoName))) continue;
+    // Which moment of THIS transcript the slide is at, or null if it is not
+    // one of its slides. A slide already pinned to this video keeps its
+    // recorded time. Otherwise its name decides — every reading of it, so
+    // a slide added before its transcript, whose name split the wrong way
+    // with nothing loaded to settle it, is read again now that there is.
+    const pinned = Number.isFinite(job.captureSeconds) && stems.has(stemKey(job.videoName));
+    const reading = pinned ? null : readingForStems(job.name, stems);
+    if (!pinned && !reading) continue;
+    const seconds = pinned ? job.captureSeconds : reading.seconds;
     if (job.transcriptContext) {
       // The slide already carries context for this recording — from this
       // same file before a reload (the list of files does not survive one,
@@ -3685,6 +3858,12 @@ async function registerWorkspaceTranscript(file) {
       continue;
     }
     job.captureSeconds = seconds;
+    if (reading) {
+      // The reading that named this transcript is now the slide's identity,
+      // replacing whatever the name guessed with nothing loaded to check it.
+      job.videoName = normalizeStem(reading.prefix);
+      job.slidePosition = reading.position;
+    }
     if (!job.videoName) job.videoName = baseStem;
     job.transcriptContext = excerptFromCues(cues, seconds);
     if (job.transcriptContext) {
@@ -5367,6 +5546,7 @@ function serializeProject() {
       originalMediaType: job.originalMediaType,
       videoName: job.videoName,
       captureSeconds: job.captureSeconds,
+      slidePosition: Number.isInteger(job.slidePosition) ? job.slidePosition : null,
       textOnly: !!job.textOnly,
       truncated: !!job.truncated,
       transcriptContext: job.transcriptContext,
@@ -5756,6 +5936,10 @@ function importedProjectRecord(raw) {
       // num() maps a non-finite value to null, so a frame captured at 0:00
       // keeps its legitimate 0 while junk is discarded.
       captureSeconds: num(saved.captureSeconds),
+      // A whole number or nothing: it only ever drives a sort, and a junk
+      // value in a hand-edited file would put that slide anywhere.
+      slidePosition:
+        Number.isInteger(saved.slidePosition) && saved.slidePosition >= 0 ? saved.slidePosition : null,
       textOnly: !!saved.textOnly,
       truncated: !!saved.truncated,
       // Plain text sent to the API as context, never rendered as HTML — a

@@ -53,6 +53,7 @@ Suites write downloads and screenshots to `test/.out/`, which is gitignored.
 | `regress12.mjs` | The transcript cliff — captions that stop before the recording does, and every place that has to say so |
 | `regress13.mjs` | Cost: the `usage` block the API returns, cache read/write rates, Parley's cost header, and the ledger surviving undo |
 | `regress14.mjs` | The rail's Save button and what "Saved" means, the New batch warning, and filenames shown in full in the rail and the Projects dialog |
+| `regress15.mjs` | The video team's export names — position-then-time and time-then-position — pairing with their transcript in either arrival order, the export's timestamp, and the optional sort by slide position with its undo |
 
 ## Writing one
 

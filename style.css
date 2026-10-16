@@ -575,6 +575,24 @@ code, kbd {
 }
 .rail-empty { padding: 0 20px 16px; font-family: var(--font-accent); font-size: 15px; color: var(--faint); text-wrap: pretty; }
 
+/* The offer to sort by slide position. Quiet — it is a suggestion about the
+   list below it, not part of the list — and it sits with the list rather
+   than in the head row, which has no room left for a fourth control. */
+.rail-sort {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 12px 8px;
+  padding: 8px 8px 8px 12px;
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--swamp-sunken);
+  flex-shrink: 0;
+}
+.rail-sort-text { margin: 0; font-family: var(--font-accent); font-size: 13px; color: var(--muted); text-wrap: pretty; }
+.rail-sort .btn { flex-shrink: 0; }
+
 .rail-list {
   flex: 1;
   overflow: auto;
