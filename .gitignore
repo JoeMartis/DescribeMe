@@ -1,0 +1,8 @@
+# Test scratch: downloaded zips and screenshots a suite writes while it runs.
+test/.out/
+
+# The app has no dependencies; test/ pulls in Playwright and nothing else.
+# No trailing slash: this has to catch a *symlinked* node_modules too, which a
+# directory-only pattern lets straight through — and committing that symlink
+# would point every other checkout at a path that exists on one machine.
+test/node_modules
