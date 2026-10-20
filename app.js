@@ -5042,6 +5042,20 @@ function exportBlockFor({ job, imageName, titleLevel, position, total }) {
   if (anchor) imageNodes.reverse().forEach((node) => anchor.after(node));
   else imageNodes.reverse().forEach((node) => container.prepend(node));
 
+  // Every visual opens with the same gap above it. Blocks are joined with
+  // nothing between them, so until now the gap came from whatever ended the
+  // block before: a description's last paragraph carried a margin, but a
+  // slide that is only a heading — a title card run through Text & math —
+  // ends on its image, and the next visual's "Visual 11 of 20" title sat
+  // directly under it, reading as that image's caption.
+  //
+  // On the block's first element, not a wrapper: Studio's visual editor has
+  // been seen to drop a style from a <section>, and the first element is
+  // almost always the title heading. rem rather than em, so a heading's
+  // larger font does not make its gap bigger than a bare image's would be.
+  const lead = container.firstElementChild;
+  if (lead) lead.style.marginTop = "2rem";
+
   return { html: container.innerHTML, clamped };
 }
 

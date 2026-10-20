@@ -62,7 +62,7 @@ async function jobFor(page, name, resultHtml) {
   const r = await exportHtml(page, "h1");
   check("H1  default starts visual titles at h3 and shifts subheadings to h4", JSON.stringify(tags(r.html)) === JSON.stringify(["h3", "h4", "h3"]), tags(r.html).join(","));
   check("H1  no h1 or h2 is emitted at all", !/<h[12]\b/.test(r.html));
-  check("H1  tabindex lands on the visual title, not a subheading", /<h3 tabindex="0">Cell cycle<\/h3>/.test(r.html) && !/<h4 tabindex/.test(r.html), (r.html.match(/<h[34][^>]*>/g) || []).join(" "));
+  check("H1  tabindex lands on the visual title, not a subheading", /<h3 tabindex="0"[^>]*>Cell cycle<\/h3>/.test(r.html) && !/<h4 tabindex/.test(r.html), (r.html.match(/<h[34][^>]*>/g) || []).join(" "));
   check("H1  no page errors", problems.filter((m) => !/404/.test(m)).length === 0, problems.join(" | "));
   await b.close();
 }
@@ -108,7 +108,7 @@ async function jobFor(page, name, resultHtml) {
   let r = await exportHtml(page, "h4a");
   check("H4  batch heading sits one level above the titles and states the total", /<h2>Cell Biology — 2 visuals<\/h2>/.test(r.html), (r.html.match(/<h2>[^<]*<\/h2>/) || [])[0]);
   check("H4  each visual title carries its position", /Visual 1 of 2: <\/span>Cell cycle/.test(r.html) && /Visual 2 of 2: <\/span>Mitosis/.test(r.html), (r.html.match(/Visual \d of \d/g) || []).join(" "));
-  check("H4  the count is inside the title heading, not a sibling", /<h3 tabindex="0"><span class="visual-count">Visual 1 of 2: <\/span>Cell cycle<\/h3>/.test(r.html));
+  check("H4  the count is inside the title heading, not a sibling", /<h3 tabindex="0"[^>]*><span class="visual-count">Visual 1 of 2: <\/span>Cell cycle<\/h3>/.test(r.html));
 
   await configure(page, { batchHeading: false });
   r = await exportHtml(page, "h4b");

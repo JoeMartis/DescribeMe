@@ -54,6 +54,7 @@ Suites write downloads and screenshots to `test/.out/`, which is gitignored.
 | `regress13.mjs` | Cost: the `usage` block the API returns, cache read/write rates, Parley's cost header, and the ledger surviving undo |
 | `regress14.mjs` | The rail's Save button and what "Saved" means, the New batch warning, and filenames shown in full in the rail and the Projects dialog |
 | `regress15.mjs` | The video team's export names — position-then-time and time-then-position — pairing with their transcript in either arrival order, the export's timestamp, and the optional sort by slide position with its undo |
+| `regress16.mjs` | The gap between exported visuals — a heading-only slide no longer runs into the next visual's title, measured in a plain page the way it renders after pasting |
 
 ## Writing one
 

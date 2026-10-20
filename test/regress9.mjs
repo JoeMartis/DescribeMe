@@ -124,7 +124,7 @@ const shape = (html) =>
   await setup(page, [a, c]);
   const html = await exportHtml(page, "o4");
   check("O4  the counter is still the first thing inside the title",
-    /<h3 tabindex="0"><span class="visual-count">Visual 1 of 2: <\/span>One<\/h3>/.test(html),
+    /<h3 tabindex="0"[^>]*><span class="visual-count">Visual 1 of 2: <\/span>One<\/h3>/.test(html),
     (html.match(/<h3[^>]*>.*?<\/h3>/) || [""])[0]);
   check("O4  and it precedes that block's figcaption",
     html.indexOf("Visual 1 of 2") < html.indexOf("<figcaption"), "");
