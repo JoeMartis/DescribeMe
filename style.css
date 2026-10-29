@@ -1100,13 +1100,6 @@ code, kbd {
   font-size: 1.3em;
   text-align: center;
 }
-.result-preview .sr-note {
-  display: block;
-  font-style: italic;
-  color: var(--muted);
-  font-size: 14px;
-  margin: 0 0 16px;
-}
 .result-preview[contenteditable="true"] {
   outline: var(--border-width) dashed var(--grape);
   outline-offset: 12px;

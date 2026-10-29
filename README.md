@@ -222,8 +222,9 @@ not just to produce accessible output:
   toggle.
 
 The **generated descriptions** are the other half of this: the prompt asks
-for semantic headings, list grouping, MathML with a plain-language reading
-alongside every equation, paragraph-based diagram descriptions (`<figure>`
+for semantic headings, list grouping, MathML for every equation (with no
+spoken reading added beside it: screen readers read the MathML),
+paragraph-based diagram descriptions (`<figure>`
 is reserved for the slide image in the export, and any figure markup in a
 description — model-written or hand-edited — is unwrapped to paragraphs on
 the way out), real

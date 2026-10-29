@@ -22,9 +22,9 @@ Equations and symbols
   <msup>, <mover>, <munder> and <mroot> exactly two child elements each —
   wrap multi-token numerators, denominators and bases in <mrow>. Misnested
   markup renders as scrambled symbols for sighted readers.
-- Render every equation in MathML so screen readers can parse it, then
-  immediately follow it with a plain-language reading in a <span class="sr-note">
-  (e.g., "read as: the integral from 0 to infinity of e to the minus x squared, dx").
+- Render every equation in MathML so screen readers can parse it. Do not
+  follow it with a spoken or plain-language reading: screen readers read the
+  MathML itself.
 - Spell out each symbol and abbreviation the first time it appears.
 
 Figures, diagrams, processes
@@ -162,7 +162,7 @@ const MODEL_SHORT_NAMES = {
 // ---------- Verbosity ----------
 //
 // Appended to SYSTEM_PROMPT rather than replacing any of it — the structural
-// requirements (semantic HTML, MathML + plain-language readings, figure/
+// requirements (semantic HTML, MathML, figure/
 // figcaption, real tables, "include only what's on the slide") always apply
 // regardless of verbosity. Only how much elaboration to add on top of that
 // minimum changes.
@@ -236,10 +236,8 @@ Equations
   and give <mfrac>, <msub>, <msup>, <mover>, <munder> and <mroot> exactly two
   child elements each — wrap multi-token numerators, denominators and bases in
   <mrow>.
-- Follow each one with a plain-language reading in a <span class="sr-note">
-  (e.g., "read as: delta G equals delta H minus T delta S"). This reading is
-  the one thing you may add that is not printed on the image: MathML alone is
-  not reliably spoken, and the reading is how the equation is heard.
+- Do not follow an equation with a spoken or plain-language reading: screen
+  readers read the MathML itself.
 
 What not to do — this is the substance of the task
 - Do not open with a summary, a topic sentence, or any framing. Begin with the
@@ -255,8 +253,7 @@ What not to do — this is the substance of the task
   nothing about the graphic itself.
 - Do not report a trend, a relationship, or a takeaway.
 - Do not reorder, group, merge or summarize. Reading order, as written.
-- Add no word that is not printed on the image, other than the plain-language
-  reading of an equation.
+- Add no word that is not printed on the image.
 
 If the image carries no text or mathematics at all, return a single <p> saying
 that it has none to transcribe.
@@ -415,7 +412,7 @@ const COST_HINT = {
     body:
       "— actual cost varies with the image and how much text Claude generates. They count prose, " +
       "so a visual carrying several equations can run several times higher: MathML markup is " +
-      "verbose, and each equation also gets a spoken reading beside it. Good for comparing the " +
+      "verbose. Good for comparing the " +
       "three models, not for budgeting.",
   },
   billed: {
@@ -3135,10 +3132,8 @@ async function describeOne(job, { apiKey, model, verbosity, revision }) {
           // A ceiling, not a charge — only tokens actually generated are
           // billed, so headroom is free. 4096 was reachable: MathML is
           // enormously verbose (a single equation can run to hundreds of
-          // tokens of <mfrac>/<msub>/<mrow>), and the prompt also asks for a
-          // plain-language reading beside each one, so a math-heavy visual
-          // hit the cap and came back truncated with prose that was not
-          // long at all.
+          // tokens of <mfrac>/<msub>/<mrow>), so a math-heavy visual hit the
+          // cap and came back truncated with prose that was not long at all.
           max_tokens: 16384,
           system: buildSystemPrompt(verbosity, revision, job.textOnly),
           messages: [
@@ -3453,7 +3448,24 @@ function sanitizeHtmlFragment(html) {
     });
   };
 
+  // Earlier builds asked for a "read as: …" line after every equation, in a
+  // <span class="sr-note">. Nothing hid it, so it showed in the course as a
+  // second copy of the equation in words, and screen readers already read
+  // the MathML. Descriptions written then still carry it in saved projects;
+  // this drops it wherever they come back in, and the paragraph too when the
+  // reading was all it held.
+  const dropReadings = (root) => {
+    root.querySelectorAll("span.sr-note").forEach((note) => {
+      const parent = note.parentElement;
+      note.remove();
+      if (parent && parent.tagName === "P" && !parent.textContent.trim() && !parent.firstElementChild) {
+        parent.remove();
+      }
+    });
+  };
+
   walk(template.content);
+  dropReadings(template.content);
   return template.content;
 }
 
@@ -5569,6 +5581,13 @@ function serializeProject() {
   };
 }
 
+function storedWithoutReadings(html) {
+  const fragment = sanitizeHtmlFragment(html);
+  const holder = document.createElement("div");
+  holder.appendChild(fragment.cloneNode(true));
+  return { resultHtml: holder.innerHTML, resultText: domFragmentToText(fragment) };
+}
+
 function loadProjectRecord(record) {
   jobs.clear();
   // Same reasoning as newBatch: the opened project's slides carry their own
@@ -5584,6 +5603,12 @@ function loadProjectRecord(record) {
       attempt: 0,
       railEl: null,
       ...saved,
+      // Saved before the "read as" line was dropped (see dropReadings in
+      // sanitizeHtmlFragment). The store is not sanitized again on the way
+      // back in, so it comes out here or it rides into the next export.
+      ...(typeof saved.resultHtml === "string" && saved.resultHtml.includes("sr-note")
+        ? storedWithoutReadings(saved.resultHtml)
+        : {}),
       previewDataUrl: saved.dataUrl,
       // Only a base64-encoded image is a payload. The "anything after the
       // comma" version handed the placeholder SVG's percent-encoded markup to
