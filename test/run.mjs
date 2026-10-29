@@ -37,6 +37,11 @@ const TYPES = {
   ".svg": "image/svg+xml",
   ".webm": "video/webm",
   ".ico": "image/x-icon",
+  // The learner PDF's typesetter: instantiateStreaming refuses a .wasm that
+  // is not served as application/wasm, which is what GitHub Pages sends.
+  ".wasm": "application/wasm",
+  ".otf": "font/otf",
+  ".ttf": "font/ttf",
 };
 
 // A deliberately dull static server: no directory listing, no rewriting, and

@@ -1227,6 +1227,27 @@ dialog.sheet::backdrop { background: rgba(36, 26, 18, 0.55); }
 .sheet-lede { font-size: 13px; color: var(--muted); margin-bottom: 22px; text-wrap: pretty; }
 .sheet-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 24px; flex-wrap: wrap; }
 
+/* ---------- learner downloads dialog ---------- */
+/* Same card as a saved project: each option is a button and the sentence
+   that says who it is for, read together. */
+.learner-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  background: var(--raised);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-md);
+}
+/* One width for both buttons, so the two descriptions start on one line. */
+.learner-option .btn { flex: none; width: 12em; justify-content: center; }
+.learner-option .hint { margin: 0; }
+#learnerCount { margin-bottom: 12px; }
+@media (max-width: 560px) {
+  .learner-option { flex-direction: column; }
+}
+
 /* ---------- projects dialog ---------- */
 .project-save-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
 .project-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }

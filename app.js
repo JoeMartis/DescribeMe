@@ -618,6 +618,14 @@ const els = {
   costHint: document.getElementById("costHint"),
   exportBtn: document.getElementById("exportBtn"),
   exportBtnLabel: document.getElementById("exportBtnLabel"),
+  learnerBtn: document.getElementById("learnerBtn"),
+  learnerDialog: document.getElementById("learnerDialog"),
+  learnerClose: document.getElementById("learnerClose"),
+  learnerCount: document.getElementById("learnerCount"),
+  learnerHtmlBtn: document.getElementById("learnerHtmlBtn"),
+  learnerPdfBtn: document.getElementById("learnerPdfBtn"),
+  learnerStatus: document.getElementById("learnerStatus"),
+  learnerError: document.getElementById("learnerError"),
   exportResize: document.getElementById("exportResize"),
   exportHeadingLevel: document.getElementById("exportHeadingLevel"),
   exportBatchHeading: document.getElementById("exportBatchHeading"),
@@ -2034,6 +2042,7 @@ function updateControls() {
     c.approved === 0
       ? "Export as .zip"
       : `Export ${c.approved} approved as .zip`;
+  els.learnerBtn.disabled = c.approved === 0;
 
   // Rail — the offer to sort by slide position
   renderSortOffer();
@@ -5001,14 +5010,20 @@ function shiftHeadings(container, titleLevel) {
   return { titleEls, clamped };
 }
 
-function exportBlockFor({ job, imageName, titleLevel, position, total }) {
+// The learner document reuses this with three differences, each an option
+// here so the Studio export stays exactly as it was: the image is built in
+// (imageSrc, a data: URL) rather than a /static/ path; titles get no
+// tabindex, which exists for Studio and is only a stray tab stop in a page of
+// its own; and the gap above each visual comes from that page's stylesheet
+// (inlineGap: false), since there is no editor there to strip it.
+function exportBlockFor({ job, imageName, titleLevel, position, total, imageSrc, imageSize, focusableTitles = true, inlineGap = true }) {
   const container = document.createElement("div");
   container.innerHTML = job.resultHtml;
 
   // Relative shift, then the slide title gets its tabindex — keyed to
   // whatever level the title ended up on, not a hardcoded h2.
   const { titleEls, clamped } = shiftHeadings(container, titleLevel);
-  titleEls.forEach((h) => h.setAttribute("tabindex", "0"));
+  if (focusableTitles) titleEls.forEach((h) => h.setAttribute("tabindex", "0"));
 
   // "Slide 3 of 12" ahead of the title, so heading navigation says where you
   // are in the sequence. A span, not part of the title text, so the title
@@ -5031,6 +5046,11 @@ function exportBlockFor({ job, imageName, titleLevel, position, total }) {
   });
 
   const holder = document.createElement("div");
+  // Width and height let a page reserve the image's space before it decodes;
+  // only the learner document knows them, since the Studio export resizes
+  // nothing it does not have to.
+  const size = imageSize ? ` width="${imageSize.width}" height="${imageSize.height}"` : "";
+  const img = `<img src="${escapeHtml(imageSrc || `/static/${imageName}`)}" alt=""${size}>`;
   // Number.isFinite, not truthiness: a frame captured at 0:00 is legitimate
   // and its timestamp is 0.
   // The caption leads the figure. <figure> takes a <figcaption> as either its
@@ -5040,8 +5060,8 @@ function exportBlockFor({ job, imageName, titleLevel, position, total }) {
   holder.innerHTML = Number.isFinite(job.captureSeconds)
     ? `<figure>\n` +
       `<figcaption>Visual in video at <time datetime="${isoDuration(job.captureSeconds)}">${formatClock(job.captureSeconds)}</time></figcaption>\n` +
-      `<img src="/static/${escapeHtml(imageName)}" alt="">\n</figure>`
-    : `<img src="/static/${escapeHtml(imageName)}" alt="">`;
+      `${img}\n</figure>`
+    : img;
 
   // Placement anchor: the leading heading, and nothing else. The figure goes
   // between the title and the description's own opening sentence, so a block
@@ -5066,7 +5086,7 @@ function exportBlockFor({ job, imageName, titleLevel, position, total }) {
   // almost always the title heading. rem rather than em, so a heading's
   // larger font does not make its gap bigger than a bare image's would be.
   const lead = container.firstElementChild;
-  if (lead) lead.style.marginTop = "2rem";
+  if (lead && inlineGap) lead.style.marginTop = "2rem";
 
   return { html: container.innerHTML, clamped };
 }
@@ -5115,14 +5135,21 @@ async function exportApproved() {
   }
 }
 
-async function exportApprovedNow() {
+/**
+ * The approved slides' images, ready to go out: the original bytes where the
+ * project has them, resized when Settings says so, each with a unique,
+ * URL-safe name. Shared by the Studio zip and the learner downloads, so the
+ * same visual is the same picture in all three.
+ *
+ * Each entry is { job, name, bytes, mediaType, imageName }. mediaType follows
+ * the bytes, not the original file — a resize can turn a JPEG-named source
+ * into JPEG bytes, and an API copy is JPEG whatever its name says.
+ */
+async function prepareApprovedImages() {
   // What's exported must be what's on screen — including an edit that
   // hasn't been explicitly saved yet.
   commitPendingEdit();
   const approved = jobList().filter((j) => j.state === "done" && j.approved);
-  if (approved.length === 0) return;
-
-  const batch = els.batchName.value.trim() || "Untitled batch";
   const shouldResize = els.exportResize.checked;
 
   const prepared = [];
@@ -5153,28 +5180,55 @@ async function exportApprovedNow() {
       continue;
     }
     if (!shouldResize) {
-      prepared.push({ job, name, bytes });
+      prepared.push({ job, name, bytes, mediaType });
       continue;
     }
     try {
       const resized = await resizeImageForExport(base64, mediaType);
-      prepared.push({ job, name: resized.ext ? renameExtension(name, resized.ext) : name, bytes: resized.bytes });
+      prepared.push({
+        job,
+        name: resized.ext ? renameExtension(name, resized.ext) : name,
+        bytes: resized.bytes,
+        mediaType: resized.ext === "jpg" ? "image/jpeg" : mediaType,
+      });
     } catch (_err) {
       // A slide that resized fine for upload should always resize fine here
       // too — but if decoding somehow fails, exporting the original is
       // better than dropping the image from the zip entirely.
-      prepared.push({ job, name, bytes });
+      prepared.push({ job, name, bytes, mediaType });
     }
-  }
-  if (prepared.length === 0) {
-    setError(
-      `Nothing was exported — ${skipped.join(", ")} ${skipped.length === 1 ? "has" : "have"} no image data.`
-    );
-    return;
   }
 
   const imageNames = new Set();
   const entries = prepared.map((p) => ({ ...p, imageName: uniqueName(p.name, imageNames) }));
+  return { approved, entries, skipped, apiCopies, shouldResize };
+}
+
+/** "Nothing was exported — a.png has no image data." */
+function nothingExportedMessage(skipped) {
+  return `Nothing was exported — ${skipped.join(", ")} ${skipped.length === 1 ? "has" : "have"} no image data.`;
+}
+
+function downloadBlob(blob, fileName) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+
+async function exportApprovedNow() {
+  const { approved, entries, skipped, apiCopies, shouldResize } = await prepareApprovedImages();
+  if (approved.length === 0) return;
+  const batch = els.batchName.value.trim() || "Untitled batch";
+  const prepared = entries;
+  if (entries.length === 0) {
+    setError(nothingExportedMessage(skipped));
+    return;
+  }
 
   // The fragment lands inside a page that already has headings, so its
   // titles sit at the configured level and everything below shifts with
@@ -5209,15 +5263,7 @@ async function exportApprovedNow() {
     files.push({ name: `static/${imageName}`, bytes });
   }
 
-  const blob = buildZipBlob(files);
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `${safeFileStem(batch, new Set())}-descriptions.zip`;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 10000);
+  downloadBlob(buildZipBlob(files), `${safeFileStem(batch, new Set())}-descriptions.zip`);
   const notes = [];
   if (apiCopies > 0) {
     // Not "full resolution" — say what actually went out.
@@ -5245,6 +5291,182 @@ async function exportApprovedNow() {
 }
 
 els.exportBtn.addEventListener("click", exportApproved);
+
+// ---------- Learner downloads ----------
+//
+// The zip is for a course team: a fragment to paste into Studio and images to
+// upload beside it. These are for learners: one file to keep, with every
+// approved visual and its description in order and the images built in.
+//
+// HTML is the one to recommend. Its equations stay MathML, which a screen
+// reader lets a learner explore term by term, and its text reflows for zoom
+// and small screens. The PDF is for whoever needs a PDF: tagged, claiming
+// PDF/UA-1, built from this same HTML by learner-pdf.mjs, where its one
+// difference — how equations are read — is explained.
+
+const LEARNER_STYLE = `
+:root { color-scheme: light dark; --ink: #1d1b19; --muted: #5b554d; --rule: #d8d2c8; --head: #f3efe8; --link: #1f5fa8; }
+@media (prefers-color-scheme: dark) { :root { --ink: #ece8e1; --muted: #b3aca1; --rule: #4a453e; --head: #2a2723; --link: #8cb8ff; } }
+* { box-sizing: border-box; }
+body { margin: 0; color: var(--ink); background: Canvas; font: 1.125rem/1.65 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+main { max-width: 46rem; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
+h1 { font-size: 2rem; line-height: 1.2; margin: 0 0 .5rem; }
+h2 { font-size: 1.45rem; line-height: 1.3; margin: 3rem 0 .75rem; padding-top: 1.5rem; border-top: 1px solid var(--rule); }
+h3, h4, h5, h6 { font-size: 1.15rem; margin: 1.6rem 0 .5rem; }
+.visual-count { color: var(--muted); font-weight: 600; }
+p, li { margin: 0 0 .9rem; }
+figure { margin: 1rem 0 1.25rem; }
+figcaption { color: var(--muted); font-size: 1rem; margin-bottom: .5rem; }
+img { display: block; max-width: 100%; height: auto; margin: 1rem 0 1.25rem; border: 1px solid var(--rule); }
+math { font-size: 1.1em; font-family: math; }
+math[display="block"] { margin: 1rem 0; overflow-x: auto; }
+table { border-collapse: collapse; margin: 1rem 0 1.25rem; display: block; overflow-x: auto; }
+th, td { border: 1px solid var(--rule); padding: .4rem .7rem; text-align: left; vertical-align: top; }
+th { background: var(--head); }
+a { color: var(--link); }
+@media print {
+  body { font-size: 11pt; }
+  main { max-width: none; padding: 0; }
+  h2 { break-after: avoid; }
+  img, figure, table, math[display="block"] { break-inside: avoid; }
+}
+`;
+
+function bytesToBase64(bytes) {
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(binary);
+}
+
+/**
+ * The learner HTML document, complete. Titles are always <h2> under the
+ * batch name as <h1> — this is a page of its own, not a fragment inside a
+ * Studio page, so "Slide titles start at" and the batch-heading option do
+ * not apply. Numbering and resizing follow Settings as they do for the zip.
+ *
+ * The file carries its own CSP: it only ever needs its inline styles and its
+ * data: images, so it is told it may load nothing else, wherever it is
+ * opened from.
+ */
+async function learnerDocument() {
+  const prep = await prepareApprovedImages();
+  if (prep.approved.length === 0) return null;
+  if (prep.entries.length === 0) throw new Error(nothingExportedMessage(prep.skipped));
+
+  const batch = els.batchName.value.trim() || "Untitled batch";
+  const counted = els.exportSlideCounts.checked;
+  const total = prep.entries.length;
+  const blocks = [];
+  for (const [i, entry] of prep.entries.entries()) {
+    const src = `data:${entry.mediaType};base64,${bytesToBase64(entry.bytes)}`;
+    let imageSize = null;
+    try {
+      const img = await loadImageElement(src);
+      imageSize = { width: img.naturalWidth, height: img.naturalHeight };
+    } catch (_err) {
+      imageSize = null; // still shown; it just cannot reserve its space
+    }
+    blocks.push(
+      exportBlockFor({ ...entry, titleLevel: 2, position: counted ? i + 1 : 0, total, imageSrc: src, imageSize, focusableTitles: false, inlineGap: false })
+    );
+  }
+  const title = `${batch}: visual descriptions`;
+  const lead = counted ? `<p>${total} visual${total === 1 ? "" : "s"}, described in order.</p>\n` : "";
+  const html =
+    `<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n` +
+    `<meta name="viewport" content="width=device-width, initial-scale=1">\n` +
+    `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'">\n` +
+    `<title>${escapeHtml(title)}</title>\n<style>${LEARNER_STYLE}</style>\n</head>\n<body>\n<main>\n` +
+    `<h1>${escapeHtml(batch)}</h1>\n${lead}\n` +
+    blocks.map((b) => b.html).join("\n\n") +
+    `\n</main>\n</body>\n</html>\n`;
+  return {
+    html,
+    stem: `${safeFileStem(batch, new Set())}-visual-descriptions`,
+    total,
+    skipped: prep.skipped,
+    clamped: blocks.filter((b) => b.clamped > 0).length,
+  };
+}
+
+function setLearnerStatus(message) {
+  els.learnerStatus.textContent = message;
+}
+
+function setLearnerError(message) {
+  els.learnerError.textContent = message;
+  els.learnerError.hidden = !message;
+}
+
+function learnerNotes(doc) {
+  const notes = [];
+  if (doc.skipped.length > 0) notes.push(`Skipped ${doc.skipped.join(", ")} — no image data.`);
+  if (doc.clamped > 0) {
+    notes.push(`${doc.clamped} visual${doc.clamped === 1 ? " has" : "s have"} subheadings deeper than h6, so the deepest share a level.`);
+  }
+  return notes.length ? ` ${notes.join(" ")}` : "";
+}
+
+let learnerBusy = false;
+
+function setLearnerBusy(busy) {
+  learnerBusy = busy;
+  els.learnerHtmlBtn.disabled = busy;
+  els.learnerPdfBtn.disabled = busy;
+  els.learnerDialog.querySelector(".sheet-body").setAttribute("aria-busy", busy ? "true" : "false");
+}
+
+async function runLearnerDownload(kind) {
+  if (learnerBusy) return;
+  setLearnerBusy(true);
+  setLearnerError("");
+  setLearnerStatus(kind === "pdf" ? "Preparing the PDF…" : "Preparing the HTML file…");
+  try {
+    const doc = await learnerDocument();
+    if (!doc) {
+      setLearnerStatus("");
+      setLearnerError("Approve at least one visual first — only approved visuals go into a learner download.");
+      return;
+    }
+    if (kind === "html") {
+      downloadBlob(new Blob([doc.html], { type: "text/html;charset=utf-8" }), `${doc.stem}.html`);
+      setLearnerStatus(`Downloaded ${doc.stem}.html — ${doc.total} visual${doc.total === 1 ? "" : "s"}.${learnerNotes(doc)}`);
+      return;
+    }
+    // Imported here and nowhere else: the typesetter is about 11 MB over the
+    // network, and only someone who asks for a PDF should pay for it.
+    const { learnerPdf } = await import("./learner-pdf.mjs");
+    // Without its <style>: the PDF needs only the structure, and parsing an
+    // inline stylesheet here is reported as a violation of this page's CSP
+    // even though nothing is ever applied.
+    const parsed = new DOMParser().parseFromString(doc.html.replace(/<style>[\s\S]*?<\/style>/, ""), "text/html");
+    const { bytes, brokenEquations } = await learnerPdf(parsed, { onProgress: setLearnerStatus });
+    downloadBlob(new Blob([bytes], { type: "application/pdf" }), `${doc.stem}.pdf`);
+    const broken =
+      brokenEquations > 0
+        ? ` ${brokenEquations} equation${brokenEquations === 1 ? "" : "s"} could not be typeset and ${brokenEquations === 1 ? "appears" : "appear"} as ${brokenEquations === 1 ? "its" : "their"} spoken reading in italics — the HTML download has ${brokenEquations === 1 ? "it" : "them"} in full.`
+        : "";
+    setLearnerStatus(`Downloaded ${doc.stem}.pdf — ${doc.total} visual${doc.total === 1 ? "" : "s"}.${broken}${learnerNotes(doc)}`);
+  } catch (err) {
+    setLearnerStatus("");
+    setLearnerError(`${kind === "pdf" ? "The PDF" : "The HTML file"} could not be made: ${(err && err.message) || err}`);
+  } finally {
+    setLearnerBusy(false);
+  }
+}
+
+function openLearnerDialog() {
+  const approved = jobList().filter((j) => j.state === "done" && j.approved).length;
+  els.learnerCount.textContent = `${approved} approved visual${approved === 1 ? "" : "s"}, in rail order.`;
+  setLearnerError("");
+  if (!learnerBusy) setLearnerStatus("");
+  els.learnerDialog.showModal();
+}
+
+els.learnerBtn.addEventListener("click", openLearnerDialog);
+els.learnerClose.addEventListener("click", () => els.learnerDialog.close());
+els.learnerHtmlBtn.addEventListener("click", () => runLearnerDownload("html"));
+els.learnerPdfBtn.addEventListener("click", () => runLearnerDownload("pdf"));
 
 // ---------- Verbosity display & version badge ----------
 

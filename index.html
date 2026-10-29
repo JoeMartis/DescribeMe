@@ -64,8 +64,13 @@
 <!-- media-src allows blob: so a locally-picked video can be played for frame
      capture. Without it the <video> falls back to default-src 'self', which
      refuses object URLs outright. It grants no network origin — the video
-     never leaves the browser, and connect-src remains the only way out. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self' blob:; font-src 'self'; connect-src https://parley.api.mit.edu https://api.anthropic.com; object-src 'none'; base-uri 'none'; form-action 'none';">
+     never leaves the browser, and connect-src remains the only way out.
+     The learner PDF adds two things, both for files on this site only:
+     'wasm-unsafe-eval' lets the typesetter's WebAssembly compile (it allows
+     no JavaScript eval), and connect-src 'self' lets the page fetch that
+     typesetter, its fonts and its speech rules from vendor/. Neither opens
+     a way to any other host. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' data:; media-src 'self' blob:; font-src 'self'; connect-src 'self' https://parley.api.mit.edu https://api.anthropic.com; object-src 'none'; base-uri 'none'; form-action 'none';">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -202,6 +207,10 @@
       <button type="button" class="btn btn-primary" id="exportBtn" disabled>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" width="16" height="16"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
         <span id="exportBtnLabel">Export as .zip</span>
+      </button>
+      <button type="button" class="btn" id="learnerBtn" aria-haspopup="dialog" disabled>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" width="16" height="16"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="12" y1="18" x2="12" y2="12"></line><polyline points="9 15 12 18 15 15"></polyline></svg>
+        For learners
       </button>
       <!-- Labelled rather than icon-only. The folder alone was being missed:
            nothing on screen said where saved work lived, and the icon's
@@ -465,6 +474,40 @@
     <!-- In-dialog live region: showModal() makes the page's main status line
          inert, so confirmations announced there would be lost. -->
     <p class="status" id="settingsStatus" role="status" aria-live="polite"></p>
+  </div>
+</dialog>
+
+<!-- ══════════════════════════════════════════════════════════════════════
+     For learners — one file a learner keeps, HTML or PDF, made in this
+     browser. HTML is listed first and called the one to choose: its
+     equations stay MathML a screen reader can explore. The PDF's are read
+     as a whole from a spoken reading, and the hint says so rather than
+     leaving someone to find out.
+     ══════════════════════════════════════════════════════════════════ -->
+<dialog class="sheet" id="learnerDialog" aria-labelledby="learnerTitle">
+  <div class="sheet-body" aria-busy="false">
+    <div class="sheet-head">
+      <h2 id="learnerTitle">Download for learners</h2>
+      <button type="button" class="btn btn-icon" id="learnerClose" aria-label="Close learner downloads">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+      </button>
+    </div>
+    <p class="sheet-lede">One file a learner can keep: every approved visual with its description, in order, with the images built in. It is made in this browser — nothing is uploaded.</p>
+    <p class="hint" id="learnerCount"></p>
+
+    <div class="learner-option">
+      <button type="button" class="btn btn-primary" id="learnerHtmlBtn" aria-describedby="learnerHtmlHint">Download HTML</button>
+      <p class="hint" id="learnerHtmlHint"><strong>Best for most learners.</strong> Opens in any browser, on any device, and works offline. A screen reader can move through each equation term by term, and the text reflows when zoomed.</p>
+    </div>
+    <div class="learner-option">
+      <button type="button" class="btn" id="learnerPdfBtn" aria-describedby="learnerPdfHint">Download PDF</button>
+      <p class="hint" id="learnerPdfHint">A tagged, accessible PDF (PDF/UA). A screen reader reads each equation as a whole from a spoken version, rather than letting a learner explore it. The first PDF loads the typesetter, about 14&nbsp;MB; later ones are quick.</p>
+    </div>
+
+    <p class="error" id="learnerError" role="alert" hidden></p>
+    <!-- In-dialog live region, as in Projects: showModal() makes the page's
+         own status line inert. -->
+    <p class="status" id="learnerStatus" role="status" aria-live="polite"></p>
   </div>
 </dialog>
 

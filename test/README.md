@@ -34,6 +34,26 @@ other address.
 
 Suites write downloads and screenshots to `test/.out/`, which is gitignored.
 
+### veraPDF, for the learner PDF
+
+`regress18` checks the learner PDF's structure itself, and also runs
+[veraPDF](https://verapdf.org) — the reference PDF/UA checker — when
+`VERAPDF_LIB` points at a folder of its jars. veraPDF is Java, so it is not a
+dependency of this repo; without it, that one check prints `SKIP`. One way to
+get the jars, with Maven:
+
+```sh
+mkdir verapdf && cd verapdf
+cat > pom.xml <<'EOF'
+<project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion>
+<groupId>local</groupId><artifactId>verapdf</artifactId><version>1</version>
+<dependencies><dependency><groupId>org.verapdf.apps</groupId><artifactId>greenfield-apps</artifactId><version>1.28.2</version></dependency></dependencies>
+</project>
+EOF
+mvn -q dependency:copy-dependencies -DoutputDirectory=lib
+VERAPDF_LIB="$PWD/lib" node ../test/run.mjs regress18
+```
+
 ## What each suite covers
 
 | Suite | Covers |
@@ -56,6 +76,7 @@ Suites write downloads and screenshots to `test/.out/`, which is gitignored.
 | `regress15.mjs` | The video team's export names — position-then-time and time-then-position — pairing with their transcript in either arrival order, the export's timestamp, and the optional sort by slide position with its undo |
 | `regress16.mjs` | The gap between exported visuals — a heading-only slide no longer runs into the next visual's title, measured in a plain page the way it renders after pasting |
 | `regress17.mjs` | No "read as" line after equations — neither prompt asks for one, and a description that still carries one loses it as a fresh result, an imported project, and a project opened from the store, before it can reach an export |
+| `regress18.mjs` | Learner downloads. The HTML: a complete page with its own CSP, h1 then one h2 per visual, images built in, MathML intact, and nothing requested when opened from disk. The PDF: tagged, every equation a Formula with a spoken alt text (Delta, not triangle; H sub 2 O), slide images as artifacts, PDF/UA-1 identification, nothing fetched off-site to make it, and veraPDF's verdict when available |
 
 ## Writing one
 
