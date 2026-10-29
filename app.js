@@ -5433,9 +5433,21 @@ async function runLearnerDownload(kind) {
       setLearnerStatus(`Downloaded ${doc.stem}.html — ${doc.total} visual${doc.total === 1 ? "" : "s"}.${learnerNotes(doc)}`);
       return;
     }
+    // A page opened from a file on disk has no origin, and the browser will
+    // not load a module, the typesetter's WebAssembly or its fonts for it —
+    // the attempt fails with an error about base URLs that explains nothing.
+    if (location.protocol === "file:") {
+      throw new Error(
+        "it needs DescribeMe opened from a web address, such as joemartis.github.io/DescribeMe or a local web " +
+          "server — browsers do not let a page opened from a file on this computer load the typesetter. " +
+          "Download HTML works either way."
+      );
+    }
     // Imported here and nowhere else: the typesetter is about 11 MB over the
-    // network, and only someone who asks for a PDF should pay for it.
-    const { learnerPdf } = await import("./learner-pdf.mjs");
+    // network, and only someone who asks for a PDF should pay for it. An
+    // absolute URL, not "./learner-pdf.mjs": a classic script's import() has
+    // no base URL to resolve a relative one against in some contexts.
+    const { learnerPdf } = await import(new URL("learner-pdf.mjs", document.baseURI).href);
     // Without its <style>: the PDF needs only the structure, and parsing an
     // inline stylesheet here is reported as a violation of this page's CSP
     // even though nothing is ever applied.
