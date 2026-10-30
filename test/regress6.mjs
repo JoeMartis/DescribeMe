@@ -30,7 +30,10 @@ await page.click("#onboardSkip");
 const header = await page.evaluate((url) => {
   const a = document.getElementById("helpLink");
   if (!a) return null;
-  const tools = [...document.querySelectorAll(".header-tools > *")];
+  // Only what is shown: a hidden tool (the flagged For learners button) has
+  // no box, measures as a zero-height rect at the top, and would read as a
+  // second line.
+  const tools = [...document.querySelectorAll(".header-tools > *")].filter((el) => el.getClientRects().length > 0);
   const mid = (el) => { const r = el.getBoundingClientRect(); return r.top + r.height / 2; };
   const centres = tools.map(mid);
   return {
