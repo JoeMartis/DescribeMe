@@ -201,6 +201,15 @@ if (process.env.VERAPDF_LIB && pdf.file) {
   console.log("SKIP  P9  veraPDF — set VERAPDF_LIB to a folder of its jars to run it");
 }
 
+// The fallback for an equation that won't typeset finds each equation whole,
+// a "$" inside its text included.
+const eqs = await page.evaluate(async () => {
+  const { EQUATION_RE } = await import("/learner-pdf.mjs");
+  const src = 'A #math.equation(block: false, alt: "five dollars")[$"$5" + x$] and #math.equation(block: true, alt: "y")[$y$].';
+  return [...src.matchAll(new RegExp(EQUATION_RE.source, "g"))].map((m) => m[3]);
+});
+check('P10  an equation holding "$5" is still found whole', JSON.stringify(eqs) === JSON.stringify(['"$5" + x', "y"]), JSON.stringify(eqs));
+
 // ---------- F: without the flag, none of it shows — even with approved
 // visuals in the batch (the autosave brings this one back on reload).
 await page.goto(APP_URL, { waitUntil: "load" });
@@ -211,6 +220,22 @@ check("F1  without ?learner-downloads the button is hidden, with approved visual
   restored && (await page.$eval("#learnerBtn", (e) => e.hidden && getComputedStyle(e).display === "none")),
   restored ? "" : "batch did not restore");
 check("F1  and the Studio export is still there as before", !(await page.$eval("#exportBtn", (e) => e.hidden || e.disabled)));
+
+// Without the flag, the page's policy doesn't include what only the PDF
+// needs: no fetching from this site, no compiling WebAssembly. A page of its
+// own, so the violations it provokes on purpose aren't counted in Z.
+{
+  const strict = await page.context().newPage();
+  await strict.goto(APP_URL, { waitUntil: "load" });
+  const r = await strict.evaluate(async () => {
+    const out = {};
+    try { await (await fetch("vendor/sre/mathmaps/en.json")).text(); out.fetch = "allowed"; } catch { out.fetch = "refused"; }
+    try { await WebAssembly.compile(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0])); out.wasm = "allowed"; } catch { out.wasm = "refused"; }
+    return out;
+  });
+  check("F2  without the flag, the PDF's extra permissions are taken back", r.fetch === "refused" && r.wasm === "refused", JSON.stringify(r));
+  await strict.close();
+}
 
 check("Z  no console errors or CSP violations", problems.length === 0, problems.join(" | "));
 

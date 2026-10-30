@@ -221,6 +221,7 @@ await page.evaluate(() => {
   window.__lecture = async (name) => (await window.__team()).getDirectoryHandle(name);
   window.__read = async (dir, name) => JSON.parse(await (await (await dir.getFileHandle(name)).getFile()).text());
   window.__write = async (dir, name, data) => { const w = await (await dir.getFileHandle(name, { create: true })).createWritable(); await w.write(data); await w.close(); };
+  window.showDirectoryPicker = async () => window.__team();
 });
 
 // ---------- F9: this browser's own latest save is never taken for a teammate's
@@ -465,6 +466,106 @@ await page.click('#folderList button[aria-label="Open lecture Lecture 11 from th
 await page.waitForFunction(() => folderLecture && folderLecture.dir === "Lecture 11", null, { timeout: 5000 });
 const n6 = await page.evaluate(() => window.__confirms.filter((m) => /has this lecture open/.test(m)).length);
 check("N6  your own leftover note doesn't warn you about yourself", n6 === 0 && !/open by Ana/.test(n6List), `${n6} warnings`);
+
+// ---------- M: the third review's findings
+// M1: a lecture whose images haven't all arrived is not opened unasked, and
+// declining leaves it exactly as it is.
+await page.evaluate(async () => {
+  const src = await window.__read(await window.__lecture("Lecture 11"), "project.json");
+  const dir = await (await window.__team()).getDirectoryHandle("Lecture 12", { create: true });
+  await window.__write(dir, "project.json", JSON.stringify({ ...src, name: "Lecture 12", saveId: "m1" }));
+  // No images/ yet — as if Dropbox had brought project.json down first.
+  window.__confirms = [];
+  window.__confirmAnswer = false;
+});
+await page.click("#projectsBtn");
+await page.waitForSelector('#folderList button[aria-label="Open lecture Lecture 12 from the shared folder"]');
+await page.click('#folderList button[aria-label="Open lecture Lecture 12 from the shared folder"]');
+// Not fatal when it never comes: opening anyway is the failure M1 reports.
+await page.waitForFunction(() => !document.getElementById("folderError").hidden || (folderLecture && folderLecture.dir === "Lecture 12"), null, { timeout: 5000 }).catch(() => {});
+const m1 = await page.evaluate(async () => ({
+  asked: window.__confirms.some((m) => /images aren't in the folder yet/.test(m)),
+  opened: !!(folderLecture && folderLecture.dir === "Lecture 12"),
+  saveId: (await window.__read(await window.__lecture("Lecture 12"), "project.json")).saveId,
+}));
+check("M1  a lecture still missing images asks first, and declining leaves it untouched", m1.asked && !m1.opened && m1.saveId === "m1", JSON.stringify(m1));
+await page.click("#projectsClose");
+
+// M2: a save made by another tab of this browser that is still open is
+// someone else's; once that tab has closed, it is this browser's own.
+const m2 = await page.evaluate(() => {
+  const parents = JSON.parse(localStorage.getItem("describeme.folderSaveParents") || "{}");
+  parents["m2-b"] = { parent: "m2-base", tab: "tab-b" };
+  localStorage.setItem("describeme.folderSaveParents", JSON.stringify(parents));
+  const tabs = JSON.parse(localStorage.getItem("describeme.folderTabs") || "{}");
+  tabs["tab-b"] = Date.now();
+  localStorage.setItem("describeme.folderTabs", JSON.stringify(tabs));
+  const whileOpen = savedOnTopOf("m2-b", "m2-base");
+  const noteWhileOpen = othersNote({ by: "Ana", browser: folderBrowserId(), session: "tab-b" });
+  tabs["tab-b"] = Date.now() - 10 * 60 * 1000;
+  localStorage.setItem("describeme.folderTabs", JSON.stringify(tabs));
+  return { whileOpen, afterClose: savedOnTopOf("m2-b", "m2-base"), noteWhileOpen, noteAfterClose: othersNote({ by: "Ana", browser: folderBrowserId(), session: "tab-b" }) };
+});
+check("M2  another open tab's save and note count as someone else's; a closed tab's don't",
+  m2.whileOpen === false && m2.afterClose === true && m2.noteWhileOpen === true && m2.noteAfterClose === false, JSON.stringify(m2));
+
+// M3: rejoining after a reload leaves a lecture alone when a teammate has it open.
+const m3 = await page.evaluate(async () => {
+  leaveFolderLecture();
+  await inUseChain;
+  const dir = await window.__lecture("Lecture 11");
+  const disk = await window.__read(dir, "project.json");
+  await window.__write(dir, "in-use.json", JSON.stringify({ by: "Ben", browser: "bens-laptop", session: "ben", since: new Date().toISOString(), active: new Date().toISOString() }));
+  pendingFolderRelink = { dir: "Lecture 11", saveId: disk.saveId, saved: true };
+  await relinkFolderLecture();
+  const note = await window.__read(dir, "in-use.json");
+  return { linked: !!folderLecture, noteBy: note.by, told: /Ben has "Lecture 11" open/.test(document.getElementById("errorMessage").textContent) };
+});
+check("M3  rejoining after a reload doesn't take over a lecture a teammate has open", !m3.linked && m3.noteBy === "Ben" && m3.told, JSON.stringify(m3));
+
+// M3b: rejoining a lecture the folder already has in full saves nothing.
+const m3b = await page.evaluate(async () => {
+  const dir = await window.__lecture("Lecture 11");
+  await dir.removeEntry("in-use.json");
+  const before = (await window.__read(dir, "project.json")).saveId;
+  pendingFolderRelink = { dir: "Lecture 11", saveId: before, saved: true };
+  await relinkFolderLecture();
+  await new Promise((r) => setTimeout(r, 2600));
+  return { linked: !!folderLecture, unchanged: (await window.__read(dir, "project.json")).saveId === before };
+});
+check("M3  and rejoining one the folder already has in full writes nothing", m3b.linked && m3b.unchanged, JSON.stringify(m3b));
+
+// M4: changing folder sends the open lecture its last edit first.
+const m4 = await page.evaluate(async () => {
+  const j = [...jobs.values()][0];
+  j.resultHtml = "<h2>One</h2><p>Last edit before changing folder.</p>";
+  renderAll();
+  await chooseProjectFolder();
+  const disk = await window.__read(await window.__lecture("Lecture 11"), "project.json");
+  return disk.jobs[0].resultHtml.includes("Last edit before changing folder");
+});
+check("M4  changing folder first saves the edit the folder was still missing", m4);
+
+// M5: a first save that fails in a folder that was already there, empty,
+// leaves it empty again — so the next try can use it.
+const m5 = await page.evaluate(async () => {
+  leaveFolderLecture();
+  await (await window.__team()).getDirectoryHandle("Lecture 13", { create: true });
+  els.batchName.value = "Lecture 13";
+  renderAll();
+  const real = writeFolderFile;
+  writeFolderFile = async (dir, name, data) => { if (name === "project.json") throw new Error("disk full"); return real(dir, name, data); };
+  await saveBatchToFolder();
+  writeFolderFile = real;
+  const dir = await window.__lecture("Lecture 13");
+  const left = [];
+  for await (const name of dir.keys()) left.push(name);
+  await saveBatchToFolder();
+  let saved = false;
+  try { await dir.getFileHandle("project.json"); saved = true; } catch {}
+  return { left, saved };
+});
+check("M5  a failed first save into an empty folder leaves it empty, and trying again works", m5.left.length === 0 && m5.saved, JSON.stringify(m5));
 
 check("Z  no console errors or CSP violations", problems.length === 0, problems.join(" | "));
 

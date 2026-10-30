@@ -44,11 +44,15 @@ function loadCompiler() {
       // No file system, no package registry: every file the document uses is
       // handed over with map_shadow, so a stray #import cannot reach out.
       builder.set_dummy_access_model();
-      for (const file of FONT_FILES) {
-        const res = await fetch(new URL(file, VENDOR));
-        if (!res.ok) throw new Error(`Couldn't load ${file} (${res.status}).`);
-        await builder.add_raw_font(new Uint8Array(await res.arrayBuffer()));
-      }
+      // Fetched side by side, added in order.
+      const fonts = await Promise.all(
+        FONT_FILES.map(async (file) => {
+          const res = await fetch(new URL(file, VENDOR));
+          if (!res.ok) throw new Error(`Couldn't load ${file} (${res.status}).`);
+          return new Uint8Array(await res.arrayBuffer());
+        })
+      );
+      for (const font of fonts) await builder.add_raw_font(font);
       return builder.build();
     })();
     // A failed load must not stick: the next click should try again rather
@@ -555,8 +559,14 @@ function compile(compiler, source, images) {
  * in italics instead. A learner loses the typeset form of one equation
  * rather than the whole PDF.
  */
+// One equation as learnerTypst writes it. Its body is skipped over string by
+// string: an <mtext> such as "$5" becomes a Typst string holding a "$", which
+// must not be taken for the end of the equation.
+export const EQUATION_RE =
+  /#math\.equation\(block: (true|false), alt: ("(?:[^"\\]|\\.)*")\)\[\$((?:"(?:[^"\\]|\\.)*"|[^$"\\]|\\.)*)\$\]/g;
+
 function withoutBrokenEquations(compiler, source, images) {
-  const EQ_RE = /#math\.equation\(block: (true|false), alt: ("(?:[^"\\]|\\.)*")\)\[\$((?:[^$\\]|\\.)*)\$\]/g;
+  const EQ_RE = new RegExp(EQUATION_RE.source, "g");
   let broken = 0;
   const fixed = source.replace(EQ_RE, (whole, block, alt) => {
     const test = compile(compiler, `${PREAMBLE("check", "en")}\n${whole}\n`, new Map());
