@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="DescribeMe">
+  <!-- Deliberately only three shapes: at 16px in a browser tab anything more
+       turns to mush. Same ink outline and palette as the app itself. -->
+  <rect width="64" height="64" rx="14" fill="#fff3d9"/>
+  <rect x="7" y="12" width="50" height="30" rx="6" fill="#fffaf0" stroke="#241a12" stroke-width="5"/>
+  <circle cx="41" cy="27" r="7" fill="none" stroke="#c22f16" stroke-width="5"/>
+  <path d="M17 22h13" stroke="#241a12" stroke-width="5" stroke-linecap="round"/>
+  <rect x="7" y="47" width="50" height="11" rx="5.5" fill="#ffc93c" stroke="#241a12" stroke-width="5"/>
+</svg>
