@@ -725,6 +725,20 @@ const els = {
   settingsStatus: document.getElementById("settingsStatus"),
   projectList: document.getElementById("projectList"),
   projectsEmpty: document.getElementById("projectsEmpty"),
+  // shared project folders (behind the ?learner-downloads flag)
+  folderSection: document.getElementById("folderSection"),
+  folderIntro: document.getElementById("folderIntro"),
+  chooseFolderBtn: document.getElementById("chooseFolderBtn"),
+  allowFolderBtn: document.getElementById("allowFolderBtn"),
+  folderStateText: document.getElementById("folderStateText"),
+  folderReady: document.getElementById("folderReady"),
+  folderUserName: document.getElementById("folderUserName"),
+  saveToFolderBtn: document.getElementById("saveToFolderBtn"),
+  saveToFolderHint: document.getElementById("saveToFolderHint"),
+  folderError: document.getElementById("folderError"),
+  folderStatus: document.getElementById("folderStatus"),
+  folderList: document.getElementById("folderList"),
+  folderEmpty: document.getElementById("folderEmpty"),
 
   // templates
   railRowTemplate: document.getElementById("railRowTemplate"),
@@ -743,6 +757,16 @@ let cancelRequested = false;
 let selectedJobId = null;
 let editMode = null; // null | "preview" | "source" — which edit surface, if any, is live
 let currentProjectId = null; // set once the batch is saved as / loaded from a project
+// Shared project folders (see "Shared project folders" below). Declared up
+// here because markDirty — reachable from the first render — reads them.
+let projectFolder = null; // the shared folder's FileSystemDirectoryHandle, once chosen
+let folderPermission = "none"; // "none" | "prompt" | "granted"
+// { dir, handle, saveId, conflict, since, savedSignature } — the lecture open from it.
+// Its own savedSignature, apart from the batch-wide one: a save to the
+// browser must not make the folder's autosave think the folder has it.
+let folderLecture = null;
+let pendingFolderRelink = null; // { dir, saveId } from an autosave, until the folder is allowed
+let folderSaveTimer = null;
 const inFlightControllers = new Set();
 
 // ---------- Settings persistence ----------
@@ -1830,6 +1854,7 @@ function newBatch() {
       : `Start a new batch? This clears the ${jobs.size} queued slide${jobs.size === 1 ? "" : "s"}.`;
   const ok = window.confirm(message);
   if (!ok) return;
+  leaveFolderLecture();
   jobs.clear();
   // The next batch is a different lecture until proven otherwise — a stale
   // transcript left here would silently stamp last week's speech onto any
@@ -2035,15 +2060,31 @@ function updateControls() {
   const saved = isBatchSaved();
   els.railSaveBtn.textContent = saved ? "Saved" : "Save";
   els.railSaveBtn.classList.toggle("is-saved", saved);
-  els.railSaveBtn.title = saved
-    ? "This batch is saved. Saving again updates it."
-    : "Save this batch as a project before you clear it";
-  els.railSaveBtn.setAttribute(
-    "aria-label",
-    saved
-      ? `Save project — ${els.batchName.value.trim() || "this batch"} is already saved`
-      : `Save ${els.batchName.value.trim() || "this batch"} as a project`
-  );
+  const batchLabel = els.batchName.value.trim() || "this batch";
+  if (folderLecture) {
+    // Open from the shared folder: Save means the folder, and a lecture
+    // someone else has saved over is not "Saved" whatever the signature says.
+    const inFolder = folderLecture.savedSignature === batchSignature() && !folderLecture.conflict;
+    els.railSaveBtn.textContent = inFolder ? "Saved" : "Save";
+    els.railSaveBtn.classList.toggle("is-saved", inFolder);
+    els.railSaveBtn.title = folderLecture.conflict
+      ? "Not saving to the shared folder: someone else saved this lecture after you opened it"
+      : inFolder
+        ? "Saved to the shared folder. It saves there as you work."
+        : "Save this lecture to the shared folder";
+    els.railSaveBtn.setAttribute(
+      "aria-label",
+      inFolder ? `Save — ${batchLabel} is saved to the shared folder` : `Save ${batchLabel} to the shared folder`
+    );
+  } else {
+    els.railSaveBtn.title = saved
+      ? "This batch is saved. Saving again updates it."
+      : "Save this batch as a project before you clear it";
+    els.railSaveBtn.setAttribute(
+      "aria-label",
+      saved ? `Save project — ${batchLabel} is already saved` : `Save ${batchLabel} as a project`
+    );
+  }
 
   // Rail — describe card
   els.describeCard.hidden = jobs.size === 0 || batchRunning;
@@ -2823,7 +2864,11 @@ els.railSortBtn.addEventListener("click", sortByPosition);
 // first so a previous failure does not sit under a save that then succeeds.
 els.railSaveBtn.addEventListener("click", () => {
   setError("");
-  saveCurrentProject();
+  // A lecture opened from the shared folder is saved back there: the rail's
+  // Save means "save this lecture", wherever it lives. The Projects dialog's
+  // "Save current batch", under "In this browser", always means the browser.
+  if (folderLecture) saveFolderLecture({ explicit: true });
+  else saveCurrentProject();
 });
 
 [els.fileInput, els.railFileInput].forEach((input) => {
@@ -5653,13 +5698,21 @@ function hashString(text) {
 }
 
 function isBatchSaved() {
-  return savedSignature !== null && jobs.size > 0 && savedSignature === batchSignature();
+  if (jobs.size === 0) return false;
+  // A lecture open from the shared folder is saved when the folder has it.
+  // savedSignature stays about the browser: a folder save setting it would
+  // make a browser project read "Saved" while missing those edits.
+  if (folderLecture) return folderLecture.savedSignature === batchSignature();
+  return savedSignature !== null && savedSignature === batchSignature();
 }
 
 function markDirty() {
   autosaveDirty = true;
   clearTimeout(autosaveTimer);
   autosaveTimer = setTimeout(writeAutosave, AUTOSAVE_DEBOUNCE_MS);
+  // A lecture open from the shared folder saves there as you work, so a
+  // hand-off never depends on someone remembering to press Save.
+  if (folderLecture) scheduleFolderSave();
 }
 
 async function writeAutosave() {
@@ -5680,6 +5733,12 @@ async function writeAutosave() {
     // so the association survives the reload too.
     projectId: currentProjectId,
     userNamed: els.batchName.dataset.userNamed === "1",
+    // The shared-folder lecture this batch belongs to, and the save of it this
+    // copy was built on — so a reload reconnects to the folder, and the
+    // conflict check still knows whether someone else has saved since.
+    // Or the reconnect still waiting on the folder's permission, so it is not
+    // lost if the tab closes before anyone allows it.
+    folderLecture: folderLecture ? { dir: folderLecture.dir, saveId: folderLecture.saveId } : pendingFolderRelink,
   };
   try {
     await projectStoreRequest("readwrite", (store) => store.put(record));
@@ -5732,6 +5791,10 @@ async function restoreAutosave() {
       if (!exists) currentProjectId = null;
     }
     if (record.userNamed !== true) delete els.batchName.dataset.userNamed;
+    // Reconnected once the folder's permission is known (initSharedFolders).
+    if (record.folderLecture && typeof record.folderLecture.dir === "string") {
+      pendingFolderRelink = record.folderLecture;
+    }
     setStatus("Restored your last session — everything is as you left it.");
   } finally {
     autosaveReady = true;
@@ -5919,6 +5982,7 @@ async function openProject(id) {
     );
     if (!ok) return;
   }
+  leaveFolderLecture();
   loadProjectRecord(record);
   els.projectsDialog.close();
   setStatus(`Project "${record.name}" opened.`);
@@ -6070,7 +6134,18 @@ async function refreshProjectList() {
     deleteBtn.setAttribute("aria-label", `Delete project ${record.name}`);
     deleteBtn.addEventListener("click", () => deleteProject(record.id, record.name));
 
-    li.append(text, openBtn, exportBtn, deleteBtn);
+    li.append(text, openBtn, exportBtn);
+    // Moving existing work into the shared folder, one project at a time.
+    if (folderPermission === "granted") {
+      const copyBtn = document.createElement("button");
+      copyBtn.type = "button";
+      copyBtn.className = "btn btn-small";
+      copyBtn.textContent = "Copy to folder";
+      copyBtn.setAttribute("aria-label", `Copy project ${record.name} to the shared folder`);
+      copyBtn.addEventListener("click", () => copyProjectToFolder(record.id));
+      li.append(copyBtn);
+    }
+    li.append(deleteBtn);
     els.projectList.appendChild(li);
   }
 }
@@ -6120,6 +6195,27 @@ function importedProjectRecord(raw) {
     return { html: holder.innerHTML, text: domFragmentToText(fragment) };
   };
 
+  // A history entry is what Undo puts back, so what it carries besides the
+  // words is kept too — checked like every other field here. Cut down to
+  // {html, text}, undoing to a hand-written description restored the words
+  // but not the fact a person wrote them (snapshotOf). This matters most for
+  // shared-folder lectures, which come through here every time they open.
+  // A key absent from the file stays absent: restoreSnapshot reads that as
+  // "leave this alone", which is right for files from before it was saved.
+  const historyEntry = (entry) => {
+    const e = entry && typeof entry === "object" ? entry : {};
+    const stored = sanitizeToStored(e.html);
+    const kept = { html: stored.html, text: stored.text };
+    if ("edited" in e) kept.edited = !!e.edited;
+    if ("authored" in e) kept.authored = !!e.authored;
+    if ("mathWarning" in e) kept.mathWarning = typeof e.mathWarning === "string" && e.mathWarning ? e.mathWarning : null;
+    if ("truncated" in e) kept.truncated = !!e.truncated;
+    if ("usedModel" in e) kept.usedModel = MODEL_LADDER.includes(e.usedModel) ? e.usedModel : null;
+    if ("durationMs" in e) kept.durationMs = Number.isFinite(e.durationMs) ? e.durationMs : null;
+    if ("usage" in e) Object.assign(kept, sanitizeSavedUsage(e));
+    return kept;
+  };
+
   const b64ok = (s) =>
     typeof s === "string" && s.length > 0 && s.length % 4 === 0 && /^[A-Za-z0-9+/]+={0,2}$/.test(s);
   const jobs = raw.jobs.map((saved, i) => {
@@ -6161,9 +6257,7 @@ function importedProjectRecord(raw) {
       // "pending", which is where an imported slide belongs anyway.
       authored: !!saved.authored && state === "done" && !!result.html,
       priorState: null,
-      history: Array.isArray(saved.history)
-        ? saved.history.map((entry) => sanitizeToStored(entry && entry.html))
-        : [],
+      history: Array.isArray(saved.history) ? saved.history.map(historyEntry) : [],
       durationMs: num(saved.durationMs),
       usedModel: MODEL_LADDER.includes(saved.usedModel) ? saved.usedModel : null,
       // Token counts and a price, straight out of an untrusted file. They are
@@ -6244,7 +6338,9 @@ els.projectsBtn.addEventListener("click", async () => {
       ? "Add slides to have something to save."
       : `Saves "${els.batchName.value.trim() || "Untitled batch"}" — ${jobs.size} slide${jobs.size === 1 ? "" : "s"} and every description.`;
   els.projectsDialog.showModal();
-  await refreshProjectList();
+  // Side by side: the browser's list shouldn't wait on a folder of
+  // online-only files.
+  await Promise.all([SHARED_FOLDERS ? renderFolderSection() : null, refreshProjectList()]);
 });
 els.projectsClose.addEventListener("click", () => els.projectsDialog.close());
 els.saveProjectBtn.addEventListener("click", saveCurrentProject);
@@ -6252,6 +6348,842 @@ els.importProjectInput.addEventListener("change", async (e) => {
   const file = e.target.files[0];
   e.target.value = "";
   if (file) await importProjectFile(file);
+});
+
+// ---------- Shared project folders ----------
+//
+// A lecture saved to a folder the team shares through a sync service —
+// Dropbox, for the team this was built for — so it can be handed from one
+// person to the next and is never lost with one browser's data. Chrome's File
+// System Access API lets the page read and write a folder the user picks and
+// allows; the sync service does the sharing. DescribeMe itself still sends
+// nothing anywhere but each slide's request to the API.
+//
+// Behind the same ?learner-downloads flag as the learner downloads while it
+// is tried out.
+//
+// A lecture is a subfolder:
+//
+//   <lecture>/project.json    descriptions, approvals, history — no images
+//   <lecture>/images/<sha-256>.<ext>
+//   <lecture>/in-use.json     who has it open, while they do
+//
+// Images are named by their content, so each is written once however often
+// the lecture is saved, and one no longer referred to is removed after
+// project.json is written. Everything read back goes through
+// importedProjectRecord, as a project file does: a shared folder is exactly
+// as untrusted as a file someone sends you.
+//
+// Hand-offs, not simultaneous editing, is the model. Two things keep a
+// hand-off from going wrong: in-use.json says who has the lecture open and
+// when they were last active, and every save writes a fresh saveId — a save
+// that finds a saveId it did not write knows someone else saved in between,
+// stops saving automatically, and asks before replacing their version.
+
+const SHARED_FOLDERS = LEARNER_DOWNLOADS;
+const FOLDER_PICKER_SUPPORTED = typeof window.showDirectoryPicker === "function";
+const FOLDER_DB_NAME = "describeme-folder";
+const FOLDER_DB_STORE = "handles";
+const LECTURE_FILE = "project.json";
+const IN_USE_FILE = "in-use.json";
+const LECTURE_FORMAT = "describeme-lecture";
+const FOLDER_SAVE_DEBOUNCE_MS = 2000;
+const FOLDER_USER_KEY = "describeme.folderUserName";
+// Which browser tab wrote an in-use note, so a tab only ever removes its own.
+const FOLDER_SESSION = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+const LECTURE_IMAGE_RE = /^images\/([0-9a-f]{64}\.(?:png|jpg|webp|gif))$/;
+const EXT_FOR_TYPE = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif" };
+const TYPE_FOR_EXT = { png: "image/png", jpg: "image/jpeg", webp: "image/webp", gif: "image/gif" };
+
+let folderSaveChain = Promise.resolve();
+
+/** The folder's handle is kept in its own small database, so the choice
+    survives a reload; Chrome re-asks for permission when it needs to. */
+function folderHandleStore(mode, run) {
+  return new Promise((resolve, reject) => {
+    const open = indexedDB.open(FOLDER_DB_NAME, 1);
+    open.onupgradeneeded = () => open.result.createObjectStore(FOLDER_DB_STORE);
+    open.onerror = () => reject(open.error || new Error("Couldn't open folder storage."));
+    open.onsuccess = () => {
+      const db = open.result;
+      const tx = db.transaction(FOLDER_DB_STORE, mode);
+      const req = run(tx.objectStore(FOLDER_DB_STORE));
+      tx.oncomplete = () => {
+        db.close();
+        resolve(req.result);
+      };
+      tx.onabort = tx.onerror = () => {
+        db.close();
+        reject(tx.error || new Error("Folder storage failed."));
+      };
+    };
+  });
+}
+
+async function folderAccess(handle, ask) {
+  const opts = { mode: "readwrite" };
+  try {
+    let state = typeof handle.queryPermission === "function" ? await handle.queryPermission(opts) : "granted";
+    if (state !== "granted" && ask && typeof handle.requestPermission === "function") {
+      state = await handle.requestPermission(opts);
+    }
+    return state === "granted" ? "granted" : "prompt";
+  } catch (_err) {
+    return "prompt";
+  }
+}
+
+function folderUserName() {
+  try {
+    return (localStorage.getItem(FOLDER_USER_KEY) || "").trim();
+  } catch (_err) {
+    return "";
+  }
+}
+
+/** A lecture's folder name: the batch name, with the characters Windows and
+    macOS refuse in a file name replaced. */
+function lectureDirName(name) {
+  const cleaned = String(name || "")
+    .replace(/[\\/:*?"<>|\u0000-\u001f]/g, "-")
+    .trim()
+    .replace(/[. ]+$/, "")
+    .slice(0, 80)
+    .trim();
+  return cleaned || "Untitled lecture";
+}
+
+function shortTime(iso) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "an unknown time";
+  const today = new Date().toDateString() === d.toDateString();
+  return today ? d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : d.toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+}
+
+async function readJsonFile(dir, name) {
+  let handle;
+  try {
+    handle = await dir.getFileHandle(name);
+  } catch (_err) {
+    return null; // not there
+  }
+  return JSON.parse(await (await handle.getFile()).text());
+}
+
+async function writeFolderFile(dir, name, data) {
+  const handle = await dir.getFileHandle(name, { create: true });
+  // createWritable writes to a temporary file that replaces this one only on
+  // close(), so a half-written project.json is never what a teammate reads.
+  const writable = await handle.createWritable();
+  await writable.write(data);
+  await writable.close();
+}
+
+async function sha256Hex(bytes) {
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function newSaveId() {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+// The save chain. Each save this browser makes is recorded with the save it
+// was built on. "Has anyone else saved since I last did?" is then "does the
+// save on disk descend, through this browser's own saves, from the one this
+// tab last saw?" — not just "is it the one this tab last saw". That matters
+// because a tab can be a save behind its own work: the autosave copy a reload
+// or a reopened tab restores from can lag a folder save by a moment, and the
+// last save before a tab closes is made after that copy is written. Those
+// saves sit on the same line and are no one else's. Another tab's save, built
+// on something this tab never saw, is on a different branch, and a
+// teammate's isn't in the chain at all — both are reported, never replaced
+// unasked.
+const FOLDER_SAVE_PARENTS_KEY = "describeme.folderSaveParents";
+const FOLDER_SAVE_PARENTS_KEPT = 300;
+
+function readSaveParents() {
+  try {
+    const map = JSON.parse(localStorage.getItem(FOLDER_SAVE_PARENTS_KEY) || "{}");
+    return map && typeof map === "object" ? map : {};
+  } catch (_err) {
+    return {};
+  }
+}
+
+function rememberOwnSave(saveId, parentId) {
+  try {
+    const map = readSaveParents();
+    map[saveId] = parentId || null;
+    const ids = Object.keys(map); // insertion order: oldest first
+    for (const id of ids.slice(0, Math.max(0, ids.length - FOLDER_SAVE_PARENTS_KEPT))) delete map[id];
+    localStorage.setItem(FOLDER_SAVE_PARENTS_KEY, JSON.stringify(map));
+  } catch (_err) {
+    // Not remembered: the worst case is being asked about our own save.
+  }
+}
+
+/** Whether `diskId` is `baseId`, or was built on it by this browser's own saves. */
+function savedOnTopOf(diskId, baseId) {
+  const parents = readSaveParents();
+  let id = diskId;
+  for (let i = 0; i <= FOLDER_SAVE_PARENTS_KEPT; i += 1) {
+    if (id === baseId) return true;
+    if (!Object.prototype.hasOwnProperty.call(parents, id)) return false;
+    id = parents[id];
+  }
+  return false;
+}
+
+// Which browser wrote an in-use note. A note this browser left behind — kept
+// on purpose when a tab closed with edits not yet in the folder — is not a
+// teammate's, and opening the lecture again should not warn about it.
+const FOLDER_BROWSER_KEY = "describeme.folderBrowserId";
+
+function folderBrowserId() {
+  try {
+    let id = localStorage.getItem(FOLDER_BROWSER_KEY);
+    if (!id) {
+      id = newSaveId();
+      localStorage.setItem(FOLDER_BROWSER_KEY, id);
+    }
+    return id;
+  } catch (_err) {
+    return FOLDER_SESSION;
+  }
+}
+
+/** Someone else's note: not from this browser. */
+function othersNote(note) {
+  return !!note && note.browser !== folderBrowserId() && note.session !== FOLDER_SESSION;
+}
+
+// ---- in-use notes ----
+
+async function readInUse(dir) {
+  try {
+    const note = await readJsonFile(dir, IN_USE_FILE);
+    return note && typeof note.by === "string" ? note : null;
+  } catch (_err) {
+    return null;
+  }
+}
+
+// Note writes and removals run one at a time, in order. Re-opening the lecture
+// just left would otherwise race the old note's removal (a read, then a
+// remove) against the new note's write, and could delete the new one.
+let inUseChain = Promise.resolve();
+
+function queueInUse(task) {
+  inUseChain = inUseChain.then(task).catch(() => {});
+  return inUseChain;
+}
+
+/** Each opening of a lecture gets its own openId, so removing the note for
+    one opening never removes the note a later opening wrote. */
+function markInUse(lecture) {
+  return queueInUse(() =>
+    writeFolderFile(
+      lecture.handle,
+      IN_USE_FILE,
+      JSON.stringify({
+        by: folderUserName() || "Someone",
+        browser: folderBrowserId(),
+        session: FOLDER_SESSION,
+        open: lecture.openId,
+        since: lecture.since,
+        active: new Date().toISOString(),
+      })
+    )
+  );
+}
+
+function clearInUse(lecture) {
+  return queueInUse(async () => {
+    const note = await readInUse(lecture.handle);
+    if (note && note.session === FOLDER_SESSION && note.open === lecture.openId) {
+      await lecture.handle.removeEntry(IN_USE_FILE);
+    }
+  });
+}
+
+/** A folder lecture's record of being open here. */
+function openedLecture(dirName, handle, saveId, savedSignature) {
+  return { dir: dirName, handle, saveId, conflict: false, since: new Date().toISOString(), openId: newSaveId(), savedSignature };
+}
+
+/** The batch on screen stops being the folder's lecture: the note saying it
+    is open here goes, and nothing more saves there. The batch itself stays. */
+function leaveFolderLecture() {
+  // A reconnect still waiting for permission belonged to the batch being
+  // replaced; left pending, it would attach whatever is open by then.
+  pendingFolderRelink = null;
+  if (!folderLecture) return;
+  const leaving = folderLecture;
+  folderLecture = null;
+  clearTimeout(folderSaveTimer);
+  imageNameCache.clear();
+  clearInUse(leaving);
+}
+
+// ---- reading and writing a lecture ----
+
+// An image's file name, by its base64, for the lecture open from the folder.
+// A save then hashes only images it has not met before: a 75-slide lecture
+// saving every couple of seconds while descriptions arrive would otherwise
+// decode and hash every image each time. Each save trims it to the images it
+// used, and leaving the lecture empties it, so it holds the open lecture's
+// current images and nothing else.
+const imageNameCache = new Map();
+
+/** project.json and the images it refers to, from a serialized project.
+    cached: use and keep imageNameCache — for the lecture open here only. */
+async function writeLecture(dir, record, saveId, { cached = false } = {}) {
+  const imagesDir = await dir.getDirectoryHandle("images", { create: true });
+  const present = new Set();
+  for await (const [name, handle] of imagesDir.entries()) if (handle.kind === "file") present.add(name);
+  const used = new Set();
+  const usedSources = new Set();
+  const put = async (base64, mediaType) => {
+    const ext = EXT_FOR_TYPE[mediaType];
+    if (!ext || !base64) return null;
+    let name = cached ? imageNameCache.get(base64) : undefined;
+    let bytes = null;
+    if (!name) {
+      bytes = base64ToBytes(base64);
+      name = `${await sha256Hex(bytes)}.${ext}`;
+      if (cached) imageNameCache.set(base64, name);
+    }
+    if (cached) usedSources.add(base64);
+    used.add(name);
+    if (!present.has(name)) {
+      await writeFolderFile(imagesDir, name, bytes || base64ToBytes(base64));
+      present.add(name);
+    }
+    return `images/${name}`;
+  };
+
+  const jobsOut = [];
+  for (const job of record.jobs) {
+    const { dataUrl, originalBase64, ...rest } = job;
+    const out = { ...rest };
+    const m = typeof dataUrl === "string" ? dataUrl.match(/^data:(image\/(?:png|jpeg|webp|gif));base64,(.+)$/) : null;
+    if (m) {
+      out.imageFile = await put(m[2], m[1]);
+      out.mediaType = m[1];
+    }
+    if (originalBase64 && job.originalMediaType) out.originalFile = await put(originalBase64, job.originalMediaType);
+    jobsOut.push(out);
+  }
+
+  const lecture = {
+    format: LECTURE_FORMAT,
+    version: 1,
+    name: record.name,
+    savedAt: Date.now(),
+    savedBy: folderUserName() || null,
+    saveId,
+    jobs: jobsOut,
+  };
+  await writeFolderFile(dir, LECTURE_FILE, JSON.stringify(lecture, null, 1));
+  // Only now that project.json no longer refers to them.
+  for (const name of present) {
+    if (!used.has(name)) await imagesDir.removeEntry(name).catch(() => {});
+  }
+  if (cached) {
+    for (const source of imageNameCache.keys()) if (!usedSources.has(source)) imageNameCache.delete(source);
+  }
+}
+
+/** A lecture back as a project record, through the project-file importer. */
+async function readLecture(dir) {
+  const raw = await readJsonFile(dir, LECTURE_FILE);
+  if (!raw || raw.format !== LECTURE_FORMAT || !Array.isArray(raw.jobs)) {
+    throw new Error("its project.json isn't a DescribeMe lecture");
+  }
+  let imagesDir = null;
+  try {
+    imagesDir = await dir.getDirectoryHandle("images");
+  } catch (_err) {
+    imagesDir = null;
+  }
+  // Only a path of the exact shape this code writes is followed — never a
+  // name that could reach outside images/.
+  const image = async (path) => {
+    const m = typeof path === "string" ? path.match(LECTURE_IMAGE_RE) : null;
+    if (!m || !imagesDir) return null;
+    try {
+      const file = await (await imagesDir.getFileHandle(m[1])).getFile();
+      return { base64: bytesToBase64(new Uint8Array(await file.arrayBuffer())), type: TYPE_FOR_EXT[m[1].split(".").pop()] };
+    } catch (_err) {
+      return null;
+    }
+  };
+  // Every image at once: kept online-only by Dropbox, each read is a download,
+  // and a 75-slide lecture with originals is 150 of them.
+  const jobsIn = await Promise.all(
+    raw.jobs.map(async (job) => {
+      const { imageFile, originalFile, ...rest } = job && typeof job === "object" ? job : {};
+      const [preview, original] = await Promise.all([image(imageFile), image(originalFile)]);
+      return {
+        ...rest,
+        dataUrl: preview ? `data:${preview.type};base64,${preview.base64}` : null,
+        mediaType: preview ? preview.type : rest.mediaType,
+        ...(original ? { originalBase64: original.base64, originalMediaType: original.type } : {}),
+      };
+    })
+  );
+  const record = importedProjectRecord({ format: PROJECT_FILE_FORMAT, version: 1, name: raw.name, savedAt: raw.savedAt, jobs: jobsIn });
+  return { record, saveId: typeof raw.saveId === "string" ? raw.saveId : null };
+}
+
+// ---- saving ----
+
+function setFolderError(message) {
+  els.folderError.textContent = message;
+  els.folderError.hidden = !message;
+}
+
+/** In the dialog when it is open, on the page's error line when it is not —
+    most folder saves happen with the dialog closed. */
+function reportFolderProblem(message) {
+  setFolderError(message);
+  if (!els.projectsDialog.open) setError(message);
+}
+
+function announceFolder(message) {
+  els.folderStatus.textContent = message;
+  setStatus(message);
+}
+
+function scheduleFolderSave() {
+  clearTimeout(folderSaveTimer);
+  folderSaveTimer = setTimeout(() => saveFolderLecture(), FOLDER_SAVE_DEBOUNCE_MS);
+}
+
+/** One save at a time, in order: two overlapping writes of the same lecture
+    could leave project.json from one and its images from the other. */
+function saveFolderLecture(opts = {}) {
+  const run = folderSaveChain.then(() => saveFolderLectureNow(opts));
+  folderSaveChain = run.catch(() => {});
+  return run.catch(() => false);
+}
+
+/** Resolves true once the folder holds the batch as it stood when the save
+    began, false when nothing was written. */
+async function saveFolderLectureNow({ explicit = false } = {}) {
+  clearTimeout(folderSaveTimer);
+  const lecture = folderLecture;
+  if (!lecture || folderPermission !== "granted" || jobs.size === 0) return false;
+  if (!explicit && (lecture.conflict || lecture.savedSignature === batchSignature())) return false;
+  if (explicit) commitPendingEdit();
+
+  // Has anyone else saved since this tab last did?
+  let onDisk = null;
+  try {
+    onDisk = await readJsonFile(lecture.handle, LECTURE_FILE);
+  } catch (_err) {
+    onDisk = null; // unreadable — ours to replace
+  }
+  // That read can take a while (a Dropbox file kept online-only), and the
+  // batch on screen may have changed lecture or been cleared meanwhile.
+  // Whatever is on screen now is not this lecture's to write.
+  if (folderLecture !== lecture || jobs.size === 0) return false;
+  if (onDisk && typeof onDisk.saveId === "string" && !savedOnTopOf(onDisk.saveId, lecture.saveId)) {
+    const who = typeof onDisk.savedBy === "string" && onDisk.savedBy ? onDisk.savedBy : "Someone else";
+    const when = shortTime(onDisk.savedAt);
+    const replace =
+      explicit &&
+      window.confirm(`${who} saved "${onDisk.name || lecture.dir}" to the shared folder at ${when}, after you opened it. Replace their version with yours?`);
+    if (!replace) {
+      lecture.conflict = true;
+      reportFolderProblem(
+        `${who} saved "${onDisk.name || lecture.dir}" to the shared folder at ${when}, after you opened it, so your changes are not being saved there. ` +
+          "Open it again from Projects to get their version, or select Save to replace it with yours."
+      );
+      renderAll();
+      return false;
+    }
+  }
+
+  // Taken synchronously, with nothing awaited between the check above and
+  // here: what is serialized is this lecture's batch.
+  const signature = batchSignature();
+  const record = serializeProject();
+  const saveId = newSaveId();
+  // Before the write, so a reload part-way through still knows it as ours.
+  rememberOwnSave(saveId, lecture.saveId);
+  try {
+    await writeLecture(lecture.handle, record, saveId, { cached: true });
+  } catch (err) {
+    reportFolderProblem(`Couldn't save to the shared folder: ${(err && err.message) || err}`);
+    return false;
+  }
+  lecture.saveId = saveId;
+  lecture.conflict = false;
+  if (folderLecture !== lecture) return true; // written; another lecture was opened meanwhile
+  markInUse(lecture);
+  lecture.savedSignature = signature;
+  if (explicit) {
+    setFolderError("");
+    setError("");
+    announceFolder(`Saved "${record.name}" to the shared folder.`);
+  }
+  renderAll(); // the Save button's label — and the autosave's copy of the new saveId
+  return true;
+}
+
+// ---- the Projects dialog's folder section ----
+
+async function chooseProjectFolder() {
+  setFolderError("");
+  let handle;
+  try {
+    handle = await window.showDirectoryPicker({ id: "describeme-projects", mode: "readwrite" });
+  } catch (err) {
+    if (err && err.name === "AbortError") return; // the picker was closed
+    setFolderError(`Couldn't use that folder: ${(err && err.message) || err}`);
+    return;
+  }
+  if ((await folderAccess(handle, true)) !== "granted") {
+    setFolderError("DescribeMe needs permission to save in that folder.");
+    return;
+  }
+  // A lecture open from the previous folder is not in this one.
+  leaveFolderLecture();
+  projectFolder = handle;
+  folderPermission = "granted";
+  try {
+    await folderHandleStore("readwrite", (store) => store.put(handle, "projects"));
+  } catch (_err) {
+    // Still usable for this session; it just won't be remembered.
+  }
+  announceFolder(`Using the folder "${handle.name}".`);
+  await renderFolderSection();
+  await refreshProjectList();
+  renderAll();
+}
+
+async function allowProjectFolder() {
+  if (!projectFolder) return;
+  setFolderError("");
+  folderPermission = await folderAccess(projectFolder, true);
+  if (folderPermission === "granted") await relinkFolderLecture();
+  await renderFolderSection();
+  await refreshProjectList();
+  renderAll();
+}
+
+async function renderFolderSection() {
+  els.folderSection.hidden = false;
+  const ready = folderPermission === "granted";
+  els.chooseFolderBtn.textContent = projectFolder ? "Change folder" : "Choose projects folder";
+  els.chooseFolderBtn.disabled = !FOLDER_PICKER_SUPPORTED;
+  els.allowFolderBtn.hidden = !(projectFolder && folderPermission === "prompt");
+  if (projectFolder) els.allowFolderBtn.textContent = `Allow access to "${projectFolder.name}"`;
+  els.folderStateText.textContent = !FOLDER_PICKER_SUPPORTED
+    ? "This browser can't use a shared folder. Use Chrome or Edge on a computer."
+    : !projectFolder
+      ? ""
+      : ready
+        ? `Using "${projectFolder.name}".`
+        : `Chrome needs your permission again to use "${projectFolder.name}".`;
+  els.folderReady.hidden = !ready;
+  if (!ready) return;
+
+  els.folderUserName.value = folderUserName();
+  const batch = els.batchName.value.trim() || "Untitled batch";
+  els.saveToFolderBtn.disabled = jobs.size === 0 || batchRunning;
+  els.saveToFolderBtn.textContent = folderLecture ? "Save to folder now" : "Save current batch to folder";
+  els.saveToFolderHint.textContent =
+    jobs.size === 0
+      ? "Add slides to have something to save."
+      : folderLecture
+        ? `"${batch}" is open from the folder and saves there as you work.`
+        : `Saves "${batch}" as a new lecture in the folder.`;
+  await refreshFolderList();
+}
+
+async function refreshFolderList() {
+  const dirs = [];
+  try {
+    for await (const [dirName, handle] of projectFolder.entries()) {
+      if (handle.kind === "directory") dirs.push([dirName, handle]);
+    }
+  } catch (err) {
+    setFolderError(`Couldn't read the folder: ${(err && err.message) || err}`);
+    return;
+  }
+  // All at once: lectures kept online-only by Dropbox each download on first
+  // read, and one after another the dialog would wait on every one in turn.
+  const summaries = await Promise.all(
+    dirs.map(async ([dirName, handle]) => {
+      let raw = null;
+      try {
+        raw = await readJsonFile(handle, LECTURE_FILE);
+      } catch (_err) {
+        raw = { unreadable: true };
+      }
+      if (!raw) return null; // a folder that isn't a lecture
+      const jobsList = Array.isArray(raw.jobs) ? raw.jobs : [];
+      return {
+        dirName,
+        name: typeof raw.name === "string" && raw.name ? raw.name : dirName,
+        unreadable: !!raw.unreadable || raw.format !== LECTURE_FORMAT,
+        savedAt: Number(raw.savedAt) || 0,
+        savedBy: typeof raw.savedBy === "string" ? raw.savedBy : "",
+        slides: jobsList.length,
+        described: jobsList.filter((j) => j && j.state === "done").length,
+        inUse: await readInUse(handle),
+      };
+    })
+  );
+  const lectures = summaries.filter(Boolean);
+  lectures.sort((a, b) => b.savedAt - a.savedAt);
+
+  els.folderList.replaceChildren();
+  els.folderEmpty.hidden = lectures.length > 0;
+  for (const lecture of lectures) {
+    const li = document.createElement("li");
+    li.className = "project-row";
+    const text = document.createElement("div");
+    text.className = "project-text";
+    const name = document.createElement("p");
+    name.className = "project-name";
+    name.textContent = lecture.name;
+    const meta = document.createElement("p");
+    meta.className = "project-meta";
+    const openHere = folderLecture && folderLecture.dir === lecture.dirName;
+    const bits = lecture.unreadable
+      ? ["Can't be read — its project.json is damaged or from something else"]
+      : [
+          `${lecture.slides} slide${lecture.slides === 1 ? "" : "s"}`,
+          `${lecture.described} described`,
+          `saved ${shortTime(lecture.savedAt)}${lecture.savedBy ? ` by ${lecture.savedBy}` : ""}`,
+        ];
+    if (openHere) bits.push("open now");
+    else if (othersNote(lecture.inUse)) bits.push(`open by ${lecture.inUse.by}, last active ${shortTime(lecture.inUse.active)}`);
+    meta.textContent = bits.join(" · ");
+    text.append(name, meta);
+    li.append(text);
+    if (!lecture.unreadable) {
+      const openBtn = document.createElement("button");
+      openBtn.type = "button";
+      openBtn.className = "btn btn-small";
+      openBtn.textContent = "Open";
+      openBtn.setAttribute("aria-label", `Open lecture ${lecture.name} from the shared folder`);
+      openBtn.addEventListener("click", () => openFolderLecture(lecture.dirName));
+      li.append(openBtn);
+    }
+    els.folderList.appendChild(li);
+  }
+}
+
+async function openFolderLecture(dirName) {
+  setFolderError("");
+  if (batchRunning) {
+    setFolderError("Wait for the current batch to finish first.");
+    return;
+  }
+  let dir;
+  try {
+    dir = await projectFolder.getDirectoryHandle(dirName);
+  } catch (_err) {
+    setFolderError(`"${dirName}" is no longer in the folder.`);
+    await refreshFolderList();
+    return;
+  }
+  const note = await readInUse(dir);
+  if (othersNote(note)) {
+    const ok = window.confirm(
+      `${note.by} has this lecture open (since ${shortTime(note.since)}, last active ${shortTime(note.active)}). ` +
+        "If they are still working on it, wait for them to finish, or one of you may replace the other's work. Open it anyway?"
+    );
+    if (!ok) return;
+  }
+  let loaded;
+  try {
+    loaded = await readLecture(dir);
+  } catch (err) {
+    setFolderError(`Couldn't open "${dirName}": ${(err && err.message) || err}`);
+    return;
+  }
+  if (jobs.size > 0) {
+    const ok = window.confirm("Opening a lecture replaces the current batch. Anything unsaved is lost. Continue?");
+    if (!ok) return;
+  }
+  leaveFolderLecture();
+  loadProjectRecord(loaded.record);
+  currentProjectId = null; // a folder lecture, not a browser project
+  savedSignature = null; // ...and so not saved in the browser either
+  folderLecture = openedLecture(dirName, dir, loaded.saveId, batchSignature());
+  markInUse(folderLecture);
+  els.projectsDialog.close();
+  setError("");
+  setStatus(`Opened "${loaded.record.name}" from the shared folder. It saves there as you work.`);
+  renderAll();
+}
+
+/** The current batch, as a new lecture in the folder. */
+async function saveBatchToFolder() {
+  setFolderError("");
+  if (folderLecture) {
+    await saveFolderLecture({ explicit: true });
+    await renderFolderSection();
+    return;
+  }
+  if (jobs.size === 0 || batchRunning) return;
+  const target = await newLectureDir(els.batchName.value);
+  if (target.error) {
+    setFolderError(`${target.error} Rename this batch first, or open that lecture instead.`);
+    return;
+  }
+  // Kept to put back if the save fails, so the batch stays linked to the
+  // browser project it came from and the next browser save updates it.
+  const before = { projectId: currentProjectId, signature: savedSignature };
+  currentProjectId = null;
+  const lecture = openedLecture(target.dirName, target.dir, null, null);
+  folderLecture = lecture;
+  const saved = await saveFolderLecture({ explicit: true });
+  if (saved) {
+    savedSignature = null; // a folder lecture now, not a browser project
+  } else {
+    // Nothing reached the folder: the batch is not a lecture after all, and
+    // a folder this save made is not left behind to block the next try.
+    if (folderLecture === lecture) {
+      folderLecture = null;
+      currentProjectId = before.projectId;
+      savedSignature = before.signature;
+    }
+    if (target.created) await discardLectureDir(target.dirName);
+    renderAll();
+  }
+  await renderFolderSection();
+  await refreshProjectList();
+}
+
+/**
+ * A folder for a new lecture: { dir, dirName, created }, or { error } when the
+ * name is taken. Only an EMPTY folder of that name is used. One that holds
+ * anything is refused, project.json or not: a teammate's lecture can arrive
+ * through Dropbox images first and project.json last, and saving into it
+ * would replace their project.json and delete their images.
+ */
+async function newLectureDir(name) {
+  const dirName = lectureDirName(name);
+  let existing = null;
+  try {
+    existing = await projectFolder.getDirectoryHandle(dirName);
+  } catch (_err) {
+    existing = null;
+  }
+  if (existing) {
+    let empty = true;
+    for await (const _entry of existing.keys()) {
+      empty = false;
+      break;
+    }
+    if (!empty) return { error: `A lecture called "${dirName}" is already in the folder.` };
+    return { dir: existing, dirName, created: false };
+  }
+  try {
+    return { dir: await projectFolder.getDirectoryHandle(dirName, { create: true }), dirName, created: true };
+  } catch (err) {
+    return { error: `Couldn't create "${dirName}" in the folder: ${(err && err.message) || err}.` };
+  }
+}
+
+async function discardLectureDir(dirName) {
+  await projectFolder.removeEntry(dirName, { recursive: true }).catch(() => {});
+}
+
+/** A project saved in this browser, copied into the folder as a lecture. */
+async function copyProjectToFolder(id) {
+  setFolderError("");
+  let record;
+  try {
+    record = await projectStoreRequest("readonly", (store) => store.get(id));
+  } catch (err) {
+    setFolderError(`Couldn't read that project: ${(err && err.message) || err}`);
+    return;
+  }
+  if (!record) return;
+  const target = await newLectureDir(record.name);
+  if (target.error) {
+    setFolderError(`${target.error} Rename the project first.`);
+    return;
+  }
+  try {
+    await writeLecture(target.dir, record, newSaveId());
+  } catch (err) {
+    if (target.created) await discardLectureDir(target.dirName);
+    setFolderError(`Couldn't copy "${record.name}" to the folder: ${(err && err.message) || err}`);
+    return;
+  }
+  announceFolder(`Copied "${record.name}" to the shared folder.`);
+  await refreshFolderList();
+}
+
+/** After a reload: the restored batch rejoins the lecture it came from. Its
+    next save checks for anyone else's save first, as any save does. */
+async function relinkFolderLecture() {
+  const link = pendingFolderRelink;
+  pendingFolderRelink = null;
+  if (!link || !projectFolder || folderLecture) return;
+  try {
+    const handle = await projectFolder.getDirectoryHandle(link.dir);
+    folderLecture = openedLecture(link.dir, handle, link.saveId || null, null);
+    markInUse(folderLecture);
+    markDirty();
+  } catch (_err) {
+    // The lecture is gone from the folder; the batch stays, as a batch.
+  }
+}
+
+async function initSharedFolders() {
+  if (!SHARED_FOLDERS) return;
+  els.folderSection.hidden = false;
+  try {
+    projectFolder = (await folderHandleStore("readonly", (store) => store.get("projects"))) || null;
+  } catch (_err) {
+    projectFolder = null;
+  }
+  if (projectFolder) folderPermission = await folderAccess(projectFolder, false);
+  if (folderPermission === "granted") await relinkFolderLecture();
+  renderAll();
+}
+
+els.chooseFolderBtn.addEventListener("click", chooseProjectFolder);
+els.allowFolderBtn.addEventListener("click", allowProjectFolder);
+els.saveToFolderBtn.addEventListener("click", saveBatchToFolder);
+els.folderUserName.addEventListener("change", () => {
+  try {
+    localStorage.setItem(FOLDER_USER_KEY, els.folderUserName.value.trim());
+  } catch (_err) {
+    // Not stored; the name is only a courtesy to teammates.
+  }
+  if (folderLecture) markInUse(folderLecture);
+});
+
+/** Whether the folder is behind the batch on screen — an edit made in the
+    last couple of seconds, still waiting on the save's debounce. */
+function folderBehind() {
+  return !!folderLecture && !folderLecture.conflict && folderLecture.savedSignature !== batchSignature();
+}
+
+// Leaving the tab: send the folder what it is missing now rather than after
+// the debounce — the browser's own autosave is flushed here too.
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden" && folderBehind()) saveFolderLecture();
+});
+window.addEventListener("pagehide", () => {
+  if (!folderLecture) return;
+  // Best effort, as anything during pagehide is. The "open by" note goes only
+  // when the folder has everything: with edits still unsaved, it stays, so a
+  // teammate is told before opening a lecture that is behind. A reload
+  // rejoins the lecture and writes the note again.
+  if (folderBehind()) saveFolderLecture();
+  else clearInUse(folderLecture);
 });
 
 // ---------- Init ----------
@@ -6268,4 +7200,6 @@ if (localStorage.getItem(STORAGE_KEYS.onboarded)) {
 }
 
 renderAll();
-restoreAutosave();
+// The folder is connected after the restore, so a restored batch can rejoin
+// the shared-folder lecture it came from.
+restoreAutosave().finally(initSharedFolders);

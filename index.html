@@ -524,6 +524,35 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
       </button>
     </div>
+    <!-- Shared folder — behind the ?learner-downloads flag (see app.js,
+         "Shared project folders"). A lecture saved here is a folder of
+         ordinary files that a sync service such as Dropbox shares with the
+         team; DescribeMe itself still uploads nothing. -->
+    <section class="folder-section" id="folderSection" aria-labelledby="folderTitle" hidden>
+      <h3 class="sheet-subhead" id="folderTitle">Shared folder</h3>
+      <p class="hint" id="folderIntro">Save lectures to a shared folder, such as one in Dropbox, so anyone on the team can open them. Needs Chrome or Edge on a computer.</p>
+      <div class="project-save-row">
+        <button type="button" class="btn" id="chooseFolderBtn">Choose projects folder</button>
+        <button type="button" class="btn btn-primary" id="allowFolderBtn" hidden>Allow access</button>
+        <span class="hint" id="folderStateText"></span>
+      </div>
+      <div id="folderReady" hidden>
+        <div class="folder-name-row">
+          <label for="folderUserName">Your name, shown to teammates while you have a lecture open</label>
+          <input class="input" id="folderUserName" autocomplete="name" maxlength="60">
+        </div>
+        <div class="project-save-row">
+          <button type="button" class="btn btn-primary" id="saveToFolderBtn">Save current batch to folder</button>
+          <span class="hint" id="saveToFolderHint"></span>
+        </div>
+        <p class="error" id="folderError" role="alert" hidden></p>
+        <p class="status" id="folderStatus" role="status" aria-live="polite"></p>
+        <ul class="project-list" id="folderList"></ul>
+        <p class="hint" id="folderEmpty">No lectures in this folder yet.</p>
+      </div>
+      <h3 class="sheet-subhead">In this browser</h3>
+    </section>
+
     <p class="sheet-lede">Saved in this browser only — slides, descriptions, edits and approvals all come back exactly as you left them. Nothing is uploaded anywhere, and clearing this site's data deletes saved projects. To move one to another device or person, export it as a file and import it there.</p>
 
     <div class="project-save-row">

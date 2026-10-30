@@ -1248,6 +1248,17 @@ dialog.sheet::backdrop { background: rgba(36, 26, 18, 0.55); }
   .learner-option { flex-direction: column; }
 }
 
+/* ---------- projects dialog: shared folder ---------- */
+.folder-section { margin-bottom: 8px; }
+.folder-section > .project-save-row { margin-bottom: 14px; }
+.sheet-subhead { font-family: var(--font-heading); font-size: 15px; margin: 0 0 8px; }
+.folder-section > .hint:first-of-type { margin-bottom: 12px; }
+.folder-name-row { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; max-width: 26rem; }
+.folder-name-row label { font-family: var(--font-heading); font-size: 12px; }
+#folderList { margin-bottom: 8px; }
+#folderEmpty { margin-bottom: 18px; }
+#folderReady + .sheet-subhead { margin-top: 22px; }
+
 /* ---------- projects dialog ---------- */
 .project-save-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
 .project-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }

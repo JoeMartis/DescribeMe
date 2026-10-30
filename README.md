@@ -190,6 +190,29 @@ with the batch. Named projects are still the way to keep more than one batch
 around, or to export one for someone else; the autosave only ever holds the
 latest state of the current one, in this browser.
 
+**Shared folders** (behind the `?learner-downloads` flag for now). In Chrome
+or Edge, **Projects** can save a lecture into a folder the team shares
+through a sync service such as Dropbox, so it can be handed from one person
+to the next and is never lost with one browser's data. **Choose projects
+folder** picks the shared folder once (Chrome remembers it, and may ask again
+for permission); **Save current batch to folder** makes the batch a lecture
+there, and **Open** brings one back. A lecture opened from the folder saves
+there as you work, and the rail's **Save** saves there too. Projects saved
+in the browser can be moved over with **Copy to folder**.
+
+Each lecture is a subfolder: `project.json` (descriptions, approvals and
+history, no images), `images/` (each image once, named by its SHA-256, so
+re-saving rewrites nothing that has not changed), and `in-use.json` while
+someone has it open. The model is hand-offs, not two people at once:
+opening a lecture someone else has open says who and when, and every save
+records an id and the save it was built on. A save that finds on disk a save
+not descended from the one it last saw — a teammate's, or another tab's —
+knows someone saved in between, stops saving automatically, and asks before
+replacing their version; this browser's own saves, even ones a reload or a
+closed tab missed, are recognised as its own. Everything read from the folder goes through the same
+validation and sanitizing as an imported project file. DescribeMe itself
+still uploads nothing; the sync service moves the files.
+
 ## Making the API calls efficient
 
 A few things keep batches fast and cheap:
