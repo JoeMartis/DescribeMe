@@ -37,7 +37,7 @@ fields in a settings dialog.
 selected slide's image plus its description on the right.
 
 1. Drop slide images anywhere in the workspace (or use **Add** in the rail) —
-   PNG, JPEG, WebP, or GIF, up to 25 per batch. Large images are resized
+   PNG, JPEG, WebP, or GIF, as many as the lecture needs. Large images are resized
    (and oversized files re-encoded) in your browser before upload, so
    original file size barely matters — anything up to 50 MB is accepted.
 

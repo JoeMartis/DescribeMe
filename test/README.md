@@ -56,6 +56,7 @@ Suites write downloads and screenshots to `test/.out/`, which is gitignored.
 | `regress15.mjs` | The video team's export names — position-then-time and time-then-position — pairing with their transcript in either arrival order, the export's timestamp, and the optional sort by slide position with its undo |
 | `regress16.mjs` | The gap between exported visuals — a heading-only slide no longer runs into the next visual's title, measured in a plain page the way it renders after pasting |
 | `regress17.mjs` | No "read as" line after equations — neither prompt asks for one, and a description that still carries one loses it as a fresh result, an imported project, and a project opened from the store, before it can reach an export |
+| `regress19.mjs` | No batch limit — 75 slides added in two drops, described with never more than three requests at once, saved and reopened, exported as a project file and imported back, and exported as a 75-visual zip |
 
 ## Writing one
 
