@@ -77,6 +77,7 @@ VERAPDF_LIB="$PWD/lib" node ../test/run.mjs regress18
 | `regress16.mjs` | The gap between exported visuals — a heading-only slide no longer runs into the next visual's title, measured in a plain page the way it renders after pasting |
 | `regress17.mjs` | No "read as" line after equations — neither prompt asks for one, and a description that still carries one loses it as a fresh result, an imported project, and a project opened from the store, before it can reach an export |
 | `regress18.mjs` | Learner downloads, opened with their `?learner-downloads` flag — and hidden without it, even with approved visuals. The HTML: a complete page with its own CSP, h1 then one h2 per visual, images built in, MathML intact, and nothing requested when opened from disk. The PDF: tagged, every equation a Formula with a spoken alt text (Delta, not triangle; H sub 2 O), slide images as artifacts, PDF/UA-1 identification, nothing fetched off-site to make it, and veraPDF's verdict when available |
+| `regress19.mjs` | No batch limit — 75 slides added in two drops, described with never more than three requests at once, saved and reopened, exported as a project file and imported back, and exported as a 75-visual zip |
 
 ## Writing one
 

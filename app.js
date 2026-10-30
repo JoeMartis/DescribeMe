@@ -92,7 +92,11 @@ const MAX_FILE_BYTES = 5 * 1024 * 1024;
 // size in a browser tab is a memory problem regardless of what the API
 // would say, and no real slide export comes close.
 const MAX_SOURCE_BYTES = 50 * 1024 * 1024;
-const MAX_BATCH_SIZE = 25;
+// There is no limit on how many slides a batch holds. There used to be 25,
+// which split a long lecture — some run to 75 visuals — across three
+// batches, three projects and three exports. Each slide is still sent as its
+// own request, BATCH_CONCURRENCY at a time, so a bigger batch takes longer
+// rather than asking more of the API at once.
 const ACCEPTED_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
 const ANTHROPIC_VERSION = "2023-06-01";
 
@@ -1675,7 +1679,7 @@ async function addFiles(fileList, meta) {
   if (all.length === 0) return;
 
   // Transcripts are peeled off before anything image-shaped happens: they
-  // don't occupy batch slots, and a full batch must not stop one attaching.
+  // are not slides, and only images go through the checks below.
   const files = all.filter((f) => !isTranscriptFile(f));
   const transcriptNotes = [];
   for (const f of all.filter(isTranscriptFile)) {
@@ -1694,22 +1698,7 @@ async function addFiles(fileList, meta) {
     return;
   }
 
-  if (jobs.size >= MAX_BATCH_SIZE) {
-    // The images are refused, but any transcript in the same drop already
-    // registered — render so it shows in the rail.
-    if (transcriptNotes.length > 0) renderAll();
-    setError(
-      [`You already have the maximum of ${MAX_BATCH_SIZE} images queued.`, ...transcriptFailures].join(" ")
-    );
-    return;
-  }
-
-  // Validate every file first, independent of the batch-size cap — slicing
-  // the list by position before checking validity would let an earlier
-  // invalid file silently consume a slot that a later valid one needed,
-  // dropping it with no message at all.
   const messages = [];
-  let skippedForRoom = 0;
 
   for (const file of files) {
     if (!ACCEPTED_TYPES.includes(file.type)) {
@@ -1720,13 +1709,6 @@ async function addFiles(fileList, meta) {
       messages.push(
         `Skipped "${file.name}": ${(file.size / (1024 * 1024)).toFixed(0)} MB is too large to decode in the browser (50 MB ceiling).`
       );
-      continue;
-    }
-    // Checked live against jobs.size (not a pre-captured budget): this loop
-    // awaits per file, so a second drop can interleave with this one — a
-    // stale local counter would let the two together blow past the cap.
-    if (jobs.size >= MAX_BATCH_SIZE) {
-      skippedForRoom += 1;
       continue;
     }
 
@@ -1804,11 +1786,6 @@ async function addFiles(fileList, meta) {
     if (!selectedJobId) selectedJobId = job.id;
   }
 
-  if (skippedForRoom > 0) {
-    messages.push(
-      `${skippedForRoom} file(s) skipped — batches are capped at ${MAX_BATCH_SIZE} images.`
-    );
-  }
   messages.push(...transcriptFailures);
   if (messages.length > 0) setError(messages.join(" "));
 
@@ -4275,10 +4252,6 @@ function cropKeyOf(region) {
 
 async function runCapture(runMode) {
   setVideoError("");
-  if (jobs.size >= MAX_BATCH_SIZE) {
-    setVideoError(`This batch is full at ${MAX_BATCH_SIZE} slides — export or start a new batch.`);
-    return;
-  }
 
   // Ask for the key BEFORE spending the capture. Capturing first and failing
   // afterwards left the frame in the batch and the second recorded, so the
@@ -5562,8 +5535,8 @@ function renderVersionBadge() {
 // Everything about the current batch — slide images (as the already-downscaled
 // JPEG data URLs), descriptions, edits, history, approvals, the batch name —
 // saved in this browser's IndexedDB so a batch can be reopened later.
-// localStorage can't hold this (a 25-slide project is ~10 MB of images);
-// IndexedDB's quota comfortably can.
+// localStorage can't hold this (25 slides is ~10 MB of images, and a lecture
+// can run to 75); IndexedDB's quota comfortably can.
 
 const PROJECT_DB_NAME = "describeme";
 const PROJECT_DB_VERSION = 1;
@@ -6138,9 +6111,6 @@ function importedProjectRecord(raw) {
     throw new Error("That doesn't look like a DescribeMe project file.");
   }
   if (raw.jobs.length === 0) throw new Error("That project file has no slides in it.");
-  if (raw.jobs.length > MAX_BATCH_SIZE) {
-    throw new Error(`That project has ${raw.jobs.length} slides — batches are capped at ${MAX_BATCH_SIZE}.`);
-  }
 
   const VALID_STATES = new Set(["pending", "done", "error", "canceled", "invalid"]);
   const sanitizeToStored = (html) => {
