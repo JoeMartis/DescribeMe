@@ -76,7 +76,7 @@ VERAPDF_LIB="$PWD/lib" node ../test/run.mjs regress18
 | `regress15.mjs` | The video team's export names — position-then-time and time-then-position — pairing with their transcript in either arrival order, the export's timestamp, and the optional sort by slide position with its undo |
 | `regress16.mjs` | The gap between exported visuals — a heading-only slide no longer runs into the next visual's title, measured in a plain page the way it renders after pasting |
 | `regress17.mjs` | No "read as" line after equations — neither prompt asks for one, and a description that still carries one loses it as a fresh result, an imported project, and a project opened from the store, before it can reach an export |
-| `regress18.mjs` | Learner downloads. The HTML: a complete page with its own CSP, h1 then one h2 per visual, images built in, MathML intact, and nothing requested when opened from disk. The PDF: tagged, every equation a Formula with a spoken alt text (Delta, not triangle; H sub 2 O), slide images as artifacts, PDF/UA-1 identification, nothing fetched off-site to make it, and veraPDF's verdict when available |
+| `regress18.mjs` | Learner downloads, opened with their `?learner-downloads` flag — and hidden without it, even with approved visuals. The HTML: a complete page with its own CSP, h1 then one h2 per visual, images built in, MathML intact, and nothing requested when opened from disk. The PDF: tagged, every equation a Formula with a spoken alt text (Delta, not triangle; H sub 2 O), slide images as artifacts, PDF/UA-1 identification, nothing fetched off-site to make it, and veraPDF's verdict when available |
 
 ## Writing one
 

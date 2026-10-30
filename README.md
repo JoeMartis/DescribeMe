@@ -142,7 +142,10 @@ selected slide's image plus its description on the right.
 
 9. **For learners** makes one file a learner keeps, rather than a fragment
    for Studio: every approved visual and its description, in rail order,
-   with the images built in. Two formats:
+   with the images built in. **It is behind a flag for now:** the button
+   appears only when the address ends in `?learner-downloads`
+   (`https://joemartis.github.io/DescribeMe/?learner-downloads`); without
+   it, DescribeMe looks and behaves as it did before. Two formats:
 
    - **HTML** — the one to recommend. A complete page (`<h1>` batch name,
      `<h2>` per visual, its own restrictive CSP) that opens anywhere and

@@ -5475,6 +5475,14 @@ function openLearnerDialog() {
   els.learnerDialog.showModal();
 }
 
+// Behind a flag while it is tried out: the button appears only when the
+// address carries ?learner-downloads (joemartis.github.io/DescribeMe/?learner-downloads).
+// Hidden rather than disabled, so nobody else meets a control they cannot
+// use. Nothing else changes without the flag — the PDF module and vendor/
+// only ever load from the dialog this button opens.
+const LEARNER_DOWNLOADS = new URLSearchParams(location.search).has("learner-downloads");
+els.learnerBtn.hidden = !LEARNER_DOWNLOADS;
+
 els.learnerBtn.addEventListener("click", openLearnerDialog);
 els.learnerClose.addEventListener("click", () => els.learnerDialog.close());
 els.learnerHtmlBtn.addEventListener("click", () => runLearnerDownload("html"));

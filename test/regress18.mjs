@@ -39,7 +39,10 @@ const MATH_COUNT = 5;
 const { b, page, problems } = await launch({ acceptDownloads: true });
 const offSite = [];
 page.on("request", (r) => { if (!r.url().startsWith(new URL(APP_URL).origin) && !/^(data|blob):/.test(r.url())) offSite.push(r.url()); });
-await openWorkspace(page);
+// The feature is behind a flag in the address; F1 at the end checks that
+// without it, nothing shows.
+const FLAGGED = `${APP_URL}?learner-downloads`;
+await openWorkspace(page, FLAGGED);
 
 const job = async (name, resultHtml, extra = {}) => {
   const img = await makeImage(page, { w: 1200, h: 675, label: name });
@@ -197,6 +200,17 @@ if (process.env.VERAPDF_LIB && pdf.file) {
 } else {
   console.log("SKIP  P9  veraPDF — set VERAPDF_LIB to a folder of its jars to run it");
 }
+
+// ---------- F: without the flag, none of it shows — even with approved
+// visuals in the batch (the autosave brings this one back on reload).
+await page.goto(APP_URL, { waitUntil: "load" });
+const restored = await page
+  .waitForFunction(() => document.querySelectorAll("#railList li").length === 3, null, { timeout: 10000 })
+  .then(() => true, () => false);
+check("F1  without ?learner-downloads the button is hidden, with approved visuals in the batch",
+  restored && (await page.$eval("#learnerBtn", (e) => e.hidden && getComputedStyle(e).display === "none")),
+  restored ? "" : "batch did not restore");
+check("F1  and the Studio export is still there as before", !(await page.$eval("#exportBtn", (e) => e.hidden || e.disabled)));
 
 check("Z  no console errors or CSP violations", problems.length === 0, problems.join(" | "));
 
