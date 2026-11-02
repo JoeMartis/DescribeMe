@@ -536,6 +536,10 @@
         <button type="button" class="btn btn-primary" id="allowFolderBtn" hidden>Allow access</button>
         <span class="hint" id="folderStateText"></span>
       </div>
+      <!-- Outside folderReady: choosing a folder or asking for permission can
+           fail before the folder is ready, and that has to show too. -->
+      <p class="error" id="folderError" role="alert" hidden></p>
+      <p class="status" id="folderStatus" role="status" aria-live="polite"></p>
       <div id="folderReady" hidden>
         <div class="folder-name-row">
           <label for="folderUserName">Your name, shown to teammates while you have a lecture open</label>
@@ -545,8 +549,6 @@
           <button type="button" class="btn btn-primary" id="saveToFolderBtn">Save current batch to folder</button>
           <span class="hint" id="saveToFolderHint"></span>
         </div>
-        <p class="error" id="folderError" role="alert" hidden></p>
-        <p class="status" id="folderStatus" role="status" aria-live="polite"></p>
         <ul class="project-list" id="folderList"></ul>
         <p class="hint" id="folderEmpty">No lectures in this folder yet.</p>
       </div>

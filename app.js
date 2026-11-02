@@ -5129,7 +5129,7 @@ function exportBlockFor({ job, imageName, titleLevel, position, total, imageSrc,
 async function resizeImageForExport(base64, mediaType) {
   const img = await loadImageElement(`data:${mediaType};base64,${base64}`);
   if (img.naturalWidth <= EXPORT_RESIZE_WIDTH) {
-    return { bytes: base64ToBytes(base64), ext: null, width: img.naturalWidth, height: img.naturalHeight };
+    return { base64, bytes: base64ToBytes(base64), ext: null, width: img.naturalWidth, height: img.naturalHeight };
   }
 
   const scale = EXPORT_RESIZE_WIDTH / img.naturalWidth;
@@ -5152,7 +5152,7 @@ async function resizeImageForExport(base64, mediaType) {
     ? canvas.toDataURL("image/png")
     : canvas.toDataURL("image/jpeg", EXPORT_JPEG_QUALITY);
   const resizedBase64 = resizedDataUrl.slice(resizedDataUrl.indexOf(",") + 1);
-  return { bytes: base64ToBytes(resizedBase64), ext: keepPng ? null : "jpg", width: targetW, height: targetH };
+  return { base64: resizedBase64, bytes: base64ToBytes(resizedBase64), ext: keepPng ? null : "jpg", width: targetW, height: targetH };
 }
 
 async function exportApproved() {
@@ -5171,7 +5171,8 @@ async function exportApproved() {
  * URL-safe name. Shared by the Studio zip and the learner downloads, so the
  * same visual is the same picture in all three.
  *
- * Each entry is { job, name, bytes, mediaType, imageName }. mediaType follows
+ * Each entry is { job, name, base64, bytes, mediaType, width, height,
+ * imageName }. mediaType follows
  * the bytes, not the original file — a resize can turn a JPEG-named source
  * into JPEG bytes, and an API copy is JPEG whatever its name says.
  */
@@ -5210,11 +5211,15 @@ async function prepareApprovedImages() {
       continue;
     }
     // The size of the bytes going out: an original's when the project has
-    // one, the API copy's otherwise.
-    const width = hasOriginal ? job.originalWidth || job.width : job.width;
-    const height = hasOriginal ? job.originalHeight || job.height : job.height;
+    // one, the API copy's otherwise. Never the API copy's for an original —
+    // a project without the original's size leaves it unknown, and the
+    // learner download measures the image instead of drawing it squashed.
+    const width = hasOriginal ? job.originalWidth : job.width;
+    const height = hasOriginal ? job.originalHeight : job.height;
+    // The base64 travels with the bytes, so the learner download does not
+    // encode again what it already has.
     if (!shouldResize) {
-      prepared.push({ job, name, bytes, mediaType, width, height });
+      prepared.push({ job, name, base64, bytes, mediaType, width, height });
       continue;
     }
     try {
@@ -5222,6 +5227,7 @@ async function prepareApprovedImages() {
       prepared.push({
         job,
         name: resized.ext ? renameExtension(name, resized.ext) : name,
+        base64: resized.base64,
         bytes: resized.bytes,
         mediaType: resized.ext === "jpg" ? "image/jpeg" : mediaType,
         width: resized.width,
@@ -5231,7 +5237,7 @@ async function prepareApprovedImages() {
       // A slide that resized fine for upload should always resize fine here
       // too — but if decoding somehow fails, exporting the original is
       // better than dropping the image from the zip entirely.
-      prepared.push({ job, name, bytes, mediaType, width, height });
+      prepared.push({ job, name, base64, bytes, mediaType, width, height });
     }
   }
 
@@ -5394,7 +5400,7 @@ async function learnerDocument() {
   const total = prep.entries.length;
   const blocks = [];
   for (const [i, entry] of prep.entries.entries()) {
-    const src = `data:${entry.mediaType};base64,${bytesToBase64(entry.bytes)}`;
+    const src = `data:${entry.mediaType};base64,${entry.base64 || bytesToBase64(entry.bytes)}`;
     // Known from preparing the image; decoded only for a project old enough
     // not to have recorded it.
     let imageSize = Number.isFinite(entry.width) && Number.isFinite(entry.height) ? { width: entry.width, height: entry.height } : null;
@@ -5724,7 +5730,9 @@ function isBatchSaved() {
   // A lecture open from the shared folder is saved when the folder has it.
   // savedSignature stays about the browser: a folder save setting it would
   // make a browser project read "Saved" while missing those edits.
-  if (folderLecture) return folderLecture.savedSignature === batchSignature();
+  // A lecture that stopped saving because someone else saved is not saved,
+  // whatever it last wrote.
+  if (folderLecture) return !folderLecture.conflict && folderLecture.savedSignature === batchSignature();
   return savedSignature !== null && savedSignature === batchSignature();
 }
 
@@ -5762,7 +5770,7 @@ async function writeAutosave() {
     // lost if the tab closes before anyone allows it.
     folderLecture: folderLecture
       ? { dir: folderLecture.dir, saveId: folderLecture.saveId, saved: folderLecture.savedSignature === batchSignature() }
-      : pendingFolderRelink,
+      : pendingFolderRelink && { ...pendingFolderRelink, saved: relinkUnchanged(pendingFolderRelink) },
   };
   try {
     await projectStoreRequest("readwrite", (store) => store.put(record));
@@ -5816,8 +5824,10 @@ async function restoreAutosave() {
     }
     if (record.userNamed !== true) delete els.batchName.dataset.userNamed;
     // Reconnected once the folder's permission is known (initSharedFolders).
+    // What the batch was when restored goes with it: an edit made while the
+    // folder waits for permission means the folder no longer has it all.
     if (record.folderLecture && typeof record.folderLecture.dir === "string") {
-      pendingFolderRelink = record.folderLecture;
+      pendingFolderRelink = { ...record.folderLecture, restoredSignature: batchSignature() };
     }
     setStatus("Restored your last session — everything is as you left it.");
   } finally {
@@ -6192,14 +6202,7 @@ function exportProjectRecord(record) {
     jobs: record.jobs,
   };
   const blob = new Blob([JSON.stringify(payload)], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `${safeFileStem(record.name, new Set())}.describeme.json`;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 10000);
+  downloadBlob(blob, `${safeFileStem(record.name, new Set())}.describeme.json`);
   announceProjects(`Exported "${record.name}" as a project file.`);
 }
 
@@ -6414,7 +6417,7 @@ const LECTURE_FORMAT = "describeme-lecture";
 const FOLDER_SAVE_DEBOUNCE_MS = 2000;
 const FOLDER_USER_KEY = "describeme.folderUserName";
 // Which browser tab wrote an in-use note, so a tab only ever removes its own.
-const FOLDER_SESSION = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+const FOLDER_SESSION = newSaveId();
 const LECTURE_IMAGE_RE = /^images\/([0-9a-f]{64}\.(?:png|jpg|webp|gif))$/;
 const EXT_FOR_TYPE = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif" };
 const TYPE_FOR_EXT = { png: "image/png", jpg: "image/jpeg", webp: "image/webp", gif: "image/gif" };
@@ -6484,12 +6487,16 @@ function shortTime(iso) {
   return today ? d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : d.toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
 }
 
+/** A JSON file's contents, or null when there is no such file. Anything else
+    — a file Dropbox has not finished bringing down, one damaged, a read that
+    failed — throws: "can't read it now" is not "it isn't there". */
 async function readJsonFile(dir, name) {
   let handle;
   try {
     handle = await dir.getFileHandle(name);
-  } catch (_err) {
-    return null; // not there
+  } catch (err) {
+    if (err && (err.name === "NotFoundError" || err.name === "TypeMismatchError")) return null;
+    throw err;
   }
   return JSON.parse(await (await handle.getFile()).text());
 }
@@ -6570,41 +6577,36 @@ function savedOnTopOf(diskId, baseId) {
   return false;
 }
 
-// This browser's open tabs, each with the time it last said it was open.
-// A tab says so every TAB_HEARTBEAT_MS and removes itself on pagehide; one
-// that crashed fades after TAB_STALE_MS. The threshold allows for Chrome
-// slowing a background tab's timers to once a minute.
-const FOLDER_TABS_KEY = "describeme.folderTabs";
-const TAB_HEARTBEAT_MS = 20000;
-const TAB_STALE_MS = 150000;
+// This browser's open tabs. Each holds a Web Lock named for it for as long as
+// it is open; the browser lets go when the tab closes or crashes, however busy
+// or throttled the tab was. refreshOpenTabs asks which are held, before any
+// check that depends on it. Without Web Locks, other tabs are taken for
+// closed: a teammate's save is still told apart, just not another tab's.
+const TAB_LOCK_PREFIX = "describeme-tab:";
+let liveTabs = new Set();
 
-function openTabs() {
-  try {
-    const map = JSON.parse(localStorage.getItem(FOLDER_TABS_KEY) || "{}");
-    return map && typeof map === "object" ? map : {};
-  } catch (_err) {
-    return {};
-  }
+function holdTabLock() {
+  if (!navigator.locks) return;
+  navigator.locks.request(TAB_LOCK_PREFIX + FOLDER_SESSION, () => new Promise(() => {})).catch(() => {});
 }
 
-function tabHeartbeat(present = true) {
+async function refreshOpenTabs() {
+  if (!navigator.locks) return;
   try {
-    const map = openTabs();
-    const now = Date.now();
-    if (present) map[FOLDER_SESSION] = now;
-    else delete map[FOLDER_SESSION];
-    for (const [tab, seen] of Object.entries(map)) if (!(now - seen < TAB_STALE_MS)) delete map[tab];
-    localStorage.setItem(FOLDER_TABS_KEY, JSON.stringify(map));
+    const { held = [] } = await navigator.locks.query();
+    liveTabs = new Set(
+      held
+        .map((lock) => lock.name)
+        .filter((name) => typeof name === "string" && name.startsWith(TAB_LOCK_PREFIX))
+        .map((name) => name.slice(TAB_LOCK_PREFIX.length))
+    );
   } catch (_err) {
-    // Without it, other tabs take this one for closed: they can still tell a
-    // teammate's save, just not this tab's.
+    // As last known.
   }
 }
 
 function tabIsOpen(tab) {
-  if (tab === FOLDER_SESSION) return true;
-  const seen = openTabs()[tab];
-  return Number.isFinite(seen) && Date.now() - seen < TAB_STALE_MS;
+  return tab === FOLDER_SESSION || liveTabs.has(tab);
 }
 
 // Which browser wrote an in-use note. A note this browser left behind — kept
@@ -6625,17 +6627,22 @@ function folderBrowserId() {
   }
 }
 
+function noteFromThisBrowser(note) {
+  return !!note && note.browser === folderBrowserId();
+}
+
 /** Someone else's note: a teammate's, or another tab of this browser that is
-    still open. This browser's notes from tabs since closed are not. */
+    still open. This browser's notes from tabs since closed are not. Call
+    refreshOpenTabs first. */
 function othersNote(note) {
   if (!note || note.session === FOLDER_SESSION) return false;
-  if (note.browser !== folderBrowserId()) return true;
+  if (!noteFromThisBrowser(note)) return true;
   return tabIsOpen(note.session);
 }
 
 /** Who a note says has the lecture open, in words. */
 function noteHolder(note) {
-  return note.browser === folderBrowserId() ? "Another tab in this browser" : note.by;
+  return noteFromThisBrowser(note) ? "Another tab in this browser" : note.by;
 }
 
 // ---- in-use notes ----
@@ -6700,10 +6707,14 @@ function leaveFolderLecture() {
   pendingFolderRelink = null;
   if (!folderLecture) return;
   const leaving = folderLecture;
+  // An edit still waiting on the save's debounce goes to the folder first,
+  // as on leaving the tab — taken now, before the batch is replaced.
+  const flushOf = folderBehind() ? { lecture: leaving, record: serializeProject(), signature: batchSignature() } : null;
   folderLecture = null;
   clearTimeout(folderSaveTimer);
   imageNameCache.clear();
-  clearInUse(leaving);
+  if (flushOf) saveFolderLecture({ flushOf }).then(() => clearInUse(leaving));
+  else clearInUse(leaving);
 }
 
 // ---- reading and writing a lecture ----
@@ -6880,36 +6891,62 @@ function saveFolderLecture(opts = {}) {
 }
 
 /** Resolves true once the folder holds the batch as it stood when the save
-    began, false when nothing was written. */
-async function saveFolderLectureNow({ explicit = false } = {}) {
-  clearTimeout(folderSaveTimer);
-  const lecture = folderLecture;
-  if (!lecture || folderPermission !== "granted" || jobs.size === 0) return false;
-  if (!explicit && (lecture.conflict || lecture.savedSignature === batchSignature())) return false;
-  if (explicit) commitPendingEdit();
+    began, false when nothing was written. flushOf: { lecture, record,
+    signature } — the last edits of a lecture just left, saved to it although
+    it is no longer the one on screen. */
+async function saveFolderLectureNow({ explicit = false, flushOf = null } = {}) {
+  if (!flushOf) clearTimeout(folderSaveTimer);
+  const lecture = flushOf ? flushOf.lecture : folderLecture;
+  if (!lecture || folderPermission !== "granted") return false;
+  if (!flushOf) {
+    if (jobs.size === 0) return false;
+    if (!explicit && (lecture.conflict || lecture.savedSignature === batchSignature())) return false;
+    if (explicit) commitPendingEdit();
+  }
+  const name = flushOf ? flushOf.record.name : null;
 
   // Has anyone else saved since this tab last did?
   let onDisk = null;
+  let unreadable = false;
   try {
     onDisk = await readJsonFile(lecture.handle, LECTURE_FILE);
   } catch (_err) {
-    onDisk = null; // unreadable — ours to replace
+    unreadable = true;
   }
+  await refreshOpenTabs();
   // That read can take a while (a Dropbox file kept online-only), and the
   // batch on screen may have changed lecture or been cleared meanwhile.
   // Whatever is on screen now is not this lecture's to write.
-  if (folderLecture !== lecture || jobs.size === 0) return false;
+  if (!flushOf && (folderLecture !== lecture || jobs.size === 0)) return false;
+  // There, but not readable now — most likely Dropbox still bringing down a
+  // teammate's newer save. It may be theirs, so it is not replaced unasked.
+  if (unreadable) {
+    const what = `The shared folder's copy of "${name || lecture.dir}" can't be read right now`;
+    if (explicit && window.confirm(`${what} — Dropbox may still be bringing down someone's newer save. Replace it with yours?`)) {
+      // On, as asked.
+    } else {
+      if (flushOf) reportFolderProblem(`${what}, so your last changes to it were not saved there.`);
+      else if (explicit) reportFolderProblem(`${what}, so it was not replaced. DescribeMe will try again shortly.`);
+      if (!flushOf) {
+        clearTimeout(folderSaveTimer);
+        folderSaveTimer = setTimeout(() => saveFolderLecture(), FOLDER_SAVE_DEBOUNCE_MS * 3);
+      }
+      return false;
+    }
+  }
   if (onDisk && typeof onDisk.saveId === "string" && !savedOnTopOf(onDisk.saveId, lecture.saveId)) {
     const who = typeof onDisk.savedBy === "string" && onDisk.savedBy ? onDisk.savedBy : "Someone else";
     const when = shortTime(onDisk.savedAt);
+    const title = onDisk.name || lecture.dir;
     const replace =
-      explicit &&
-      window.confirm(`${who} saved "${onDisk.name || lecture.dir}" to the shared folder at ${when}, after you opened it. Replace their version with yours?`);
+      explicit && window.confirm(`${who} saved "${title}" to the shared folder at ${when}, after you opened it. Replace their version with yours?`);
     if (!replace) {
       lecture.conflict = true;
       reportFolderProblem(
-        `${who} saved "${onDisk.name || lecture.dir}" to the shared folder at ${when}, after you opened it, so your changes are not being saved there. ` +
-          "Open it again from Projects to get their version, or select Save to replace it with yours."
+        flushOf
+          ? `${who} saved "${title}" to the shared folder at ${when}, after you opened it, so your last changes to it were not saved there.`
+          : `${who} saved "${title}" to the shared folder at ${when}, after you opened it, so your changes are not being saved there. ` +
+              "Open it again from Projects to get their version, or select Save to replace it with yours."
       );
       renderAll();
       return false;
@@ -6918,22 +6955,26 @@ async function saveFolderLectureNow({ explicit = false } = {}) {
 
   // Taken synchronously, with nothing awaited between the check above and
   // here: what is serialized is this lecture's batch.
-  const signature = batchSignature();
-  const record = serializeProject();
+  const signature = flushOf ? flushOf.signature : batchSignature();
+  const record = flushOf ? flushOf.record : serializeProject();
   const saveId = newSaveId();
   // Before the write, so a reload part-way through still knows it as ours.
   rememberOwnSave(saveId, lecture.saveId);
   try {
-    await writeLecture(lecture.handle, record, saveId, { cached: true, fresh: lecture.saveId === null && !onDisk });
+    // imageNameCache is the lecture on screen's; a lecture left has no cache.
+    await writeLecture(lecture.handle, record, saveId, {
+      cached: !flushOf,
+      fresh: lecture.saveId === null && !onDisk && !unreadable,
+    });
   } catch (err) {
     reportFolderProblem(`Couldn't save to the shared folder: ${(err && err.message) || err}`);
     return false;
   }
   lecture.saveId = saveId;
   lecture.conflict = false;
-  if (folderLecture !== lecture) return true; // written; another lecture was opened meanwhile
-  markInUse(lecture);
   lecture.savedSignature = signature;
+  if (flushOf || folderLecture !== lecture) return true; // written; another lecture is open now
+  markInUse(lecture);
   if (explicit) {
     setFolderError("");
     setError("");
@@ -6959,10 +7000,15 @@ async function chooseProjectFolder() {
     setFolderError("DescribeMe needs permission to save in that folder.");
     return;
   }
-  // A lecture open from the previous folder is not in this one. Whatever the
-  // folder is still missing goes to it first, as on leaving the tab.
-  if (folderBehind()) await saveFolderLecture();
-  leaveFolderLecture();
+  // Picking the folder already in use (to grant permission again, say) keeps
+  // the lecture open from it. Any other folder: a lecture open from the
+  // previous one is not in it. Whatever that one is still missing goes to it
+  // first, as on leaving the tab.
+  const same = !!projectFolder && (await handle.isSameEntry(projectFolder).catch(() => false));
+  if (!same) {
+    if (folderBehind()) await saveFolderLecture();
+    leaveFolderLecture();
+  }
   projectFolder = handle;
   folderPermission = "granted";
   try {
@@ -6970,6 +7016,8 @@ async function chooseProjectFolder() {
   } catch (_err) {
     // Still usable for this session; it just won't be remembered.
   }
+  // A reconnect that was waiting on this folder's permission can go ahead.
+  if (same) await relinkFolderLecture();
   announceFolder(`Using the folder "${handle.name}".`);
   await renderFolderSection();
   await refreshProjectList();
@@ -7052,6 +7100,7 @@ async function refreshFolderList() {
   );
   const lectures = summaries.filter(Boolean);
   lectures.sort((a, b) => b.savedAt - a.savedAt);
+  await refreshOpenTabs();
 
   els.folderList.replaceChildren();
   els.folderEmpty.hidden = lectures.length > 0;
@@ -7075,7 +7124,7 @@ async function refreshFolderList() {
         ];
     if (openHere) bits.push("open now");
     else if (othersNote(lecture.inUse)) {
-      const where = lecture.inUse.browser === folderBrowserId() ? "open in another tab" : `open by ${lecture.inUse.by}`;
+      const where = noteFromThisBrowser(lecture.inUse) ? "open in another tab" : `open by ${lecture.inUse.by}`;
       bits.push(`${where}, last active ${shortTime(lecture.inUse.active)}`);
     }
     meta.textContent = bits.join(" · ");
@@ -7100,6 +7149,9 @@ async function openFolderLecture(dirName) {
     setFolderError("Wait for the current batch to finish first.");
     return;
   }
+  // The lecture open now gets its last edits before anything is read — it
+  // may be the very one being opened again.
+  if (folderBehind()) await saveFolderLecture();
   let dir;
   try {
     dir = await projectFolder.getDirectoryHandle(dirName);
@@ -7109,6 +7161,7 @@ async function openFolderLecture(dirName) {
     return;
   }
   const note = await readInUse(dir);
+  await refreshOpenTabs();
   if (othersNote(note)) {
     const ok = window.confirm(
       `${noteHolder(note)} has this lecture open (since ${shortTime(note.since)}, last active ${shortTime(note.active)}). ` +
@@ -7222,8 +7275,12 @@ async function newLectureDir(name) {
   }
 }
 
+/** Removes a lecture folder this code just made — only while it is empty. A
+    failed first save takes back what it wrote; anything still there arrived
+    from someone else (Dropbox, under the same name) and is not ours to
+    delete. */
 async function discardLectureDir(dirName) {
-  await projectFolder.removeEntry(dirName, { recursive: true }).catch(() => {});
+  await projectFolder.removeEntry(dirName).catch(() => {});
 }
 
 /** A project saved in this browser, copied into the folder as a lecture. */
@@ -7243,7 +7300,7 @@ async function copyProjectToFolder(id) {
     return;
   }
   try {
-    await writeLecture(target.dir, record, newSaveId());
+    await writeLecture(target.dir, record, newSaveId(), { fresh: true });
   } catch (err) {
     if (target.created) await discardLectureDir(target.dirName);
     setFolderError(`Couldn't copy "${record.name}" to the folder: ${(err && err.message) || err}`);
@@ -7269,6 +7326,9 @@ async function relinkFolderLecture() {
   // save this copy over a lecture they are working in. The batch stays, and
   // the page says how to pick the lecture up again.
   const note = await readInUse(handle);
+  await refreshOpenTabs();
+  // The page may have moved on while that was read.
+  if (folderLecture || jobs.size === 0) return;
   if (othersNote(note)) {
     setError(
       `${noteHolder(note)} has "${link.dir}" open in the shared folder, so this restored copy isn't connected to it. ` +
@@ -7279,15 +7339,21 @@ async function relinkFolderLecture() {
   // When the folder already had everything this copy holds, there is
   // nothing to save; otherwise the next save sends what it is missing, after
   // the usual check for anyone else's save.
-  folderLecture = openedLecture(link.dir, handle, link.saveId || null, link.saved === true ? batchSignature() : null);
+  const unchanged = relinkUnchanged(link);
+  folderLecture = openedLecture(link.dir, handle, link.saveId || null, unchanged ? batchSignature() : null);
   markInUse(folderLecture);
-  if (link.saved !== true) markDirty();
+  if (!unchanged) markDirty();
+}
+
+/** Whether a reconnect's batch is still all in the folder: it was when the
+    autosave was written, and nothing has changed since it was restored. */
+function relinkUnchanged(link) {
+  return link.saved === true && (!link.restoredSignature || link.restoredSignature === batchSignature());
 }
 
 async function initSharedFolders() {
   if (!SHARED_FOLDERS) return;
-  tabHeartbeat();
-  setInterval(tabHeartbeat, TAB_HEARTBEAT_MS);
+  holdTabLock();
   els.folderSection.hidden = false;
   try {
     projectFolder = (await folderHandleStore("readonly", (store) => store.get("projects"))) || null;
@@ -7331,9 +7397,10 @@ window.addEventListener("pagehide", () => {
   if (folderBehind()) saveFolderLecture();
   else clearInUse(folderLecture);
 });
-window.addEventListener("pagehide", () => {
-  // This tab is closing: its saves stop counting as another open tab's.
-  if (SHARED_FOLDERS) tabHeartbeat(false);
+// Back from the back/forward cache: pagehide removed the note, and the
+// lecture is open here again.
+window.addEventListener("pageshow", (event) => {
+  if (event.persisted && folderLecture) markInUse(folderLecture);
 });
 
 // ---------- Init ----------

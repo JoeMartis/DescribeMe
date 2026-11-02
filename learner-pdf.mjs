@@ -420,7 +420,8 @@ function block(node, ctx) {
       const items = [...node.children].filter((li) => li.nodeName === "LI").map((li) => `[${content(li, ctx)}]`);
       if (items.length === 0) return "";
       if (node.nodeName === "UL") return `#list(${items.join(", ")})`;
-      const start = Number(node.getAttribute("start"));
+      // No start attribute is 1, not Number(null)'s 0.
+      const start = node.hasAttribute("start") ? Number(node.getAttribute("start")) : 1;
       return `#enum(${Number.isInteger(start) && start !== 1 ? `start: ${start}, ` : ""}${items.join(", ")})`;
     }
     case "TABLE":
@@ -472,9 +473,13 @@ function tableBlock(tableEl, ctx) {
   const bodyRows = rows.filter((r) => !headerRows.includes(r));
   const columns = Math.max(1, ...rows.map((r) => [...r.children].reduce((n, c) => n + (Number(c.getAttribute("colspan")) || 1), 0)));
   const headCells = headerRows.flatMap((r) => [...r.children].map((c) => {
-    const span = Number(c.getAttribute("colspan")) || 1;
+    const span = [];
+    const colspan = Number(c.getAttribute("colspan")) || 1;
+    const rowspan = Number(c.getAttribute("rowspan")) || 1;
+    if (colspan > 1) span.push(`colspan: ${colspan}`);
+    if (rowspan > 1) span.push(`rowspan: ${rowspan}`);
     const body = `#strong[${content(c, ctx)}]`;
-    return span > 1 ? `table.cell(colspan: ${span})[${body}]` : `[${body}]`;
+    return span.length ? `table.cell(${span.join(", ")})[${body}]` : `[${body}]`;
   }));
   const bodyCells = bodyRows.flatMap((r) => [...r.children].map(cell));
   const caption = tableEl.querySelector(":scope > caption");

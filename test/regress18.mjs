@@ -210,6 +210,44 @@ const eqs = await page.evaluate(async () => {
 });
 check('P10  an equation holding "$5" is still found whole', JSON.stringify(eqs) === JSON.stringify(['"$5" + x', "y"]), JSON.stringify(eqs));
 
+// Lists and table headers as the model writes them.
+const shapes = await page.evaluate(async () => {
+  const { learnerTypst } = await import("/learner-pdf.mjs");
+  const html = '<!doctype html><html lang="en"><head><title>T</title></head><body><main>' +
+    "<ol><li>first</li><li>second</li></ol><ol start=\"3\"><li>third</li></ol>" +
+    '<table><thead><tr><th rowspan="2">Group</th><th>Mass</th></tr><tr><th>kg</th></tr></thead><tbody><tr><td>A</td><td>2</td></tr></tbody></table>' +
+    "</main></body></html>";
+  return learnerTypst(new DOMParser().parseFromString(html, "text/html")).source;
+});
+check("P11  a numbered list with no start attribute starts at 1", /#enum\((?!start)/.test(shapes) && !/start: 0/.test(shapes), (shapes.match(/#enum\([^)]{0,30}/g) || []).join(" | "));
+check("P11  and one with start=3 starts at 3", /#enum\(start: 3, /.test(shapes));
+check("P12  a header cell spanning two rows keeps its rowspan", /table\.header\(table\.cell\(rowspan: 2\)\[#strong/.test(shapes), (shapes.match(/table\.header\([^\n]{0,80}/) || [""])[0]);
+
+// An original whose size the project never recorded is measured, not given
+// the API copy's size; and each image's base64 goes along with its bytes.
+const sizes = await page.evaluate(async () => {
+  const job = jobList().find((j) => j.state === "done" && j.approved);
+  const keep = { originalBase64: job.originalBase64, originalMediaType: job.originalMediaType, originalWidth: job.originalWidth, originalHeight: job.originalHeight };
+  const resize = els.exportResize.checked;
+  job.originalBase64 = job.base64;
+  job.originalMediaType = job.mediaType;
+  delete job.originalWidth;
+  delete job.originalHeight;
+  els.exportResize.checked = false;
+  const { entries } = await prepareApprovedImages();
+  const entry = entries.find((e) => e.job === job);
+  const out = { width: entry.width ?? null, base64: entry.base64 === job.originalBase64 };
+  Object.assign(job, keep);
+  for (const k of Object.keys(keep)) if (keep[k] === undefined) delete job[k];
+  els.exportResize.checked = true;
+  const resized = (await prepareApprovedImages()).entries;
+  out.resizedBase64 = resized.every((e) => typeof e.base64 === "string" && e.base64.length > 0);
+  els.exportResize.checked = resize;
+  return out;
+});
+check("P13  an original of unrecorded size is not given the API copy's size", sizes.width === null, JSON.stringify(sizes));
+check("P13  each prepared image carries its base64, resized or not", sizes.base64 && sizes.resizedBase64, JSON.stringify(sizes));
+
 // ---------- F: without the flag, none of it shows — even with approved
 // visuals in the batch (the autosave brings this one back on reload).
 await page.goto(APP_URL, { waitUntil: "load" });
