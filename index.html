@@ -810,14 +810,13 @@
            only go in when Use this is pressed (see Discuss in app.js). -->
       <section class="discuss js-discuss" aria-label="Discuss with Claude" hidden>
         <div class="discuss-head">
-          <div class="discuss-intro">
-            <h3 class="discuss-title">Discuss with Claude</h3>
-            <p class="discuss-sees js-discuss-sees"></p>
-          </div>
+          <h3 class="discuss-title">Discuss with Claude</h3>
+          <button type="button" class="btn btn-text btn-small-text js-discuss-sees-toggle" aria-expanded="false">What Claude sees</button>
           <button type="button" class="btn btn-text btn-more js-discuss-close" aria-label="Close the discussion">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><line x1="6" y1="6" x2="18" y2="18"></line><line x1="18" y1="6" x2="6" y2="18"></line></svg>
           </button>
         </div>
+        <p class="discuss-sees js-discuss-sees" hidden></p>
         <ol class="discuss-log js-discuss-log" role="log" aria-label="Messages"></ol>
         <div class="discuss-compose">
           <div class="discuss-quick" role="group" aria-label="Quick requests">

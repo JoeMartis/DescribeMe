@@ -4169,6 +4169,7 @@ You are now talking with the member of the course team who is reviewing this des
 - The rules above still hold in a revision. If what they ask would break one (describing what the slide does not show, quoting the transcript), say so and offer what you can do instead.`;
 
 let discussOpen = false;
+let discussSeesOpen = false; // the "What Claude sees" line, folded by default
 const discussDrafts = new Map(); // job id → what is typed and not yet sent
 const discussErrors = new Map(); // job id → why the last reply did not come
 let discussInFlight = null; // { jobId, controller }
@@ -4469,7 +4470,16 @@ function discussMessageEl(job, m, index) {
 function renderDiscussion(job, frag) {
   const q = (sel) => frag.querySelector(sel);
   q(".js-discuss").hidden = false;
-  q(".js-discuss-sees").textContent = discussSees(job);
+  const sees = q(".js-discuss-sees");
+  sees.textContent = discussSees(job);
+  sees.hidden = !discussSeesOpen;
+  const seesToggle = q(".js-discuss-sees-toggle");
+  seesToggle.setAttribute("aria-expanded", String(discussSeesOpen));
+  seesToggle.addEventListener("click", () => {
+    discussSeesOpen = !discussSeesOpen;
+    seesToggle.setAttribute("aria-expanded", String(discussSeesOpen));
+    els.detailPane.querySelector(".js-discuss-sees").hidden = !discussSeesOpen;
+  });
   const log = q(".js-discuss-log");
   const messages = job.discussion || [];
   if (messages.length === 0) {

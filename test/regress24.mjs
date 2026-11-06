@@ -70,7 +70,14 @@ await page.click("#detailPane .js-discuss-toggle");
 const d1 = await pane();
 check("D1  Discuss opens the conversation", d1.open && d1.discussing && d1.pressed === "true", JSON.stringify(d1));
 check("D1  it says what Claude sees", /this slide, the slide before it and its description, the transcript around it/.test(d1.sees), d1.sees);
+
 check("D1  focus goes to the message box", await page.evaluate(() => document.activeElement?.classList.contains("js-discuss-input")));
+const seesFolded = await page.evaluate(() => els.detailPane.querySelector(".js-discuss-sees").hidden);
+await page.click("#detailPane .js-discuss-sees-toggle");
+const seesOpen = await page.evaluate(() => ({ hidden: els.detailPane.querySelector(".js-discuss-sees").hidden, expanded: els.detailPane.querySelector(".js-discuss-sees-toggle").getAttribute("aria-expanded") }));
+check("D1  folded by default, opened by What Claude sees", seesFolded && !seesOpen.hidden && seesOpen.expanded === "true", JSON.stringify(seesOpen));
+await page.click("#detailPane .js-discuss-sees-toggle");
+await page.click("#detailPane .js-discuss-input");
 
 // D2: a question gets an answer and changes nothing.
 replies.push({ text: "The label on the slide reads that way, so I kept it." });
