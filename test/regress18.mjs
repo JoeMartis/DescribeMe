@@ -250,6 +250,9 @@ check("P13  each prepared image carries its base64, resized or not", sizes.base6
 
 // ---------- F: without the flag, none of it shows — even with approved
 // visuals in the batch (the autosave brings this one back on reload).
+// Saved first: this suite can reach here inside the autosave's first 1.5 s,
+// and the save on leaving the page is best effort.
+await page.evaluate(() => writeAutosave());
 await page.goto(APP_URL, { waitUntil: "load" });
 const restored = await page
   .waitForFunction(() => document.querySelectorAll("#railList li").length === 3, null, { timeout: 10000 })

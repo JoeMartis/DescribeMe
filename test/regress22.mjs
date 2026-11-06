@@ -380,6 +380,38 @@ const t3 = await page.evaluate(() => {
 });
 check("T3  a rewritten Same-as is not Same-as any more", !t3.same && /peak circled/.test(t3.context || "") && !t3.pane, JSON.stringify(t3));
 
+// ---------- U: bug round 4
+// U1: editing a slide flags the one after it at once, not on the next redraw.
+const u1 = await page.evaluate(() => {
+  const [, x, y] = [...jobs.values()].filter((j) => segmentLabel(j) === "Tee_S1");
+  for (const j of [x, y]) { j.state = "done"; j.approved = false; }
+  x.resultHtml = "<h2>Tee</h2><p>one</p>"; x.resultText = "Tee one";
+  y.resultHtml = "<h2>Tee</h2><p>two</p>"; y.resultText = "Tee two"; y.contextFrom = contextRecord(x, contextHtml(x));
+  renderAll();
+  const before = y.railEl.textContent.replace(/\s+/g, " ");
+  selectJob(x.id); toggleEdit(x.id);
+  els.detailPane.querySelector(".js-preview").innerHTML = "<h2>Tee</h2><p>one, edited</p>";
+  commitEdit();
+  return { before, after: y.railEl.textContent.replace(/\s+/g, " ") };
+});
+check("U1  editing a slide flags the next one at once", !/Check:/.test(u1.before) && /Check: the visual before it changed/.test(u1.after), JSON.stringify(u1));
+
+// U2: un-approving a slide updates its segment's count.
+await page.setInputFiles("#railFileInput", [{ name: "Vee_S1_00-00-01.png", mimeType: "image/png", buffer: await tImg("vee") }]);
+await page.waitForFunction(() => document.querySelectorAll("#railList .rail-segment-toggle").length >= 2);
+const u2 = await page.evaluate(() => {
+  const tee = [...jobs.values()].filter((j) => segmentLabel(j) === "Tee_S1");
+  tee.forEach((j) => { j.approved = false; });
+  renderAll();
+  const head = () => [...document.querySelectorAll("#railList .rail-segment-toggle")].find((b) => /^Tee_S1/.test(b.textContent)).textContent;
+  const x = tee[1];
+  toggleApprove(x.id);
+  const approved = head();
+  toggleApprove(x.id);
+  return { approved, unapproved: head() };
+});
+check("U2  un-approving a slide updates its segment's count", /1 approved/.test(u2.approved) && /0 approved/.test(u2.unapproved), JSON.stringify(u2));
+
 check("Z  no console errors", problems.filter((m) => !/404/.test(m)).length === 0, problems.join(" | "));
 fs.rmSync(root, { recursive: true, force: true });
 await b.close();

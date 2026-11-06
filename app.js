@@ -1936,6 +1936,16 @@ function segmentHead(key) {
   return li;
 }
 
+function fillSegmentHead(head, members, collapsed) {
+  const button = head.firstChild;
+  const approved = members.filter((j) => j.state === "done" && j.approved).length;
+  button.querySelector(".rail-segment-name").textContent = segmentLabel(members[0]);
+  button.querySelector(".rail-segment-meta").textContent =
+    `${members.length} slide${members.length === 1 ? "" : "s"} · ${approved} approved`;
+  button.querySelector(".rail-segment-bar > span").style.width = `${Math.round((approved / members.length) * 100)}%`;
+  button.setAttribute("aria-expanded", String(!collapsed));
+}
+
 /** Each segment's heading, its slides under it, folded or not, in rail order. */
 function syncRailSegments(list) {
   // Taken first: folding a segment hides its rows, and with them the focus.
@@ -1952,13 +1962,7 @@ function syncRailSegments(list) {
     const collapsed = multi && collapsedSegments.has(key);
     if (multi) {
       const head = segmentHead(key);
-      const button = head.firstChild;
-      const approved = members.filter((j) => j.state === "done" && j.approved).length;
-      button.querySelector(".rail-segment-name").textContent = segmentLabel(members[0]);
-      button.querySelector(".rail-segment-meta").textContent =
-        `${members.length} slide${members.length === 1 ? "" : "s"} · ${approved} approved`;
-      button.querySelector(".rail-segment-bar > span").style.width = `${Math.round((approved / members.length) * 100)}%`;
-      button.setAttribute("aria-expanded", String(!collapsed));
+      fillSegmentHead(head, members, collapsed);
       wanted.push(head);
     }
     for (const job of members) {
@@ -2661,9 +2665,31 @@ function renderAll() {
   markDirty();
 }
 
+/**
+ * What else one slide's change shows on: the slides after it in its segment,
+ * whose "Check: the visual before it changed" reads it, and the segment's
+ * heading, which counts its approvals. Its own row is the caller's.
+ */
+function renderDependents(job) {
+  const list = jobList();
+  const at = list.indexOf(job);
+  if (at === -1) return;
+  const key = segmentKey(job);
+  let detail = false;
+  for (let i = at + 1; i < list.length; i += 1) {
+    if (segmentKey(list[i]) !== key) continue;
+    renderRailRow(list[i]);
+    if (list[i].id === selectedJobId) detail = true;
+  }
+  const head = segmentHeads.get(key);
+  if (head) fillSegmentHead(head, list.filter((j) => segmentKey(j) === key), collapsedSegments.has(key));
+  if (detail) renderDetail();
+}
+
 /** Called whenever one job's state changes. */
 function renderJobState(job) {
   renderRailRow(job);
+  renderDependents(job);
   if (job.id === selectedJobId) renderDetail();
   updateControls();
   updateOverallStatus();
@@ -3079,6 +3105,7 @@ function toggleApprove(jobId) {
   job.approved = !job.approved;
   markDirty();
   renderRailRow(job);
+  renderDependents(job);
   updateControls();
   updateOverallStatus();
   if (job.approved) {
@@ -3241,6 +3268,7 @@ function commitEdit() {
   // until there are words in it, and saving is exactly when that stops
   // being true.
   renderRailRow(job);
+  renderDependents(job);
   renderDetail();
   updateControls();
   markDirty();
@@ -3317,6 +3345,7 @@ function commitSourceEdit() {
   editMode = null;
   textarea.readOnly = true;
   renderRailRow(job); // same reason as commitEdit
+  renderDependents(job);
   renderDetail();
   updateControls();
   markDirty();
@@ -3717,7 +3746,15 @@ async function runSegments(items, limit, worker) {
     showProgress(completed, items.length);
   };
   await runWithConcurrency([...segments.values()], limit, async (segment) => {
-    for (const item of segment) {
+    // The next in the rail as it is now, not as it was when Describe all was
+    // pressed: a slide moved up mid-run is described before the one it was
+    // moved above, with the slide now before it in view.
+    const remaining = [...segment];
+    while (remaining.length > 0) {
+      const position = new Map(jobList().map((job, i) => [job, i]));
+      const rank = (job) => (position.has(job) ? position.get(job) : -1);
+      remaining.sort((x, y) => rank(x) - rank(y));
+      const item = remaining.shift();
       if (cancelRequested) {
         if (item.state === "pending" || item.state === "describing") {
           item.state = "canceled";

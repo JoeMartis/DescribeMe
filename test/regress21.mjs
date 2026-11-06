@@ -250,6 +250,31 @@ await page.evaluate(() => {
 });
 check("Q4  Retry on a failed transcription identical to the one before is sent", sent.length === before4 + 1 && /Transcribe/.test(sent[before4].texts));
 
+// Q5: a slide moved up mid-run is described in its new place.
+const m1 = await img("move one"), m2 = await img("move two"), m3 = await img("move three");
+await page.evaluate(() => { for (const j of jobs.values()) if (j.state !== "done") { j.state = "done"; j.resultHtml = "<p>x</p>"; j.resultText = "x"; } renderAll(); });
+await page.setInputFiles("#railFileInput", [
+  { name: "Mov_S1_00-00-01.png", mimeType: "image/png", buffer: m1 },
+  { name: "Mov_S1_00-00-02.png", mimeType: "image/png", buffer: m2 },
+  { name: "Mov_S1_00-00-03.png", mimeType: "image/png", buffer: m3 },
+]);
+await page.waitForFunction(() => { const m = [...jobs.values()].filter((j) => j.name.startsWith("Mov_S1")); return m.length === 3 && m.every((j) => j.base64); });
+const before5 = sent.length;
+delay = 600;
+await page.evaluate(() => { runBatch(); });
+await page.waitForFunction(() => [...jobs.values()].some((j) => j.name === "Mov_S1_00-00-01.png" && j.state === "describing"));
+await page.evaluate(() => {
+  const ids = [...jobs.keys()];
+  const three = [...jobs.values()].find((j) => j.name === "Mov_S1_00-00-03.png");
+  const two = [...jobs.values()].find((j) => j.name === "Mov_S1_00-00-02.png");
+  moveJobTo(three.id, ids.indexOf(two.id));
+});
+await page.waitForFunction(() => !batchRunning, null, { timeout: 15000 });
+delay = 300;
+const marks = await page.evaluate(() => Object.fromEntries([...jobs.values()].filter((j) => j.name.startsWith("Mov_S1")).map((j) => [j.name.slice(-6, -4), j.base64.slice(j.base64.length >> 1, (j.base64.length >> 1) + 40)])));
+const order5 = sent.slice(before5).map((r) => Object.keys(marks).find((k) => marks[k] === r.last));
+check("Q5  a slide moved up mid-run is described in its new place", order5.join() === "01,03,02" && sent[before5 + 1].images === 2, order5.join());
+
 check("Z  no console errors", problems.filter((m) => !/404/.test(m)).length === 0, problems.join(" | "));
 await b.close();
 const failed = results.filter((r) => !r.ok);
