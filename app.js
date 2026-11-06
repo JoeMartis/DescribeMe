@@ -2039,6 +2039,7 @@ function selectJob(jobId, options) {
   collapsedSegments.delete(segmentKey(jobs.get(jobId)));
   renderRail();
   renderDetail();
+  updateControls(); // Export's emphasis follows the open slide
   if (options && options.focusDetail) els.detail.focus();
 }
 
@@ -2538,6 +2539,12 @@ function updateControls() {
 
   // Header — export
   els.exportBtn.disabled = c.approved === 0;
+  // One red button on screen at a time: while the open slide waits to be
+  // approved, Approve is the one, and Export steps back to a plain button.
+  const open = selectedJob();
+  const awaiting = !!open && open.state === "done" && !!open.resultHtml && !open.approved;
+  els.exportBtn.classList.toggle("btn-primary", !awaiting);
+  els.exportBtn.classList.toggle("btn-secondary", awaiting);
   // Export all when the approved slides span segments: that is when the zip
   // has a folder for each.
   const segmentsNow = new Set(jobList().filter((j) => j.state === "done" && j.approved).map(segmentKey)).size;
@@ -2717,8 +2724,11 @@ function renderDetail() {
   const segment = list.filter((j) => segmentKey(j) === segmentKey(job));
   q(".js-kicker").textContent =
     segment.length < list.length
-      ? `${segmentLabel(job)} · Slide ${segment.indexOf(job) + 1} of ${segment.length} · ${job.name}`
-      : `Slide ${idx + 1} of ${list.length} · ${job.name}`;
+      ? `Slide ${segment.indexOf(job) + 1} of ${segment.length} in ${segmentLabel(job)}`
+      : `Slide ${idx + 1} of ${list.length}`;
+  // The file name once, as the rail shows it: the segment's shared part
+  // quiet, this slide's own part plain.
+  renderRailName(job, q(".js-pane-name"));
   const prevBtn = q(".js-prev");
   const nextBtn = q(".js-next");
   prevBtn.disabled = idx <= 0;
@@ -2843,6 +2853,7 @@ function renderDetail() {
 
     // Description
     q(".js-desc-head").hidden = false;
+    q(".js-desc-actions").hidden = false;
     const tag = q(".js-tag");
     // "Needs your review" is for the model's work. You don't review your own
     // writing — you approve it when you're happy with it.
@@ -2939,20 +2950,27 @@ function renderDetail() {
       copyToClipboard(job.resultText, e.currentTarget, "text")
     );
     q(".js-remove").addEventListener("click", () => removeJob(job.id));
+    wireMoreMenu(q(".js-more"), q(".js-more-menu"));
 
     const source = q(".js-source");
     source.hidden = false;
     q(".js-source-code").value = job.resultHtml;
     q(".js-edit-source").addEventListener("click", () => toggleSourceEdit(job.id));
 
+    // Approve is the pane's one big button while the slide needs it. Once
+    // approved there is nothing left to do, so the same button goes up
+    // beside the Approved tag as a plain Un-approve.
     const bar = q(".js-approve-bar");
-    bar.hidden = false;
-    q(".js-approve-copy").textContent = job.approved
-      ? "Approved — it's in the export. Un-approve if you spot something."
-      : "Reads well? Approving adds it to the export and opens the next slide that needs you.";
     const approveBtn = q(".js-approve");
     q(".js-approve-label").textContent = job.approved ? "Un-approve" : "Approve & next";
-    if (job.approved) approveBtn.classList.remove("btn-approve");
+    if (job.approved) {
+      approveBtn.classList.remove("btn-approve");
+      approveBtn.classList.add("btn-secondary");
+      approveBtn.querySelector("svg")?.remove();
+      q(".js-status-actions").append(approveBtn);
+    } else {
+      bar.hidden = false;
+    }
     approveBtn.addEventListener("click", () => toggleApprove(job.id));
   } else {
     // Pending / running / failed / invalid
@@ -3178,6 +3196,33 @@ function startWriting(jobId) {
     `Writing a description for ${job.name}. Nothing is sent to Claude — ` +
       `save it with Save changes, or leave it empty to go back.`
   );
+}
+
+/** The ⋯ menu on a slide: a show-and-hide panel of real buttons, as the
+    rail's menus are. Escape or a click elsewhere closes it. */
+function wireMoreMenu(button, menu) {
+  const close = (refocus) => {
+    if (menu.hidden) return;
+    menu.hidden = true;
+    button.setAttribute("aria-expanded", "false");
+    if (refocus) button.focus();
+  };
+  button.addEventListener("click", () => {
+    const open = menu.hidden;
+    menu.hidden = !open;
+    button.setAttribute("aria-expanded", String(open));
+    if (open) menu.querySelector("button")?.focus();
+  });
+  const wrap = button.parentElement;
+  wrap.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !menu.hidden) {
+      e.stopPropagation();
+      close(true);
+    }
+  });
+  wrap.addEventListener("focusout", (e) => {
+    if (!wrap.contains(e.relatedTarget)) close(false);
+  });
 }
 
 /** Undo startWriting: the box was left empty, so the slide was never really
@@ -5498,10 +5543,12 @@ async function copyToClipboard(text, button, label) {
   try {
     await navigator.clipboard.writeText(text);
     setStatus(`Copied ${label} to clipboard.`);
-    const original = button.textContent;
-    button.textContent = "Copied!";
+    // The label only: a button with an icon keeps it.
+    const target = button.querySelector("span") || button;
+    const original = target.textContent;
+    target.textContent = "Copied!";
     setTimeout(() => {
-      button.textContent = original;
+      target.textContent = original;
     }, 1500);
   } catch (err) {
     setError(`Could not copy ${label} to clipboard: ${err.message}`);

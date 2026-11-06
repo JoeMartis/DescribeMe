@@ -200,7 +200,7 @@
     </div>
     <div class="header-spacer"></div>
     <div class="header-tools">
-      <button type="button" class="btn" id="videoBtn" aria-haspopup="dialog">
+      <button type="button" class="btn btn-secondary" id="videoBtn" aria-haspopup="dialog">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" width="16" height="16"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
         From video
       </button>
@@ -217,7 +217,7 @@
            nothing on screen said where saved work lived, and the icon's
            meaning was only available on hover. The word is the accessible
            name now, so aria-label would only duplicate it. -->
-      <button type="button" class="btn" id="projectsBtn" aria-haspopup="dialog">
+      <button type="button" class="btn btn-secondary" id="projectsBtn" aria-haspopup="dialog">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" width="19" height="19"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
         Projects
       </button>
@@ -787,7 +787,10 @@
   <div class="split">
     <div class="slide-pane">
       <div class="pane-head">
-        <p class="kicker js-kicker"></p>
+        <div class="pane-title">
+          <p class="pane-place js-kicker"></p>
+          <h2 class="pane-name js-pane-name"></h2>
+        </div>
         <div class="pane-nav">
           <button type="button" class="btn btn-icon js-prev" aria-label="Previous slide">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"></polyline></svg>
@@ -802,40 +805,43 @@
       </div>
       <p class="slide-meta js-slide-meta"></p>
       <div class="refine-card js-refine" hidden>
-        <h3 class="js-refine-title">Not quite right?</h3>
+        <h3 class="js-refine-title">Not quite right? Describe it again:</h3>
         <div class="refine-actions js-refine-actions">
-          <button type="button" class="btn btn-small js-refine-detail">More detail</button>
-          <button type="button" class="btn btn-small js-refine-short">Shorter</button>
-          <button type="button" class="btn btn-small js-refine-textonly">Text only</button>
-          <button type="button" class="btn btn-small js-refine-model">Redo with a stronger model</button>
+          <button type="button" class="btn btn-outline js-refine-detail">More detail</button>
+          <button type="button" class="btn btn-outline js-refine-short">Shorter</button>
+          <button type="button" class="btn btn-outline js-refine-textonly">Text only</button>
+          <button type="button" class="btn btn-outline js-refine-model">Redo with a stronger model</button>
         </div>
         <!-- Shown instead of the refine buttons on a description a person
              wrote: the model never saw this slide, so "More detail" and
              "Shorter" would not refine anything — they'd replace the writing
              with a first draft. This offers that plainly, once. -->
         <div class="refine-actions refine-authored js-refine-authored" hidden>
-          <button type="button" class="btn btn-small js-refine-instead">Describe with Claude instead</button>
+          <button type="button" class="btn btn-outline js-refine-instead">Describe with Claude instead</button>
           <span class="hint">Replaces what you wrote. Undo revision brings it back.</span>
         </div>
       </div>
     </div>
 
     <div class="desc-side">
+      <!-- One row: where the description stands, and the one thing to do
+           about it. Approving is the button at the foot; once approved, that
+           same button moves up here as Un-approve (renderDetail). Remove sits
+           in the ⋯ menu, out of the way of everyday clicks. -->
       <div class="desc-head js-desc-head" hidden>
         <div class="desc-status">
           <span class="tag js-tag"></span>
           <span class="desc-meta js-desc-meta"></span>
           <span class="header-spacer"></span>
-          <button type="button" class="btn btn-small btn-ghost js-remove">Remove from batch</button>
-        </div>
-        <div class="desc-actions">
-          <button type="button" class="btn btn-small js-edit">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"></path></svg>
-            <span class="js-edit-label">Edit</span>
-          </button>
-          <button type="button" class="btn btn-small js-undo" hidden>Undo revision</button>
-          <button type="button" class="btn btn-small js-copy-html">Copy HTML</button>
-          <button type="button" class="btn btn-small js-copy-text">Copy text</button>
+          <span class="desc-status-actions js-status-actions"></span>
+          <div class="more-wrap">
+            <button type="button" class="btn btn-text btn-more js-more" aria-expanded="false" aria-label="More for this slide">
+              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"></circle><circle cx="12" cy="12" r="2"></circle><circle cx="19" cy="12" r="2"></circle></svg>
+            </button>
+            <div class="more-menu js-more-menu" hidden>
+              <button type="button" class="btn btn-text js-remove">Remove from batch</button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -851,7 +857,7 @@
         <span class="edit-toolbar-sep" aria-hidden="true"></span>
         <button type="button" class="edit-tool" data-cmd="insertUnorderedList" aria-label="Bulleted list">• List</button>
         <button type="button" class="edit-tool" data-cmd="insertOrderedList" aria-label="Numbered list">1. List</button>
-        <span class="edit-toolbar-hint">Formatting applies to the selected text. Save with the Save changes button above.</span>
+        <span class="edit-toolbar-hint">Formatting applies to the selected text. Save with the Save changes button below.</span>
       </div>
 
       <!-- Filled and shown by renderDetail when a description's MathML is
@@ -871,6 +877,25 @@
         <div class="result-preview js-preview" role="region"></div>
       </article>
 
+      <div class="desc-actions js-desc-actions" hidden>
+        <button type="button" class="btn btn-text js-edit">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"></path></svg>
+          <span class="js-edit-label">Edit</span>
+        </button>
+        <button type="button" class="btn btn-text js-copy-text">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+          <span>Copy text</span>
+        </button>
+        <button type="button" class="btn btn-text js-copy-html">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
+          <span>Copy HTML</span>
+        </button>
+        <button type="button" class="btn btn-text js-undo" hidden>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.5 15a9 9 0 1 0 2.1-9.4L1 10"></path></svg>
+          <span>Undo revision</span>
+        </button>
+      </div>
+
       <details class="source-details js-source" hidden>
         <summary>HTML source</summary>
         <div class="source-actions">
@@ -884,7 +909,6 @@
       </details>
 
       <div class="approve-bar js-approve-bar" hidden>
-        <p class="js-approve-copy"></p>
         <span class="hint">or press <kbd>A</kbd></span>
         <button type="button" class="btn btn-approve js-approve">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" width="15" height="15"><polyline points="20 6 9 17 4 12"></polyline></svg>

@@ -327,6 +327,29 @@ code, kbd {
 
 .btn-ghost { border-color: transparent; box-shadow: none; background: transparent; }
 
+/* The quieter weights. Bungee is kept for the one button that matters on
+   screen; these are in the body face, without the pop shadow, so a row of
+   them reads as options rather than a wall of calls to action. */
+.btn-secondary,
+.btn-outline,
+.btn-text {
+  font-family: var(--font-body);
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: 0;
+  box-shadow: none;
+}
+.btn-secondary:hover:not(:disabled),
+.btn-outline:hover:not(:disabled),
+.btn-text:hover:not(:disabled) { transform: none; box-shadow: none; background: var(--swamp-parchment); }
+.btn-secondary:active:not(:disabled),
+.btn-outline:active:not(:disabled),
+.btn-text:active:not(:disabled) { transform: translate(1px, 1px); }
+.btn-secondary { border-width: 2px; padding: 10px 16px; background: var(--raised); color: var(--fg); }
+.btn-outline { border-width: 2px; padding: 8px 14px; font-size: 14px; background: transparent; }
+.btn-text { border-color: transparent; border-radius: 12px; padding: 9px 12px; font-size: 14px; background: transparent; }
+.btn-text svg, .btn-outline svg { width: 16px; height: 16px; }
+
 /* A third weight below the plain button: still a real button with the full
    outline and shadow, but visibly the least likely of a set. */
 .btn-quiet { background: var(--swamp-sunken); }
@@ -1042,13 +1065,11 @@ code, kbd {
   gap: 12px;
   margin-bottom: 10px;
 }
-.kicker {
-  font-family: var(--font-accent);
-  font-size: 15px;
-  color: var(--faint);
-}
-.pane-nav { display: flex; gap: 6px; }
-.pane-nav .btn-icon { width: 34px; height: 34px; }
+.pane-title { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.pane-place { font-family: var(--font-body); font-weight: 600; font-size: 13px; color: var(--faint); }
+.pane-name { font-family: var(--font-body); font-weight: 600; font-size: 17px; line-height: 1.3; overflow-wrap: anywhere; }
+.pane-nav { display: flex; gap: 6px; flex-shrink: 0; }
+.pane-nav .btn-icon { width: 40px; height: 40px; border-width: 2px; box-shadow: none; }
 .pane-nav svg { width: 15px; height: 15px; }
 
 .slide-frame {
@@ -1081,15 +1102,8 @@ code, kbd {
   color: var(--faint);
 }
 
-.refine-card {
-  margin-top: 18px;
-  background: var(--panel);
-  border: var(--border-width) solid var(--border);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-sm);
-  padding: 16px 18px;
-}
-.refine-card h3 { font-family: var(--font-heading); font-size: 12px; margin-bottom: 8px; }
+.refine-card { margin-top: 22px; }
+.refine-card h3 { font-family: var(--font-body); font-weight: 700; font-size: 14px; margin-bottom: 10px; }
 .refine-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 /* One button and a line explaining it, rather than a row of equal pills —
    the text needs centring against the taller button, and room to wrap. */
@@ -1107,8 +1121,28 @@ code, kbd {
   margin-bottom: 10px;
 }
 .desc-status { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.desc-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.desc-meta { font-family: var(--font-accent); font-size: 14px; color: var(--faint); }
+.desc-status .tag { font-family: var(--font-body); font-weight: 700; font-size: 14px; letter-spacing: 0; border: 0; padding: 5px 12px; }
+.desc-status-actions { display: contents; }
+.desc-actions { display: flex; align-items: center; gap: 2px; flex-wrap: wrap; margin-top: 8px; }
+.desc-meta { font-family: var(--font-body); font-weight: 600; font-size: 13px; color: var(--faint); }
+
+/* The ⋯ menu: Remove from batch, kept off the everyday row. */
+.more-wrap { position: relative; }
+.btn-more { width: 40px; height: 40px; padding: 0; }
+.btn-more svg { width: 18px; height: 18px; }
+.more-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 5;
+  min-width: 200px;
+  padding: 6px;
+  background: var(--raised);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+}
+.more-menu .btn-text { width: 100%; justify-content: flex-start; }
 
 /* Formatting toolbar shown only while the preview is editable. */
 .edit-toolbar {
@@ -1218,10 +1252,15 @@ code, kbd {
 .source-details { margin-top: 14px; }
 .source-details summary {
   cursor: pointer;
-  font-family: var(--font-heading);
-  font-size: 12px;
-  padding: 8px 0;
+  font-family: var(--font-body);
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--faint);
+  padding: 8px 12px;
+  width: fit-content;
+  border-radius: 12px;
 }
+.source-details summary:hover { background: var(--swamp-parchment); color: var(--fg); }
 .source-actions {
   display: flex;
   align-items: center;
@@ -1275,6 +1314,15 @@ textarea.source-code:not(:read-only) {
   box-shadow: var(--shadow-sm);
 }
 .approve-bar p { flex: 1; min-width: 16ch; font-size: 13px; color: var(--muted); }
+/* Under a description it is just the button, at the right: the pane's one
+   big call to action. (The video dialog keeps the card.) */
+.desc-side .approve-bar {
+  justify-content: flex-end;
+  padding: 0;
+  background: none;
+  border: 0;
+  box-shadow: none;
+}
 .approve-bar .hint { font-family: var(--font-accent); font-size: 14px; color: var(--faint); }
 
 .error-pane { max-width: 720px; }

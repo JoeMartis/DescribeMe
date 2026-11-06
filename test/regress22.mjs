@@ -98,7 +98,7 @@ await page.evaluate(() => selectJob([...jobs.values()][3].id));
 const reopened = await page.evaluate(() => document.querySelectorAll("#railList .rail-segment-toggle")[1].getAttribute("aria-expanded"));
 check("F2  choosing a slide in a folded segment opens it", reopened === "true");
 const kicker = await page.evaluate(() => document.querySelector(".js-kicker").textContent);
-check("F2  the pane gives the slide's place in its segment", /^Cronin_S4 · Slide 2 of 3 · Cronin_S4_00-07-02\.png$/.test(kicker), kicker);
+check("F2  the pane gives the slide's place in its segment", kicker === "Slide 2 of 3 in Cronin_S4", kicker);
 
 // ---------- F3: a slide moves within its segment only
 const moves = await page.evaluate(() => [...jobs.values()].map((j) => {
