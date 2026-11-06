@@ -36,7 +36,9 @@ fields in a settings dialog.
 **The workspace** is two panes: a **Slides** rail on the left, and the
 selected slide's image plus its description on the right.
 
-1. Drop slide images anywhere in the workspace (or use **Add** in the rail) —
+1. Drop slide images anywhere in the workspace (or use the rail's **Add**
+   menu: **Slide images or transcripts**, **A folder of segments**, or
+   **Frames from a video**) —
    PNG, JPEG, WebP, or GIF, as many as the lecture needs. Large images are resized
    (and oversized files re-encoded) in your browser before upload, so
    original file size barely matters — anything up to 50 MB is accepted.
@@ -52,7 +54,7 @@ selected slide's image plus its description on the right.
    lecture round-trips: capture frames, export, and later re-upload the
    images plus the `.srt` with everything still lining up.
 
-   **A folder of segments** comes in at once: **Add folder** in the rail,
+   **A folder of segments** comes in at once: from the rail's **Add** menu,
    **Pick a folder of segments** on the empty workspace, or a folder dragged
    onto the page. One lecture or a whole module, its subfolders included.
    Its slides sort into segments by name (`Cronin_S4_00-06-29.png` is
@@ -128,8 +130,8 @@ selected slide's image plus its description on the right.
    export and jumps to the next unapproved one; <kbd>←</kbd>/<kbd>→</kbd>
    move between slides at any time. Only approved slides go into the export.
 7. Failed slides show the error inline with a **Retry** button; any slide can
-   be removed from the batch from its detail pane, and **New batch** in the
-   rail clears all of them to start over (always behind a confirm — the
+   be removed from the batch from its detail pane, and **New batch**, in the
+   rail's **⋯** menu, clears all of them to start over (always behind a confirm — the
    warning is sharper when descriptions would be lost).
 8. **Export as .zip** combines every approved slide, in rail order, into a
    single `description.html` — one `<img src="/static/…">` (using each

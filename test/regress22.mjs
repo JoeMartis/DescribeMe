@@ -218,6 +218,53 @@ const b9 = await page.evaluate(() => {
 });
 check("B9  fingerprinting a 20 MB image is quick, and tells two apart", b9.ms < 300 && b9.differ, JSON.stringify(b9));
 
+// ---------- H: the rail's header, option A
+const h1 = await page.evaluate(() => ({
+  count: document.getElementById("railCount").textContent,
+  slides: jobs.size,
+  moreShown: !document.getElementById("railMoreBtn").hidden,
+}));
+check("H1  the heading carries the slide count, and ⋯ is there with a batch", h1.count === String(h1.slides) && h1.moreShown, JSON.stringify(h1));
+await page.click("#railAddBtn");
+const h2 = await page.evaluate(() => ({
+  open: !document.getElementById("railAddMenu").hidden,
+  expanded: document.getElementById("railAddBtn").getAttribute("aria-expanded"),
+  items: [...document.querySelectorAll("#railAddMenu .rail-menu-label")].map((e) => e.textContent),
+  focus: document.activeElement && document.activeElement.id,
+}));
+check("H2  Add opens one menu for every way in, focus on its first item",
+  h2.open && h2.expanded === "true" && h2.items.join() === "Slide images or transcripts,A folder of segments,Frames from a video" && h2.focus === "railFileInput", JSON.stringify(h2));
+await page.keyboard.press("Escape");
+const h3 = await page.evaluate(() => ({ open: !document.getElementById("railAddMenu").hidden, focus: document.activeElement.id }));
+check("H3  Escape closes it and returns to Add", !h3.open && h3.focus === "railAddBtn", JSON.stringify(h3));
+await page.click("#railAddBtn");
+await page.click("#railHeading");
+check("H3  a click elsewhere closes it", await page.evaluate(() => document.getElementById("railAddMenu").hidden));
+await page.click("#railAddBtn");
+await page.click("#railVideoItem");
+const h4 = await page.evaluate(() => ({ dialog: document.getElementById("videoDialog") ? document.getElementById("videoDialog").open : null, menu: document.getElementById("railAddMenu").hidden }));
+check("H4  Frames from a video opens the video dialog and closes the menu", h4.dialog === true && h4.menu, JSON.stringify(h4));
+await page.keyboard.press("Escape");
+await page.waitForTimeout(200);
+const h5 = await page.evaluate(() => {
+  renderAll(); // B8 above set approvals directly, as the app never does
+  const job = [...jobs.values()].find((j) => j.name === "Cronin_S4_00-06-29.png");
+  const name = job.railEl.querySelector(".rail-name");
+  const head = [...document.querySelectorAll("#railList .rail-segment-toggle")].find((b) => b.querySelector(".rail-segment-name").textContent === "Cronin_S4");
+  const members = [...jobs.values()].filter((j) => segmentLabel(j) === "Cronin_S4");
+  const approved = members.filter((j) => j.state === "done" && j.approved).length;
+  return {
+    shared: name.querySelector(".rail-name-shared")?.textContent,
+    own: name.querySelector(".rail-name-own")?.textContent,
+    whole: name.textContent,
+    bar: head.querySelector(".rail-segment-bar > span").style.width,
+    expected: `${Math.round((approved / members.length) * 100)}%`,
+  };
+});
+check("H5  the whole file name shows, its segment's part quiet and its own plain",
+  h5.whole === "Cronin_S4_00-06-29.png" && h5.shared === "Cronin_S4_" && h5.own === "00-06-29.png", JSON.stringify(h5));
+check("H5  the segment's bar shows its share approved", h5.bar === h5.expected, JSON.stringify(h5));
+
 check("Z  no console errors", problems.filter((m) => !/404/.test(m)).length === 0, problems.join(" | "));
 fs.rmSync(root, { recursive: true, force: true });
 await b.close();

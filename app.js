@@ -680,6 +680,12 @@ const els = {
 
   // rail
   railList: document.getElementById("railList"),
+  railCount: document.getElementById("railCount"),
+  railAddBtn: document.getElementById("railAddBtn"),
+  railAddMenu: document.getElementById("railAddMenu"),
+  railMoreBtn: document.getElementById("railMoreBtn"),
+  railMoreMenu: document.getElementById("railMoreMenu"),
+  railVideoItem: document.getElementById("railVideoItem"),
   folderInput: document.getElementById("folderInput"),
   railFolderInput: document.getElementById("railFolderInput"),
   railEmpty: document.getElementById("railEmpty"),
@@ -1363,7 +1369,6 @@ function createRailRow(job) {
   // typical export in full; title covers anything longer, and the row's
   // aria-label already carries the whole name for anyone who cannot hover.
   const nameEl = row.querySelector(".rail-name");
-  nameEl.textContent = job.name;
   nameEl.title = job.name;
   row.addEventListener("click", () => selectJob(job.id));
 
@@ -1570,9 +1575,41 @@ function wireRowDrag(li, jobId) {
   });
 }
 
+/**
+ * A slide's file name in its rail row, whole: the part every slide of its
+ * segment shares (UCE_0004_M3_V3_S2_Selin_) quiet, the part that is this
+ * slide's (00-00-05.png) plain. People find a slide by its name, and in a
+ * segment the names differ only at the end.
+ */
+function renderRailName(job, nameEl) {
+  const stem = job.videoName || "";
+  let shared = "";
+  if (stem && job.name.toLowerCase().startsWith(stem.toLowerCase())) {
+    shared = job.name.slice(0, stem.length);
+    // The separator after the stem goes with it.
+    const next = job.name.charAt(stem.length);
+    if (next === "_" || next === "-" || next === " ") shared += next;
+  }
+  const key = `${shared}|${job.name}`;
+  if (nameEl.dataset.rendered === key) return;
+  nameEl.dataset.rendered = key;
+  nameEl.replaceChildren();
+  if (shared) {
+    const quiet = document.createElement("span");
+    quiet.className = "rail-name-shared";
+    quiet.textContent = shared;
+    nameEl.append(quiet);
+  }
+  const own = document.createElement("span");
+  own.className = "rail-name-own";
+  own.textContent = job.name.slice(shared.length);
+  nameEl.append(own);
+}
+
 function renderRailRow(job) {
   const row = job.railEl;
   if (!row) return;
+  renderRailName(job, row.querySelector(".rail-name"));
   const meta = jobStatusMeta(job);
   row.dataset.state = meta.state;
   // A slide that carries transcript context names the transcript on its
@@ -1849,9 +1886,18 @@ function segmentHead(key) {
     const separator = document.createElement("span");
     separator.className = "visually-hidden";
     separator.textContent = ", ";
+    const line = document.createElement("span");
+    line.className = "rail-segment-line";
     const meta = document.createElement("span");
     meta.className = "rail-segment-meta";
-    button.append(name, separator, meta);
+    // How much of the segment is approved, at a glance. The counts beside it
+    // say the same in words, so the bar is hidden from screen readers.
+    const bar = document.createElement("span");
+    bar.className = "rail-segment-bar";
+    bar.setAttribute("aria-hidden", "true");
+    bar.append(document.createElement("span"));
+    line.append(meta, bar);
+    button.append(name, separator, line);
     button.addEventListener("click", () => {
       if (collapsedSegments.has(key)) collapsedSegments.delete(key);
       else collapsedSegments.add(key);
@@ -1882,6 +1928,7 @@ function syncRailSegments(list) {
       button.querySelector(".rail-segment-name").textContent = segmentLabel(members[0]);
       button.querySelector(".rail-segment-meta").textContent =
         `${members.length} slide${members.length === 1 ? "" : "s"} · ${approved} approved`;
+      button.querySelector(".rail-segment-bar > span").style.width = `${Math.round((approved / members.length) * 100)}%`;
       button.setAttribute("aria-expanded", String(!collapsed));
       wanted.push(head);
     }
@@ -2429,8 +2476,11 @@ function updateControls() {
   renderSortOffer();
 
   // Rail — head
-  els.newBatchBtn.hidden = jobs.size === 0;
+  // New batch lives in the ⋯ menu, which only appears with a batch to clear.
+  els.railMoreBtn.hidden = jobs.size === 0;
+  if (els.railMoreBtn.hidden) closeRailMenus();
   els.newBatchBtn.disabled = batchRunning;
+  els.railCount.textContent = jobs.size > 0 ? String(jobs.size) : "";
   // Save sits beside it and appears on the same condition. It stays enabled
   // once saved and says so instead of going disabled: a disabled control
   // reads as broken, and saving again after a save is harmless.
@@ -3317,6 +3367,47 @@ els.app.addEventListener("drop", async (e) => {
     addFiles(e.dataTransfer.files);
   }
 });
+
+// ---------- The rail's Add and ⋯ menus ----------
+// Show-and-hide panels of real buttons and file inputs, not ARIA menus: Tab
+// reaches every item, Escape closes and returns to the button, and choosing
+// an item or clicking elsewhere closes it.
+
+function closeRailMenus(except) {
+  for (const [button, menu] of [[els.railAddBtn, els.railAddMenu], [els.railMoreBtn, els.railMoreMenu]]) {
+    if (button === except) continue;
+    menu.hidden = true;
+    button.setAttribute("aria-expanded", "false");
+  }
+}
+
+[[els.railAddBtn, els.railAddMenu], [els.railMoreBtn, els.railMoreMenu]].forEach(([button, menu]) => {
+  button.addEventListener("click", () => {
+    const open = menu.hidden;
+    closeRailMenus(button);
+    menu.hidden = !open;
+    button.setAttribute("aria-expanded", String(open));
+    if (open) menu.querySelector("input, button")?.focus();
+  });
+  menu.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      e.stopPropagation();
+      closeRailMenus();
+      button.focus();
+    }
+  });
+});
+document.addEventListener("click", (e) => {
+  if (!e.target.closest(".rail-menu-wrap")) closeRailMenus();
+});
+// Choosing a file closes the menu; so does cancelling the picker, which
+// fires no event here, at the next click anywhere.
+[els.railFileInput, els.railFolderInput].forEach((input) => input.addEventListener("change", () => closeRailMenus()));
+els.railVideoItem.addEventListener("click", () => {
+  closeRailMenus();
+  openVideoDialog();
+});
+els.newBatchBtn.addEventListener("click", () => closeRailMenus());
 
 [els.folderInput, els.railFolderInput].forEach((input) => {
   input.addEventListener("change", (e) => {

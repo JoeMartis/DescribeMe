@@ -246,26 +246,64 @@
 
     <aside class="rail" aria-labelledby="railHeading">
       <div class="rail-head">
-        <h2 id="railHeading">Slides</h2>
+        <h2 id="railHeading">Slides <span class="rail-count" id="railCount"></span></h2>
         <div class="rail-head-actions">
-          <!-- Left of New batch on purpose. Saving used to be reachable only
+          <!-- Before the menus on purpose. Saving used to be reachable only
                from inside the Projects dialog, so the moment a batch was
                about to be cleared was exactly the moment saving was two
-               clicks away. Here it sits beside the button it protects
-               against, in the order the two are used. -->
+               clicks away. Here it sits ahead of New batch (in the ⋯ menu),
+               in the order the two are used. -->
           <button type="button" class="btn btn-small btn-ghost" id="railSaveBtn" hidden>Save</button>
-          <button type="button" class="btn btn-small btn-ghost" id="newBatchBtn" hidden>New batch</button>
-          <span class="btn btn-small rail-add">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-            Add
-            <input type="file" id="railFileInput" accept="image/png,image/jpeg,image/webp,image/gif,.srt,.vtt" multiple
-                   aria-label="Add slide images or a transcript" aria-describedby="uploadHint">
-          </span>
-          <span class="btn btn-small rail-add">
-            Add folder
-            <input type="file" id="railFolderInput" webkitdirectory multiple
-                   aria-label="Add a folder of segments: slide images and their transcripts">
-          </span>
+          <!-- One Add, for every way slides come in. The two file pickers are
+               real file inputs laid over their menu items, so they stay
+               natively focusable and keyboard-operable. -->
+          <div class="rail-menu-wrap">
+            <button type="button" class="btn btn-small" id="railAddBtn" aria-expanded="false" aria-controls="railAddMenu">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+              Add
+              <svg class="rail-menu-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </button>
+            <div class="rail-menu" id="railAddMenu" hidden>
+              <span class="rail-menu-item rail-add">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="4"></rect><circle cx="8.5" cy="9" r="1.6"></circle><path d="M21 15l-5-5-4.5 5.5L9 13l-6 6"></path></svg>
+                <span class="rail-menu-text">
+                  <span class="rail-menu-label">Slide images or transcripts</span>
+                  <span class="rail-menu-hint">PNG, JPEG, WebP, GIF, and .srt or .vtt</span>
+                </span>
+                <input type="file" id="railFileInput" accept="image/png,image/jpeg,image/webp,image/gif,.srt,.vtt" multiple
+                       aria-label="Add slide images or transcripts" aria-describedby="uploadHint">
+              </span>
+              <span class="rail-menu-item rail-add">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg>
+                <span class="rail-menu-text">
+                  <span class="rail-menu-label">A folder of segments</span>
+                  <span class="rail-menu-hint">One lecture or a whole module, with its transcripts</span>
+                </span>
+                <input type="file" id="railFolderInput" webkitdirectory multiple
+                       aria-label="Add a folder of segments: slide images and their transcripts">
+              </span>
+              <button type="button" class="rail-menu-item" id="railVideoItem">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2"></rect></svg>
+                <span class="rail-menu-text">
+                  <span class="rail-menu-label">Frames from a video</span>
+                  <span class="rail-menu-hint">Scrub a recording and capture slides</span>
+                </span>
+              </button>
+            </div>
+          </div>
+          <div class="rail-menu-wrap">
+            <button type="button" class="btn btn-small btn-ghost rail-more" id="railMoreBtn" aria-label="More batch actions" aria-expanded="false" aria-controls="railMoreMenu" hidden>
+              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"></circle><circle cx="12" cy="12" r="2"></circle><circle cx="19" cy="12" r="2"></circle></svg>
+            </button>
+            <div class="rail-menu" id="railMoreMenu" hidden>
+              <button type="button" class="rail-menu-item" id="newBatchBtn">
+                <span class="rail-menu-text">
+                  <span class="rail-menu-label">New batch</span>
+                  <span class="rail-menu-hint">Clear these slides and start again</span>
+                </span>
+              </button>
+            </div>
+          </div>
         </div>
       </div>
       <!-- Offered, never applied on its own. Slides exported by the video

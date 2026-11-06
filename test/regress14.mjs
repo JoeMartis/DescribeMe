@@ -39,12 +39,10 @@ await page.waitForTimeout(300);
 
 s = await railSave();
 check("N1  it appears once there are slides", !s.hidden && s.label === "Save", `${s.label}, hidden=${s.hidden}`);
+// New batch is in the ⋯ menu, which comes after Save.
 check("N1  it sits before New batch, in the order the two are used",
-  await page.evaluate(() => {
-    const kids = [...document.querySelector(".rail-head-actions").children];
-    return kids.indexOf(document.getElementById("railSaveBtn")) <
-           kids.indexOf(document.getElementById("newBatchBtn"));
-  }));
+  await page.evaluate(() =>
+    !!(document.getElementById("railSaveBtn").compareDocumentPosition(document.getElementById("newBatchBtn")) & Node.DOCUMENT_POSITION_FOLLOWING)));
 
 // The rail head now carries three controls beside the heading. At the old
 // 320px they did not fit, and a flex row that does not fit does not wrap by
@@ -57,7 +55,7 @@ for (const width of [1920, 1400, 900]) {
   const fit = await page.evaluate(() => {
     const railRight = document.querySelector(".rail").getBoundingClientRect().right;
     const head = document.querySelector(".rail-head");
-    const past = [...head.querySelectorAll("#railSaveBtn, #newBatchBtn, .rail-add, #railHeading")]
+    const past = [...head.querySelectorAll("#railSaveBtn, #railAddBtn, #railMoreBtn, #railHeading")]
       .filter((el) => el.getBoundingClientRect().right > railRight + 1)
       .map((el) => el.id || el.className);
     return { overflowing: head.scrollWidth > head.clientWidth + 1, past };
@@ -126,6 +124,7 @@ check("N5  changing the batch flips it back to Save", s.label === "Save", s.labe
 
 // ---------- N6: New batch tells the truth about what is at risk
 confirms.length = 0;
+await page.click("#railMoreBtn");
 await page.click("#newBatchBtn");
 await page.waitForTimeout(400);
 check("N6  an unsaved change is named as unsaved",
@@ -141,6 +140,7 @@ await page.waitForTimeout(150);
 await page.click("#railSaveBtn");
 await page.waitForTimeout(600);
 confirms.length = 0;
+await page.click("#railMoreBtn");
 await page.click("#newBatchBtn");
 await page.waitForTimeout(400);
 check("N6  a saved batch is described as reopenable, not as about to be lost",
