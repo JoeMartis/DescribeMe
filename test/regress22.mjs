@@ -75,7 +75,8 @@ check("F1  sorted into segments, each in time order",
   order.join() === "Atalay_S2_00-00-05.png,Atalay_S2_00-01-10.png,Cronin_S4_00-06-29.png,Cronin_S4_00-07-02.png,Cronin_S4_00-08-30.png,Slide1.png,Slide2.png,Board1.png",
   order.join());
 const left = await page.$eval("#statusMessage", (e) => e.textContent);
-check("F1  the files left out are counted", /2 files in the folder are not a slide image or a transcript/.test(left), left);
+// The .txt; a .DS_Store is a system file, left out without a word.
+check("F1  the files left out are counted", /1 file in the folder is not a slide image or a transcript/.test(left), left);
 const paired = await page.evaluate(() => [...jobs.values()].map((j) => !!j.transcriptContext));
 check("F1  each segment's transcript pairs with its slides", paired.join() === "true,true,true,true,true,false,false,false", paired.join());
 const segs = await page.evaluate(() => [...jobs.values()].map((j) => segmentLabel(j)));
@@ -157,6 +158,65 @@ await page.reload({ waitUntil: "load" });
 await page.waitForFunction(() => typeof jobs !== "undefined" && jobs.size === 8, null, { timeout: 15000 });
 const kept = await page.evaluate(() => [...document.querySelectorAll("#railList .rail-segment-name")].map((e) => e.textContent));
 check("F6  after a reload the segments are as they were", kept.join() === "Atalay_S2,Cronin_S4,Deck,Notes", kept.join());
+
+// ---------- B: the bug round
+// B4: the heading's accessible name keeps the segment's name apart.
+const b4 = await page.evaluate(() => document.querySelectorAll("#railList .rail-segment-toggle")[1].textContent);
+check("B4  the heading reads as name, then counts", /^Cronin_S4, 3 slides · /.test(b4), b4);
+
+// B5: a Mac's files in a folder are left out without a word.
+const mac = fs.mkdtempSync(path.join(os.tmpdir(), "describeme-mac-"));
+fs.mkdirSync(path.join(mac, "Mac_S1"));
+fs.mkdirSync(path.join(mac, "__MACOSX", "Mac_S1"), { recursive: true });
+fs.writeFileSync(path.join(mac, "Mac_S1", "Mac_S1_00-00-01.png"), await makeImage(page, { w: 320, h: 180, label: "mac" }));
+fs.writeFileSync(path.join(mac, "Mac_S1", "._Mac_S1_00-00-01.png"), "AppleDouble");
+fs.writeFileSync(path.join(mac, "__MACOSX", "Mac_S1", "._Mac_S1_00-00-01.png"), "AppleDouble");
+await page.setInputFiles("#railFolderInput", mac);
+await page.waitForFunction(() => [...jobs.values()].some((j) => j.name === "Mac_S1_00-00-01.png"), null, { timeout: 10000 });
+await page.waitForTimeout(500);
+const b5 = await page.evaluate(() => ({ names: [...jobs.values()].filter((j) => /Mac_S1/.test(j.name)).map((j) => j.name), invalid: [...jobs.values()].filter((j) => j.state === "invalid").length }));
+check("B5  macOS ._ files and __MACOSX are not slides", b5.names.join() === "Mac_S1_00-00-01.png" && b5.invalid === 0, JSON.stringify(b5));
+fs.rmSync(mac, { recursive: true, force: true });
+
+// B6: Export all only when the approved slides span segments.
+const b6 = await page.evaluate(() => {
+  jobs.forEach((j) => { j.approved = segmentLabel(j) === "Cronin_S4" && j.state === "done"; });
+  renderAll();
+  return document.getElementById("exportBtn").textContent.trim();
+});
+check("B6  approvals in one segment are not called Export all", b6 === "Export 3 approved as .zip", b6);
+
+// B7: a description leaning on a visual left out of the export is named.
+await page.evaluate(() => {
+  const list = [...jobs.values()].filter((j) => segmentLabel(j) === "Cronin_S4");
+  list[1].approved = false; // the one before list[2]
+  list[2].sameAsPrevious = true;
+  list[2].resultHtml = "<p>Same as the previous visual.</p>";
+  renderAll();
+});
+const dl7 = page.waitForEvent("download", { timeout: 8000 }).catch(() => null);
+await page.click("#exportBtn");
+await dl7;
+const b7 = await page.$eval("#statusMessage", (e) => e.textContent);
+check("B7  the export names a description whose previous visual is not in it", /Cronin_S4_00-08-30\.png builds on the visual before it, which is not approved/.test(b7), b7.slice(0, 200));
+
+// B8: the learner download heads each segment and numbers within it.
+const b8 = await page.evaluate(async () => {
+  jobs.forEach((j) => { j.approved = j.state === "done"; j.sameAsPrevious = false; });
+  const doc = await learnerDocument();
+  return { h2: [...doc.html.matchAll(/<h2>([^<]+)/g)].map((m) => m[1].trim()), restarts: (doc.html.match(/Visual 1 of/g) || []).length };
+});
+check("B8  the learner download has a heading per segment, numbered within each", b8.h2.slice(0, 2).join() === "Atalay_S2,Cronin_S4" && b8.restarts >= 3, JSON.stringify(b8));
+
+// B9: an image's fingerprint is quick, whatever its size.
+const b9 = await page.evaluate(() => {
+  const big = { originalBase64: "A".repeat(20 * 1024 * 1024) + "B" };
+  const t = performance.now();
+  const fp = imageFingerprint(big);
+  const other = imageFingerprint({ originalBase64: "A".repeat(20 * 1024 * 1024) + "C" });
+  return { ms: performance.now() - t, differ: fp !== other };
+});
+check("B9  fingerprinting a 20 MB image is quick, and tells two apart", b9.ms < 300 && b9.differ, JSON.stringify(b9));
 
 check("Z  no console errors", problems.filter((m) => !/404/.test(m)).length === 0, problems.join(" | "));
 fs.rmSync(root, { recursive: true, force: true });

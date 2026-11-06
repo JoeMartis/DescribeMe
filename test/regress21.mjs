@@ -32,7 +32,9 @@ await page.route(API, async (route) => {
   const images = content.filter((c) => c.type === "image");
   const texts = content.filter((c) => c.type === "text").map((c) => c.text).join("\n");
   const n = sent.length + 1;
-  sent.push({ images: images.length, texts, system: body.system, last: images.length ? images[images.length - 1].source.data.slice(0, 40) : "" });
+  // The middle of the last image's data names it: PNGs share their start and end.
+  const data = images.length ? images[images.length - 1].source.data : "";
+  sent.push({ images: images.length, texts, system: body.system, last: data.slice(data.length >> 1, (data.length >> 1) + 40) });
   open += 1;
   maxOpen = Math.max(maxOpen, open);
   await new Promise((r) => setTimeout(r, delay));
@@ -148,6 +150,45 @@ const n5 = sent.length;
 await page.evaluate((id) => refineJob(id, null), s5);
 await until(page, (id) => jobs.get(id).state === "done", s5, 10000);
 check("S5  a text-only slide is sent alone, with no previous visual", sent.length === n5 + 1 && sent[n5].images === 1 && !/PREVIOUS VISUAL/.test(sent[n5].system));
+
+// ---------- B: the bug round
+// B1: an approved slide is flagged too when the slide before it changes.
+const b1 = await page.evaluate(() => {
+  const [first, second] = [...jobs.values()].filter((j) => j.name.startsWith("Atalay_S2"));
+  second.approved = true;
+  first.resultHtml = "<h2>Other</h2><p>Edited again.</p>";
+  renderAll();
+  return { flag: previousChanged(second), rail: second.railEl.textContent.replace(/\s+/g, " ") };
+});
+check("B1  an approved slide whose previous changed is flagged in the rail", b1.flag && /Approved · check: the visual before it changed/.test(b1.rail), b1.rail);
+
+// B2: a slide after a "Same as" one is sent the description that one repeats.
+const chainA = await img("chain chart");
+const chainC = await img("chain chart + highlight");
+const beforeChain = sent.length;
+await page.setInputFiles("#railFileInput", [
+  { name: "Chain_S1_00-00-01.png", mimeType: "image/png", buffer: chainA },
+  { name: "Chain_S1_00-00-02.png", mimeType: "image/png", buffer: chainA },
+  { name: "Chain_S1_00-00-03.png", mimeType: "image/png", buffer: chainC },
+]);
+await page.waitForFunction(() => [...jobs.values()].filter((j) => j.name.startsWith("Chain_S1")).length === 3 && [...jobs.values()].every((j) => j.base64 || j.state === "invalid"));
+await page.evaluate(() => runBatch());
+await until(page, () => [...jobs.values()].filter((j) => j.name.startsWith("Chain_S1")).every((j) => j.state === "done"), null, 15000);
+const chain = await page.evaluate(() => [...jobs.values()].filter((j) => j.name.startsWith("Chain_S1")).map((j) => j.resultHtml));
+const thirdKey = await page.evaluate(() => { const d = [...jobs.values()].find((j) => j.name === "Chain_S1_00-00-03.png").base64; return d.slice(d.length >> 1, (d.length >> 1) + 40); });
+const third = sent.slice(beforeChain).find((r) => r.last === thirdKey);
+const firstText = (chain[0].match(/Description \d+/) || [""])[0];
+check("B2  the slide after a Same-as one is sent the description it repeats", !!third && !!firstText && third.texts.includes(firstText) && !/Same as the previous visual/.test(third.texts), chain.join(" | "));
+check("B2  and it is not flagged for it", await page.evaluate(() => !previousChanged([...jobs.values()].find((j) => j.name === "Chain_S1_00-00-03.png"))));
+
+// B3: OCR asked for on an identical slide is sent, not answered "Same as".
+const beforeOcr = sent.length;
+await page.evaluate(() => {
+  const j = [...jobs.values()].find((x) => x.name === "Chain_S1_00-00-02.png");
+  j.state = "pending"; j.resultHtml = ""; j.resultText = ""; j.sameAsPrevious = false;
+  return describeSingleJob(j.id, "ocr");
+});
+check("B3  OCR on a slide identical to the one before is sent", sent.length === beforeOcr + 1 && /Transcribe/.test(sent[beforeOcr].texts));
 
 check("Z  no console errors", problems.filter((m) => !/404/.test(m)).length === 0, problems.join(" | "));
 await b.close();

@@ -1243,8 +1243,37 @@ function textFingerprint(text) {
     changes. It names the previous slide in a saved project, where slide ids
     are not kept. */
 function imageFingerprint(job) {
-  if (!job.imageFingerprint) job.imageFingerprint = textFingerprint(imageIdentity(job));
+  if (!job.imageFingerprint) {
+    // Sampled: an image's base64 runs to megabytes, and a batch of hundreds
+    // fingerprinted whole stalled the first render after a reload. A change
+    // to a compressed image changes its bytes from that point on, so a
+    // sample with the length tells two images apart. (Whether two images
+    // are identical is decided by comparing them whole: imageIdentity.)
+    const data = imageIdentity(job);
+    const step = Math.max(1, Math.floor(data.length / 20000));
+    let sample = "";
+    for (let i = 0; i < data.length; i += step) sample += data[i];
+    job.imageFingerprint = `${data.length}:${textFingerprint(sample + data.slice(-64))}`;
+  }
   return job.imageFingerprint;
+}
+
+/**
+ * The description a slide is sent with as its previous one. A previous slide
+ * that was "Same as the previous visual." says nothing of the graph, so the
+ * description it repeats is sent instead: the last in the segment before it
+ * that says something.
+ */
+function contextHtml(prev) {
+  const list = jobList();
+  const key = segmentKey(prev);
+  for (let i = list.indexOf(prev); i >= 0; i -= 1) {
+    const j = list[i];
+    if (segmentKey(j) !== key) continue;
+    if (j.state !== "done" || isBlankDescription(j)) return null;
+    if (!j.sameAsPrevious) return j.resultHtml;
+  }
+  return null;
 }
 
 /** What a description was written with in view: the previous slide's image,
@@ -1265,7 +1294,7 @@ function previousChanged(job) {
   const prev = previousInSegment(job);
   if (!prev || imageFingerprint(prev) !== from.image) return true;
   if (from.html == null) return false;
-  return prev.state !== "done" || textFingerprint(prev.resultHtml) !== from.html;
+  return prev.state !== "done" || textFingerprint(contextHtml(prev)) !== from.html;
 }
 
 function selectedJob() {
@@ -1289,6 +1318,11 @@ function jobStatusMeta(job) {
         dot: "dot-describing",
       };
     case "done":
+      // Ahead of everything else, approval included: an approved slide is the
+      // one about to be exported describing a change that may no longer be one.
+      if (previousChanged(job)) {
+        return { state: "done", text: job.approved ? "Approved · check: the visual before it changed" : "Check: the visual before it changed", dot: "dot-error" };
+      }
       if (job.approved) return { state: "approved", text: "Approved", dot: "dot-approved" };
       // A hand-written description is never "described" — nothing described
       // it. It also skips "needs review": the person reviewing it is the
@@ -1298,7 +1332,6 @@ function jobStatusMeta(job) {
           ? { state: "done", text: "Writing…", dot: "dot-describing" }
           : { state: "done", text: "Written by you · not approved", dot: "dot-done" };
       }
-      if (previousChanged(job)) return { state: "done", text: "Check: the visual before it changed", dot: "dot-error" };
       return { state: "done", text: "Described · needs review", dot: "dot-done" };
     case "error":
       return batchRunning && runScope === "batch"
@@ -1811,9 +1844,14 @@ function segmentHead(key) {
     button.className = "rail-segment-toggle";
     const name = document.createElement("span");
     name.className = "rail-segment-name";
+    // Read as one name: "Cronin_S4, 3 slides · 0 approved". Without the
+    // separator a screen reader ran the two together, "Cronin_S43 slides".
+    const separator = document.createElement("span");
+    separator.className = "visually-hidden";
+    separator.textContent = ", ";
     const meta = document.createElement("span");
     meta.className = "rail-segment-meta";
-    button.append(name, meta);
+    button.append(name, separator, meta);
     button.addEventListener("click", () => {
       if (collapsedSegments.has(key)) collapsedSegments.delete(key);
       else collapsedSegments.add(key);
@@ -1943,36 +1981,56 @@ function folderOfFile(file) {
   return parts.length > 1 ? parts[parts.length - 2] : "";
 }
 
-/** A folder's files in the order they were shown: by segment, then time. */
-function compareFolderFiles(a, b) {
-  const key = (file) => {
-    const stamp = timestampFromName(file.name);
-    return {
-      segment: stamp ? stamp.prefix : folderOfFile(file),
-      seconds: stamp ? stamp.seconds : Infinity,
-      position: stamp && Number.isInteger(stamp.position) ? stamp.position : Infinity,
-    };
-  };
-  const ka = key(a);
-  const kb = key(b);
+/** A folder's images in the order they were shown: by segment, then time.
+    Names are read as addFiles reads them, with the transcripts loaded. */
+function sortFolderImages(files) {
+  const stems = new Set(workspaceTranscripts.keys());
+  const keys = new Map(
+    files.map((file) => {
+      const stamp = readingForStems(file.name, stems) || timestampFromName(file.name);
+      return [
+        file,
+        {
+          segment: stamp ? stamp.prefix : folderOfFile(file),
+          seconds: stamp ? stamp.seconds : Infinity,
+          position: stamp && Number.isInteger(stamp.position) ? stamp.position : Infinity,
+        },
+      ];
+    })
+  );
+  return files.sort((a, b) => compareFolderKeys(keys.get(a), keys.get(b)) || compareNatural(a.name, b.name));
+}
+
+function compareFolderKeys(ka, kb) {
   return (
     compareNatural(ka.segment, kb.segment) ||
     (ka.seconds === kb.seconds ? 0 : ka.seconds < kb.seconds ? -1 : 1) ||
-    (ka.position === kb.position ? 0 : ka.position < kb.position ? -1 : 1) ||
-    compareNatural(a.name, b.name)
+    (ka.position === kb.position ? 0 : ka.position < kb.position ? -1 : 1)
   );
 }
 
+/** Files a Mac leaves in a folder: "._Slide1.png" beside each file, and a
+    __MACOSX folder in one that went through a zip. Named like images, they
+    are not, and each became a slide that could not be read. */
+function isSystemFile(file) {
+  const path = fileFolders.get(file) || file.webkitRelativePath || file.name;
+  return file.name.startsWith(".") || /(^|\/)__MACOSX\//.test(path);
+}
+
 async function addFolderFiles(fileList) {
-  const all = Array.from(fileList);
+  const all = Array.from(fileList).filter((f) => !isSystemFile(f));
   const usable = all.filter((f) => ACCEPTED_TYPES.includes(f.type) || isTranscriptFile(f));
   const passed = all.length - usable.length;
   if (usable.length === 0) {
     setError("That folder has no slide images or transcripts in it.");
     return;
   }
-  usable.sort(compareFolderFiles);
-  await addFiles(usable);
+  // Transcripts first, so the names are read as addFiles will read them, with
+  // the folder's transcripts loaded: the sort and the segments agree.
+  const transcripts = usable.filter(isTranscriptFile);
+  const images = usable.filter((f) => !isTranscriptFile(f));
+  if (transcripts.length > 0) await addFiles(transcripts);
+  await addFiles(sortFolderImages(images));
   if (passed > 0) {
     setStatus(
       `${passed} file${passed === 1 ? "" : "s"} in the folder ${passed === 1 ? "is" : "are"} not ` +
@@ -2245,7 +2303,7 @@ async function describeSingleJob(jobId, mode) {
   cancelRequested = false;
   renderAll();
 
-  await describeOne(job, { apiKey, model, verbosity });
+  await describeOne(job, { apiKey, model, verbosity, forceRequest: mode === "ocr" });
 
   batchRunning = false;
   runScope = null;
@@ -2356,7 +2414,9 @@ function updateControls() {
 
   // Header — export
   els.exportBtn.disabled = c.approved === 0;
-  const segmentsNow = segmentCount();
+  // Export all when the approved slides span segments: that is when the zip
+  // has a folder for each.
+  const segmentsNow = new Set(jobList().filter((j) => j.state === "done" && j.approved).map(segmentKey)).size;
   els.exportBtnLabel.textContent =
     c.approved === 0
       ? "Export as .zip"
@@ -3424,7 +3484,7 @@ async function refineJob(jobId, revisionKey, overrideModel) {
     model: overrideModel || job.usedModel || els.model.value,
     verbosity: currentVerbosity(),
     revision,
-    refining: true,
+    forceRequest: true,
   });
 
   batchRunning = false;
@@ -3510,7 +3570,7 @@ async function runWithConcurrency(items, limit, worker, { progress = true } = {}
   await Promise.all(pool);
 }
 
-async function describeOne(job, { apiKey, model, verbosity, revision, refining = false }) {
+async function describeOne(job, { apiKey, model, verbosity, revision, forceRequest = false }) {
   // The job may have been removed from the queue while it was still waiting
   // for a concurrency slot — don't spend an API call describing something the
   // user already took off the list. A job with no base64 hasn't finished
@@ -3518,10 +3578,10 @@ async function describeOne(job, { apiKey, model, verbosity, revision, refining =
   if (!jobs.has(job.id) || !job.base64) return;
 
   // The slide before this one in its segment. An identical image needs no
-  // request: it is the previous visual again. Not when the slide is being
-  // refined, which asks for a new description of it on purpose.
+  // request: it is the previous visual again. Not when the slide is refined,
+  // or switched to text, which ask for a new description of it on purpose.
   const prev = previousInSegment(job);
-  if (!refining && prev && imageIdentity(prev) && imageIdentity(prev) === imageIdentity(job)) {
+  if (!forceRequest && prev && imageIdentity(prev) && imageIdentity(prev) === imageIdentity(job)) {
     applyResult(job, SAME_AS_PREVIOUS_HTML);
     Object.assign(job, {
       sameAsPrevious: true,
@@ -3543,10 +3603,8 @@ async function describeOne(job, { apiKey, model, verbosity, revision, refining =
   // so a graph built up over several slides is described as it changes rather
   // than from scratch each time. Taken now: it is what this request is sent.
   // Not for a transcription, which is the same whatever came before.
-  const context =
-    !job.textOnly && prev && prev.state === "done" && prev.base64 && !isBlankDescription(prev)
-      ? { prev, html: prev.resultHtml, base64: prev.base64, mediaType: prev.mediaType }
-      : null;
+  const prevHtml = !job.textOnly && prev && prev.state === "done" && prev.base64 ? contextHtml(prev) : null;
+  const context = prevHtml ? { prev, html: prevHtml, base64: prev.base64, mediaType: prev.mediaType } : null;
 
   job.state = "describing";
   job.attempt = 1;
@@ -5694,6 +5752,34 @@ function downloadBlob(blob, fileName) {
 }
 
 /**
+ * The exported slides whose description leans on the slide before them (it
+ * says "Same as the previous visual", or describes what changed) when that
+ * slide is not in the export: a learner would be told of a visual they never
+ * get. Names them, for a note, rather than stopping the export.
+ */
+function dependentsWithoutPrevious(entries) {
+  const exported = new Set(entries.map((e) => e.job));
+  return entries
+    .map((e) => e.job)
+    .filter((job) => {
+      const from = job.contextFrom;
+      if (!job.sameAsPrevious && !(from && from.html != null)) return false;
+      const prev = previousInSegment(job);
+      return !prev || !exported.has(prev);
+    })
+    .map((job) => job.name);
+}
+
+function dependentsNote(names) {
+  if (names.length === 0) return "";
+  return (
+    `${names.join(", ")} ${names.length === 1 ? "builds" : "build"} on the visual before ${names.length === 1 ? "it" : "them"}, ` +
+    `which is not approved, so the description may refer to a visual that is not there. ` +
+    `Approve the visual before, or describe ${names.length === 1 ? "it" : "them"} again on ${names.length === 1 ? "its" : "their"} own.`
+  );
+}
+
+/**
  * The Studio fragment for some approved visuals: their blocks under an
  * optional heading, numbered among themselves. `title` is the batch's name,
  * or a segment's in Export all.
@@ -5773,6 +5859,8 @@ async function exportApprovedNow() {
   downloadBlob(buildZipBlob(files), `${safeFileStem(batch, new Set())}-descriptions.zip`);
   const notes = [];
   if (segments.size > 1) notes.push(`One folder for each of the ${segments.size} segments.`);
+  const dependents = dependentsNote(dependentsWithoutPrevious(entries));
+  if (dependents) notes.push(dependents);
   if (apiCopies > 0) {
     // Not "full resolution" — say what actually went out.
     notes.push(
@@ -5864,23 +5952,48 @@ async function learnerDocument() {
   const batch = els.batchName.value.trim() || "Untitled batch";
   const counted = els.exportSlideCounts.checked;
   const total = prep.entries.length;
+  // Several segments: each under an <h2> of its name, its visuals as <h3>
+  // and numbered within it, as Export all numbers them.
+  const segmentOf = new Map();
+  for (const entry of prep.entries) {
+    const key = segmentKey(entry.job);
+    if (!segmentOf.has(key)) segmentOf.set(key, []);
+    segmentOf.get(key).push(entry);
+  }
+  const multi = segmentOf.size > 1;
   const blocks = [];
-  for (const [i, entry] of prep.entries.entries()) {
-    const src = `data:${entry.mediaType};base64,${entry.base64 || bytesToBase64(entry.bytes)}`;
-    // Known from preparing the image; decoded only for a project old enough
-    // not to have recorded it.
-    let imageSize = Number.isFinite(entry.width) && Number.isFinite(entry.height) ? { width: entry.width, height: entry.height } : null;
-    if (!imageSize) {
-      try {
-        const img = await loadImageElement(src);
-        imageSize = { width: img.naturalWidth, height: img.naturalHeight };
-      } catch (_err) {
-        imageSize = null; // still shown; it just cannot reserve its space
-      }
+  for (const members of segmentOf.values()) {
+    if (multi) {
+      const label = escapeHtml(segmentLabel(members[0].job));
+      const count = counted ? ` <span class="visual-count">${members.length} visual${members.length === 1 ? "" : "s"}</span>` : "";
+      blocks.push({ html: `<h2>${label}${count}</h2>`, clamped: 0 });
     }
-    blocks.push(
-      exportBlockFor({ ...entry, titleLevel: 2, position: counted ? i + 1 : 0, total, imageSrc: src, imageSize, focusableTitles: false, inlineGap: false })
-    );
+    for (const [i, entry] of members.entries()) {
+      const src = `data:${entry.mediaType};base64,${entry.base64 || bytesToBase64(entry.bytes)}`;
+      // Known from preparing the image; decoded only for a project old enough
+      // not to have recorded it.
+      let imageSize = Number.isFinite(entry.width) && Number.isFinite(entry.height) ? { width: entry.width, height: entry.height } : null;
+      if (!imageSize) {
+        try {
+          const img = await loadImageElement(src);
+          imageSize = { width: img.naturalWidth, height: img.naturalHeight };
+        } catch (_err) {
+          imageSize = null; // still shown; it just cannot reserve its space
+        }
+      }
+      blocks.push(
+        exportBlockFor({
+          ...entry,
+          titleLevel: multi ? 3 : 2,
+          position: counted ? i + 1 : 0,
+          total: members.length,
+          imageSrc: src,
+          imageSize,
+          focusableTitles: false,
+          inlineGap: false,
+        })
+      );
+    }
   }
   const title = `${batch}: visual descriptions`;
   const lead = counted ? `<p>${total} visual${total === 1 ? "" : "s"}, described in order.</p>\n` : "";
@@ -5898,6 +6011,7 @@ async function learnerDocument() {
     total,
     skipped: prep.skipped,
     clamped: blocks.filter((b) => b.clamped > 0).length,
+    dependents: dependentsWithoutPrevious(prep.entries),
   };
 }
 
@@ -5913,6 +6027,7 @@ function setLearnerError(message) {
 function learnerNotes(doc) {
   const notes = [];
   if (doc.skipped.length > 0) notes.push(`Skipped ${doc.skipped.join(", ")} — no image data.`);
+  if (doc.dependents && doc.dependents.length > 0) notes.push(dependentsNote(doc.dependents));
   if (doc.clamped > 0) {
     notes.push(`${doc.clamped} visual${doc.clamped === 1 ? " has" : "s have"} subheadings deeper than h6, so the deepest share a level.`);
   }
