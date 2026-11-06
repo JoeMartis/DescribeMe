@@ -12,22 +12,21 @@
    matching the design system as specified.
    ========================================================================== */
 
+/* Atkinson Hyperlegible, from the Braille Institute, for headings, buttons and
+   status lines: made for low-vision readers, so letters that are easy to mix
+   up (I l 1, O 0, b d p q) are drawn to be told apart. OFL, licence beside it. */
 @font-face {
-  font-family: "Bungee";
-  src: url("fonts/Bungee-Regular.woff2") format("woff2");
+  font-family: "Atkinson Hyperlegible";
+  src: url("fonts/AtkinsonHyperlegible-Regular.woff2") format("woff2");
   font-weight: 400;
+  font-style: normal;
   font-display: swap;
 }
 @font-face {
-  font-family: "Bungee Shade";
-  src: url("fonts/BungeeShade-Regular.woff2") format("woff2");
-  font-weight: 400;
-  font-display: swap;
-}
-@font-face {
-  font-family: "Boogaloo";
-  src: url("fonts/Boogaloo-Regular.woff2") format("woff2");
-  font-weight: 400;
+  font-family: "Atkinson Hyperlegible";
+  src: url("fonts/AtkinsonHyperlegible-Bold.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
   font-display: swap;
 }
 @font-face {
@@ -105,9 +104,9 @@
   --neutral-400: #d9c79a;
   --neutral-700: var(--muted);
 
-  --font-heading: "Bungee", system-ui, sans-serif;
-  --font-display: "Bungee Shade", "Bungee", system-ui, sans-serif;
-  --font-accent: "Boogaloo", cursive;
+  --font-heading: "Atkinson Hyperlegible", system-ui, sans-serif;
+  --font-display: "Atkinson Hyperlegible", system-ui, sans-serif;
+  --font-accent: "Atkinson Hyperlegible", system-ui, sans-serif;
   --font-body: "Quicksand", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: ui-monospace, Menlo, Consolas, monospace;
 
@@ -172,7 +171,7 @@ body {
 
 h1, h2, h3, h4 {
   font-family: var(--font-heading);
-  font-weight: 400;
+  font-weight: 700;
   line-height: 1.25;
   margin: 0;
 }
@@ -201,7 +200,7 @@ code, kbd {
   padding: 0.75rem 1.25rem;
   border: var(--border-width) solid var(--border);
   border-radius: 999px;
-  font-family: var(--font-heading);
+  font-family: var(--font-heading); font-weight: 700;
   font-size: 0.85em;
 }
 .skip-link:focus { left: 8px; top: 8px; }
@@ -215,7 +214,7 @@ code, kbd {
   padding: 48px 24px;
   text-wrap: pretty;
 }
-.noscript-intro h1 { font-family: var(--font-heading); font-size: 28px; margin-bottom: 18px; }
+.noscript-intro h1 { font-family: var(--font-heading); font-weight: 700; font-size: 32px; margin-bottom: 18px; }
 .noscript-intro p { margin-bottom: 14px; }
 .noscript-intro ul { margin: 0 0 14px; padding-left: 22px; }
 .noscript-intro li { margin-bottom: 6px; }
@@ -239,9 +238,8 @@ code, kbd {
   justify-content: center;
   gap: 7px;
   cursor: pointer;
-  font-family: var(--font-heading);
-  font-size: 13px;
-  letter-spacing: 0.02em;
+  font-family: var(--font-heading); font-weight: 700;
+  font-size: 15px;
   line-height: 1.2;
   padding: 11px 21px;
   border-radius: 999px;
@@ -251,10 +249,10 @@ code, kbd {
   text-decoration: none;
   white-space: nowrap;
   box-shadow: var(--shadow-sm);
-  transition: transform var(--duration-quick) var(--ease-out), box-shadow var(--duration-quick) var(--ease-out);
 }
-.btn:hover:not(:disabled) { transform: translate(-2px, -2px); box-shadow: var(--shadow-md); background: var(--swamp-parchment); }
-.btn:active:not(:disabled) { transform: translate(3px, 3px); box-shadow: none; }
+/* Hover is a colour change and nothing else: no button moves, grows or
+   changes its shadow, so every button behaves the same. */
+.btn:hover:not(:disabled) { background: var(--swamp-parchment); }
 .btn:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; }
 .btn:disabled:hover { background: var(--raised); }
 
@@ -295,8 +293,8 @@ code, kbd {
   border: var(--border-width) solid var(--border);
   background: var(--mustard);
   color: var(--ink-brown);
-  font-family: var(--font-heading);
-  font-size: 10px;
+  font-family: var(--font-heading); font-weight: 700;
+  font-size: 12px;
   line-height: 1;
 }
 
@@ -308,8 +306,8 @@ code, kbd {
 .btn-approve:hover:not(:disabled) { background: var(--sage-700); }
 
 .btn-small {
-  font-family: var(--font-heading);
-  font-size: 12px;
+  font-family: var(--font-heading); font-weight: 700;
+  font-size: 14px;
   padding: 7px 15px;
   box-shadow: var(--shadow-sm);
 }
@@ -327,13 +325,13 @@ code, kbd {
 
 .btn-ghost { border-color: transparent; box-shadow: none; background: transparent; }
 
-/* The quieter weights. Bungee is kept for the one button that matters on
+/* The quieter weights. The bold heading face is kept for the buttons that matter on
    screen; these are in the body face, without the pop shadow, so a row of
    them reads as options rather than a wall of calls to action. */
 .btn-secondary,
 .btn-outline,
 .btn-text {
-  font-family: var(--font-body);
+  font-family: var(--font-heading);
   font-weight: 700;
   font-size: 15px;
   letter-spacing: 0;
@@ -342,9 +340,7 @@ code, kbd {
 .btn-secondary:hover:not(:disabled),
 .btn-outline:hover:not(:disabled),
 .btn-text:hover:not(:disabled) { transform: none; box-shadow: none; background: var(--swamp-parchment); }
-.btn-secondary:active:not(:disabled),
-.btn-outline:active:not(:disabled),
-.btn-text:active:not(:disabled) { transform: translate(1px, 1px); }
+
 .btn-secondary { border-width: 2px; padding: 10px 16px; background: var(--raised); color: var(--fg); }
 .btn-outline { border-width: 2px; padding: 8px 14px; font-size: 14px; background: transparent; }
 .btn-text { border-color: transparent; border-radius: 12px; padding: 9px 12px; font-size: 14px; background: transparent; }
@@ -382,7 +378,7 @@ code, kbd {
   border-color: var(--border);
   color: var(--ink-brown);
 }
-.chip-cost strong { font-family: var(--font-heading); font-weight: 400; }
+.chip-cost strong { font-family: var(--font-heading); font-weight: 700; }
 /* .field stretches its children, which would stretch this pill across the
    whole dialog — it should hug its text like every other chip. */
 .field > .chip-cost { align-self: flex-start; }
@@ -390,8 +386,8 @@ code, kbd {
 .tag {
   display: inline-flex;
   align-items: center;
-  font-family: var(--font-heading);
-  font-size: 11px;
+  font-family: var(--font-heading); font-weight: 700;
+  font-size: 13px;
   padding: 5px 12px;
   border: var(--border-width) solid var(--border);
   border-radius: 999px;
@@ -437,11 +433,11 @@ code, kbd {
   align-items: baseline;
   gap: 10px;
   margin-bottom: 20px;
-  font-family: var(--font-heading);
-  font-size: 22px;
+  font-family: var(--font-heading); font-weight: 700;
+  font-size: 25px;
 }
 .onboard-card h1 {
-  font-family: var(--font-display);
+  font-family: var(--font-display); font-weight: 700;
   font-size: clamp(1.9rem, 4vw, 2.75rem);
   color: var(--mustard);
   margin-bottom: 14px;
@@ -472,14 +468,14 @@ code, kbd {
   padding: 14px;
   cursor: pointer;
 }
-.model-option:hover { transform: translate(-2px, -2px); box-shadow: var(--shadow-md); }
+.model-option:hover { background: var(--swamp-parchment); }
 .model-option input { position: absolute; opacity: 0; pointer-events: none; }
 .model-option:has(input:checked) {
   background: var(--mustard);
   box-shadow: var(--shadow-md);
 }
 .model-option:has(input:focus-visible) { outline: 3px solid var(--focus); outline-offset: 2px; }
-.model-name { font-family: var(--font-heading); font-size: 15px; margin-bottom: 4px; }
+.model-name { font-family: var(--font-heading); font-weight: 700; font-size: 17px; margin-bottom: 4px; }
 .model-note { font-size: 12px; color: var(--muted); line-height: 1.4; margin-bottom: 8px; }
 .model-cost { font-family: var(--font-accent); font-size: 15px; color: var(--muted); }
 .model-option:has(input:checked) .model-cost { color: var(--accent-700); }
@@ -509,8 +505,8 @@ code, kbd {
   display: flex;
   align-items: baseline;
   gap: 9px;
-  font-family: var(--font-heading);
-  font-size: 21px;
+  font-family: var(--font-heading); font-weight: 700;
+  font-size: 24px;
 }
 .version-badge {
   font-family: var(--font-accent);
@@ -527,8 +523,8 @@ code, kbd {
    the whole tools cluster wraps to a second header line. */
 .batch-meta { min-width: 0; flex: 0 1 auto; }
 .batch-name {
-  font-family: var(--font-heading);
-  font-size: 13px;
+  font-family: var(--font-heading); font-weight: 700;
+  font-size: 15px;
   /* Visibly an input, not a label: this field spent its life styled as plain
      text that only revealed itself on hover, and nobody discovered they
      could rename the batch. The pencil is a background image so no markup
@@ -716,7 +712,6 @@ code, kbd {
   border: 6px solid transparent;
   border-top-color: currentColor;
   border-bottom-width: 0;
-  transition: transform 0.15s;
 }
 .rail-segment-toggle[aria-expanded="false"]::before { transform: rotate(-90deg); }
 .rail-segment-name { font-weight: 700; font-size: 14px; line-height: 1.2; overflow-wrap: anywhere; }
@@ -880,14 +875,12 @@ code, kbd {
   border-top: 4px solid transparent;
   border-bottom: 4px solid transparent;
   transform: translateY(-1px);
-  transition: transform var(--duration-quick);
 }
 .rail-transcripts[open] summary::before { transform: rotate(90deg) translateX(-1px); }
 .rail-transcripts summary:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 .rail-transcripts-title {
-  font-family: var(--font-heading);
-  font-size: 11px;
-  letter-spacing: 0.04em;
+  font-family: var(--font-heading); font-weight: 700;
+  font-size: 13px;
   color: var(--accent-700);
 }
 .rail-transcripts-count { font-family: var(--font-accent); font-size: 13px; color: var(--accent-700); }
@@ -945,7 +938,7 @@ code, kbd {
   padding: 15px 16px;
 }
 .rail-card-review { background: var(--sage-100); }
-.rail-card h3 { font-family: var(--font-heading); font-size: 12px; margin-bottom: 8px; }
+.rail-card h3 { font-family: var(--font-heading); font-weight: 700; font-size: 14px; margin-bottom: 8px; }
 .rail-card p { font-size: 12px; color: var(--muted); margin-bottom: 11px; }
 .progress-track {
   height: 12px;
@@ -982,7 +975,7 @@ code, kbd {
 
 
 .empty { max-width: 780px; margin: 0 auto; }
-.empty h1 { font-family: var(--font-display); font-size: 30px; margin: 12px 0 8px; color: var(--poster-red); }
+.empty h1 { font-family: var(--font-display); font-weight: 700; font-size: 34px; margin: 12px 0 8px; color: var(--poster-red); }
 .empty-lede { font-family: var(--font-accent); font-size: 18px; color: var(--muted); max-width: 58ch; margin-bottom: 22px; text-wrap: pretty; }
 .empty-video-row {
   display: flex;
@@ -1000,11 +993,9 @@ code, kbd {
   background: var(--surface);
   padding: 62px 32px;
   text-align: center;
-  transition: background var(--duration-quick) var(--ease-out), transform var(--duration-quick) var(--ease-bounce);
 }
 .dropzone:hover, .dropzone.dragover {
   background: var(--mustard);
-  transform: rotate(-0.5deg) scale(1.008);
 }
 .dropzone input[type="file"] {
   position: absolute;
@@ -1026,7 +1017,7 @@ code, kbd {
   box-shadow: var(--shadow-sm);
 }
 .dropzone-mark svg { width: 34px; height: 34px; }
-.dropzone h2 { font-family: var(--font-heading); font-size: 22px; margin-bottom: 6px; }
+.dropzone h2 { font-family: var(--font-heading); font-weight: 700; font-size: 25px; margin-bottom: 6px; }
 .dropzone-note { font-family: var(--font-accent); font-size: 16px; color: var(--muted); }
 
 .facts {
@@ -1036,7 +1027,7 @@ code, kbd {
   margin-top: 20px;
 }
 .fact { background: var(--panel); border: var(--border-width) solid var(--border); border-radius: var(--radius-md); box-shadow: var(--shadow-sm); padding: 16px 18px; }
-.fact h3 { font-family: var(--font-heading); font-size: 12px; margin-bottom: 4px; }
+.fact h3 { font-family: var(--font-heading); font-weight: 700; font-size: 14px; margin-bottom: 4px; }
 .fact p { font-size: 12px; color: var(--muted); line-height: 1.45; }
 
 .split {
@@ -1251,8 +1242,8 @@ code, kbd {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-family: var(--font-heading);
-  font-size: 12px;
+  font-family: var(--font-heading); font-weight: 700;
+  font-size: 14px;
   border: var(--border-width) solid var(--border);
   border-radius: 999px;
   background: var(--raised);
@@ -1413,7 +1404,7 @@ textarea.source-code:not(:read-only) {
 .approve-bar .hint { font-family: var(--font-accent); font-size: 14px; color: var(--faint); }
 
 .error-pane { max-width: 720px; }
-.error-pane h2 { font-family: var(--font-heading); font-size: 22px; margin-bottom: 10px; }
+.error-pane h2 { font-family: var(--font-heading); font-weight: 700; font-size: 25px; margin-bottom: 10px; }
 .error-pane p { color: var(--muted); font-size: 14px; margin-bottom: 16px; text-wrap: pretty; }
 .error-detail {
   white-space: pre-wrap;
@@ -1495,10 +1486,10 @@ dialog.sheet::backdrop { background: rgba(36, 26, 18, 0.55); }
 /* ---------- projects dialog: shared folder ---------- */
 .folder-section { margin-bottom: 8px; }
 .folder-section > .project-save-row { margin-bottom: 14px; }
-.sheet-subhead { font-family: var(--font-heading); font-size: 15px; margin: 0 0 8px; }
+.sheet-subhead { font-family: var(--font-heading); font-weight: 700; font-size: 17px; margin: 0 0 8px; }
 .folder-section > .hint:first-of-type { margin-bottom: 12px; }
 .folder-name-row { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; max-width: 26rem; }
-.folder-name-row label { font-family: var(--font-heading); font-size: 12px; }
+.folder-name-row label { font-family: var(--font-heading); font-weight: 700; font-size: 14px; }
 #folderList { margin-bottom: 8px; }
 #folderEmpty { margin-bottom: 18px; }
 #folderReady + .sheet-subhead { margin-top: 22px; }
@@ -1525,8 +1516,8 @@ dialog.sheet::backdrop { background: rgba(36, 26, 18, 0.55); }
    overflow-wrap: anywhere because these names are one unbroken token: with
    normal wrapping rules there is nowhere for the line to break. */
 .project-name {
-  font-family: var(--font-heading);
-  font-size: 13px;
+  font-family: var(--font-heading); font-weight: 700;
+  font-size: 15px;
   overflow-wrap: anywhere;
 }
 .project-meta { font-family: var(--font-accent); font-size: 13px; color: var(--faint); }
@@ -1538,15 +1529,15 @@ dialog.sheet::backdrop { background: rgba(36, 26, 18, 0.55); }
 .context-warning p { margin: 0 0 8px; }
 
 .project-rename-input {
-  font-family: var(--font-heading);
-  font-size: 13px;
+  font-family: var(--font-heading); font-weight: 700;
+  font-size: 15px;
   padding: 4px 12px;
   width: 100%;
   min-width: 0;
 }
 
 .field { display: flex; flex-direction: column; gap: 8px; margin-bottom: 22px; }
-.field > label:not(.radio-option), fieldset.field legend { font-family: var(--font-heading); font-size: 12px; }
+.field > label:not(.radio-option), fieldset.field legend { font-family: var(--font-heading); font-weight: 700; font-size: 14px; }
 fieldset.field { border: none; padding: 0; margin: 0 0 22px; }
 .hint { font-size: 13px; color: var(--faint); }
 
@@ -1707,9 +1698,8 @@ dialog.sheet-projects { max-width: min(720px, 94vw); }
 .capture-rule { width: var(--border-width); height: 26px; background: var(--border); flex-shrink: 0; }
 .capture-group { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .capture-label {
-  font-family: var(--font-heading);
-  font-size: 12px;
-  letter-spacing: 0.03em;
+  font-family: var(--font-heading); font-weight: 700;
+  font-size: 14px;
   white-space: nowrap;
 }
 #videoCropBtn[aria-pressed="true"] {
@@ -1763,7 +1753,7 @@ dialog.sheet-projects { max-width: min(720px, 94vw); }
   /* --muted on mustard is under AA; the ink brown clears it. */
   color: var(--ink-brown);
   font-family: var(--font-heading);
-  font-weight: 400;
+  font-weight: 700;
   /* It is an <input> now — the jump-to-time field — so the chrome the
      browser gives a text box has to be undone to keep it reading as the
      chip it looks like. */
