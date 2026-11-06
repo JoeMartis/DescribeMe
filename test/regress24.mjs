@@ -95,14 +95,19 @@ await page.fill("#detailPane .js-discuss-input", "She calls it the atmosphere.")
 await page.click("#detailPane .js-discuss-send");
 await page.waitForFunction(() => [...jobs.values()][1].discussion?.length === 4);
 const d3 = await pane();
-check("D3  a revision is proposed and nothing changes yet", d3.log.some((l) => /Named the atmosphere\.\s*Revision 1/.test(l)) && /leaves the box\.<\/p>/.test(d3.html) && d3.history === 0, JSON.stringify(d3.log));
+check("D3  a revision is proposed and nothing changes yet", d3.log.some((l) => /Named the atmosphere\..*Revision 1/.test(l)) && /leaves the box\.<\/p>/.test(d3.html) && d3.history === 0, JSON.stringify(d3.log));
 const r2 = sent[sent.length - 1];
 check("D3  the conversation so far goes with the next message", r2.messages.length === 3 && r2.messages[1].role === "assistant" && /label on the slide/.test(r2.messages[1].content) && /She calls it the atmosphere/.test(r2.messages[2].content), JSON.stringify(r2.messages.map((m) => m.role)));
-await page.click("#detailPane .js-discuss-show");
+const inChat = await page.evaluate(() => els.detailPane.querySelector(".discuss-revision-body")?.innerHTML || "");
+check("D3  the revision reads in full in the chat", /which stands for the atmosphere/.test(inChat), inChat);
+await page.click("#detailPane .js-discuss-preview");
+const previewed = await pane();
+check("D3  Preview shows the revision in the description's place, clean", previewed.banner && /which stands for the atmosphere/.test(previewed.preview) && !/<ins>|<del>/.test(previewed.preview) && previewed.history === 0, previewed.preview);
+await page.click("#detailPane .js-proposal-switch");
 const shown = await pane();
-check("D3  Show changes marks them in the description", shown.banner && /leaves the box<ins>, which stands for the atmosphere<\/ins>\.<\/p>/.test(shown.preview) && shown.history === 0, shown.preview);
+check("D3  Compare marks the changes", shown.banner && /leaves the box<ins>, which stands for the atmosphere<\/ins>\.<\/p>/.test(shown.preview) && shown.history === 0, shown.preview);
 await page.click("#detailPane .js-proposal-hide");
-check("D3  Hide changes puts the description back", !(await pane()).banner && !/<ins>/.test((await pane()).preview));
+check("D3  Back to the description puts it back", !(await pane()).banner && !/<ins>/.test((await pane()).preview));
 
 // D4: Use this puts it in, undoably, needing review again.
 await page.evaluate(() => { [...jobs.values()][1].approved = true; renderAll(); });
@@ -113,7 +118,7 @@ check("D4  and it needs review again", d4.approved === false);
 check("D4  the chat says it is in the description", d4.log.some((l) => /Revision 1 is in the description/.test(l)), JSON.stringify(d4.log));
 await page.click("#detailPane .js-discuss-undo");
 const undone = await pane();
-check("D4  Undo in the chat takes it back out", /leaves the box\.<\/p>/.test(undone.html) && undone.history === 0 && undone.log.some((l) => /Revision 1\s*\$[\d.]+\s*Show changes/.test(l)), JSON.stringify(undone.log));
+check("D4  Undo in the chat takes it back out", /leaves the box\.<\/p>/.test(undone.html) && undone.history === 0 && undone.log.some((l) => /Revision 1\s*\$[\d.]+\s*Preview\s*Compare\s*Use this/.test(l)), JSON.stringify(undone.log));
 await page.click("#detailPane .js-discuss-use");
 
 // D5: a reply that fails says so, and Try again sends it again.
@@ -161,6 +166,17 @@ check("D10  a note inside the revision is moved to the message", d10.revision.ht
 const d10b = await page.evaluate(() => parseDiscussReply("Named it.\n<revision><h2>T</h2><p>Body.</p></revision>", false));
 check("D10  a clean revision is left as it is", d10b.revision.html === "<h2>T</h2><p>Body.</p>" && d10b.text === "Named it.", JSON.stringify(d10b));
 
+// D9: Use this from the preview banner.
+await page.evaluate(() => { const c = [...jobs.values()][1]; selectJob(c.id); showingProposal = { jobId: c.id, index: 5, mode: "preview" }; renderDetail(); });
+await page.click("#detailPane .js-proposal-use");
+check("D9  Use this from the preview puts it in", await page.evaluate(() => /Sinks leave the atmosphere/.test([...jobs.values()][1].resultHtml) && !showingProposal));
+
+// D9: a rewritten passage reads as the old, struck, then the new: not
+// spliced around the words the two share.
+const heavy = await page.evaluate(() => diffHtml(
+  "<p>The tree line now appears thicker and closer, filling more of the central vertical band. The pink and orange strip of sky beside the tree line is still present.</p>",
+  "<p>The tree line and sky are closer and larger within the frame, with less of the surrounding cloud detail visible than before.</p>"));
+check("D9  a rewrite reads as one passage out, one in", (heavy.match(/<del>/g) || []).length <= 2 && (heavy.match(/<ins>/g) || []).length <= 2, heavy);
 // D9: removals are marked too, word by word.
 const d9a = await page.evaluate(() => diffHtml("<p>A very big box.</p>", "<p>A big red box.</p>"));
 check("D9  removed words are struck, added ones underlined", d9a === "<p>A <del>very </del>big <ins>red </ins>box.</p>", d9a);

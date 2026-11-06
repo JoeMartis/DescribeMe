@@ -1198,7 +1198,24 @@ code, kbd {
   background: #fff3d0;
   border: 2px solid #c9a227;
 }
-.proposal-banner p { flex: 1; font-weight: 600; font-size: 13.5px; }
+.proposal-banner { flex-wrap: wrap; }
+.proposal-banner p { flex: 1 1 260px; font-weight: 600; font-size: 13.5px; }
+.proposal-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.discuss-revision-note { padding: 10px 14px 4px; }
+/* The revision itself in the chat: the description's own look, smaller. */
+.discuss-revision-body {
+  margin: 6px 10px 4px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #fff;
+  border: 1px solid var(--swamp-sunken);
+  font-size: 14px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.discuss-revision-body h1, .discuss-revision-body h2, .discuss-revision-body h3 { font-size: 16px; margin: 0 0 6px; }
+.discuss-revision-body p, .discuss-revision-body li { font-size: 14px; line-height: 1.55; }
+.discuss-revision-body > :last-child { margin-bottom: 0; }
 /* A proposed revision's changes, marked in the description: removals struck
    through, additions underlined. The two differ in form, not colour alone. */
 .result-preview del { text-decoration: line-through; text-decoration-thickness: 2px; color: #8a2a14; background: #fde3dc; }

@@ -2923,13 +2923,28 @@ function renderDetail() {
       : null;
     if (proposal && proposal.html !== job.resultHtml) {
       const n = revisionNumber(job, showingProposal.index);
-      const marked = diffHtml(job.resultHtml, proposal.html);
+      const marked = showingProposal.mode === "compare" ? diffHtml(job.resultHtml, proposal.html) : null;
       preview.innerHTML = marked ?? proposal.html;
-      preview.setAttribute("aria-label", `Changes revision ${n} would make to the description of ${job.name}`);
+      preview.setAttribute(
+        "aria-label",
+        marked ? `Changes revision ${n} would make to the description of ${job.name}` : `Revision ${n} of the description of ${job.name}, not yet used`
+      );
       q(".js-proposal-banner").hidden = false;
-      q(".js-proposal-text").textContent = marked
-        ? `Showing the changes revision ${n} would make: struck through comes out, underlined goes in. Nothing has changed yet.`
-        : `Showing revision ${n} in place of the description (its changes can't be marked inside equations). Nothing has changed yet.`;
+      q(".js-proposal-text").textContent =
+        showingProposal.mode !== "compare"
+          ? `Previewing revision ${n}: this is how the description would read. Nothing has changed yet.`
+          : marked
+            ? `Comparing revision ${n} with the description: struck through comes out, underlined goes in. Nothing has changed yet.`
+            : `Revision ${n}, shown whole: its changes can't be marked inside equations. Nothing has changed yet.`;
+      const other = q(".js-proposal-switch");
+      other.hidden = false;
+      other.textContent = showingProposal.mode === "compare" ? "Preview" : "Compare";
+      other.addEventListener("click", () => {
+        showingProposal = { ...showingProposal, mode: showingProposal.mode === "compare" ? "preview" : "compare" };
+        renderDetail();
+      });
+      q(".js-proposal-use").hidden = false;
+      q(".js-proposal-use").addEventListener("click", () => useRevision(job.id, showingProposal.index));
       q(".js-proposal-hide").addEventListener("click", () => {
         showingProposal = null;
         renderDetail();
@@ -4157,7 +4172,9 @@ let discussOpen = false;
 const discussDrafts = new Map(); // job id → what is typed and not yet sent
 const discussErrors = new Map(); // job id → why the last reply did not come
 let discussInFlight = null; // { jobId, controller }
-let showingProposal = null; // { jobId, index }: whose changes the description shows
+// { jobId, index, mode }: a revision shown in the description's place,
+// "preview" (as it would read) or "compare" (its changes marked).
+let showingProposal = null;
 
 function discussModel(job) {
   return job.usedModel || els.model.value.trim() || "claude-sonnet-5";
@@ -4382,8 +4399,16 @@ function discussMessageEl(job, m, index) {
   const card = document.createElement("div");
   card.className = `discuss-revision${inUse ? " in-use" : ""}`;
   const p = document.createElement("p");
-  p.style.padding = "10px 14px 4px";
+  p.className = "discuss-revision-note";
   p.textContent = m.text;
+  // The suggestion itself, readable where it was made: the revised
+  // description in full, drawn as the description is.
+  const body = document.createElement("div");
+  body.className = "discuss-revision-body result-preview";
+  body.setAttribute("role", "group");
+  body.setAttribute("aria-label", `Revision ${n}`);
+  body.innerHTML = m.revision.html;
+  body.hidden = inUse; // in use, it is the description beside
   const bar = document.createElement("div");
   bar.className = "discuss-revision-bar";
   const name = document.createElement("span");
@@ -4410,17 +4435,22 @@ function discussMessageEl(job, m, index) {
       bar.append(undo);
     }
   } else {
-    const showing = showingProposal && showingProposal.jobId === job.id && showingProposal.index === index;
-    const show = document.createElement("button");
-    show.type = "button";
-    show.className = "btn btn-outline btn-chip js-discuss-show";
-    show.setAttribute("aria-pressed", String(!!showing));
-    show.textContent = showing ? "Showing changes" : "Show changes";
-    show.setAttribute("aria-label", `Show the changes revision ${n} would make`);
-    show.addEventListener("click", () => {
-      showingProposal = showing ? null : { jobId: job.id, index };
-      renderDetail();
-    });
+    const showing = showingProposal && showingProposal.jobId === job.id && showingProposal.index === index ? showingProposal.mode : null;
+    const view = (mode, label, name) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = `btn btn-outline btn-chip js-discuss-${mode}`;
+      btn.setAttribute("aria-pressed", String(showing === mode));
+      btn.textContent = label;
+      btn.setAttribute("aria-label", name);
+      btn.addEventListener("click", () => {
+        showingProposal = showing === mode ? null : { jobId: job.id, index, mode };
+        renderDetail();
+      });
+      return btn;
+    };
+    const show = view("compare", "Compare", `Compare revision ${n} with the description`);
+    const look = view("preview", "Preview", `Preview revision ${n} in place of the description`);
     const use = document.createElement("button");
     use.type = "button";
     use.className = "btn btn-outline btn-chip btn-use js-discuss-use";
@@ -4428,9 +4458,9 @@ function discussMessageEl(job, m, index) {
     use.setAttribute("aria-label", `Use revision ${n}`);
     use.disabled = batchRunning;
     use.addEventListener("click", () => useRevision(job.id, index));
-    bar.append(show, use);
+    bar.append(look, show, use);
   }
-  card.append(p, bar);
+  card.append(p, body, bar);
   li.append(card);
   return li;
 }
@@ -4535,45 +4565,76 @@ function diffHtml(oldHtml, newHtml) {
         a[i] === b[j] ? table[(i + 1) * width + j + 1] + 1 : Math.max(table[(i + 1) * width + j], table[i * width + j + 1]);
     }
   }
-  const out = [];
-  let run = null; // { kind: "del"|"ins", text }
-  const flush = () => {
-    if (run) out.push(`<${run.kind}>${run.text}</${run.kind}>`);
-    run = null;
-  };
-  const add = (kind, token) => {
-    if (token.startsWith("<")) {
-      flush();
-      if (kind !== "del") out.push(token); // the revision's structure
-      return;
-    }
-    if (kind === "same") {
-      flush();
-      out.push(token);
-      return;
-    }
-    if (run && run.kind !== kind) flush();
-    run = run || { kind, text: "" };
-    run.text += token;
-  };
+  // Word by word first…
+  const ops = [];
   let i = 0;
   let j = 0;
   while (i < n && j < m) {
     if (a[i] === b[j]) {
-      add("same", a[i]);
+      ops.push({ k: "same", t: a[i] });
       i += 1;
       j += 1;
     } else if (table[(i + 1) * width + j] >= table[i * width + j + 1]) {
-      add("del", a[i]);
-      i += 1;
+      ops.push({ k: "del", t: a[i++] });
     } else {
-      add("ins", b[j]);
-      j += 1;
+      ops.push({ k: "ins", t: b[j++] });
     }
   }
-  while (i < n) add("del", a[i++]);
-  while (j < m) add("ins", b[j++]);
-  flush();
+  while (i < n) ops.push({ k: "del", t: a[i++] });
+  while (j < m) ops.push({ k: "ins", t: b[j++] });
+
+  // …then as a reader would want it: a rewritten passage reads as the old
+  // passage struck through and the new one after it, not the two spliced
+  // together around the "the"s and "and"s they share. A short run of shared
+  // words between two changes is folded into one change when the changes
+  // around it are bigger than it is.
+  const words = (tokens) => tokens.filter((t) => /[\p{L}\p{N}]/u.test(t) && !t.startsWith("<")).length;
+  const items = [];
+  for (const op of ops) {
+    const kind = op.k === "same" ? "same" : "change";
+    let last = items[items.length - 1];
+    if (!last || last.kind !== kind) items.push((last = { kind, same: [], del: [], ins: [] }));
+    if (op.k === "same") last.same.push(op.t);
+    else last[op.k].push(op.t);
+  }
+  for (let k = 1; k < items.length - 1; k += 1) {
+    const [before, gap, after] = [items[k - 1], items[k], items[k + 1]];
+    if (gap.kind !== "same" || before.kind !== "change" || after.kind !== "change") continue;
+    if (gap.same.some((t) => t.startsWith("<"))) continue; // never across a tag
+    const gapWords = words(gap.same);
+    const larger = Math.max(words(before.del) + words(before.ins), words(after.del) + words(after.ins));
+    if (gapWords > 3 || gapWords >= larger) continue;
+    before.del.push(...gap.same, ...after.del);
+    before.ins.push(...gap.same, ...after.ins);
+    items.splice(k, 2);
+    k -= 1;
+  }
+
+  const out = [];
+  const wrap = (kind, tokens) => {
+    let text = "";
+    const flush = () => {
+      if (text.trim()) out.push(`<${kind}>${text}</${kind}>`);
+      else out.push(text);
+      text = "";
+    };
+    for (const t of tokens) {
+      if (t.startsWith("<")) {
+        flush();
+        if (kind === "ins") out.push(t); // the revision's structure; a removed tag goes
+      } else {
+        text += t;
+      }
+    }
+    flush();
+  };
+  for (const item of items) {
+    if (item.kind === "same") out.push(...item.same);
+    else {
+      wrap("del", item.del);
+      wrap("ins", item.ins);
+    }
+  }
   return out.join("");
 }
 

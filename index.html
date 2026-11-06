@@ -905,10 +905,14 @@
         <button type="button" class="btn btn-small js-context-redo">Describe again</button>
       </div>
 
-      <!-- While a proposed revision's changes are shown in the description. -->
+      <!-- While a proposed revision is previewed, or compared, in the description's place. -->
       <div class="proposal-banner js-proposal-banner" role="status" hidden>
         <p class="js-proposal-text"></p>
-        <button type="button" class="btn btn-text js-proposal-hide">Hide changes</button>
+        <div class="proposal-actions">
+          <button type="button" class="btn btn-text js-proposal-switch" hidden>Compare</button>
+          <button type="button" class="btn btn-text js-proposal-hide">Back to the description</button>
+          <button type="button" class="btn btn-outline btn-use js-proposal-use" hidden>Use this</button>
+        </div>
       </div>
 
       <article class="desc js-desc" hidden>
