@@ -151,6 +151,29 @@ async function tryExport(page, label) {
   await b.close();
 }
 
+// ---------- A5: the autosave is not put off by a steady stream of changes
+// A batch run renders every result as it lands, often more than once a
+// second. The autosave used to wait for a pause that never came, so nothing
+// was saved until the run ended.
+{
+  const { b, page, problems } = await launch();
+  await openWorkspace(page);
+  await addImages(page, ["one.png", "two.png"]);
+  await page.waitForTimeout(2000); // the first save, before the stream
+  const busy = await page.evaluate(async () => {
+    const read = () => projectStoreRequest("readonly", (st) => st.get("__autosave"));
+    let n = 0;
+    const tick = setInterval(() => { n += 1; els.batchName.value = `busy ${n}`; renderAll(); }, 400);
+    await new Promise((r) => setTimeout(r, 4000));
+    const during = await read(); // still changing every 0.4 s
+    clearInterval(tick);
+    return { name: during && during.name, slides: during && during.jobs.length, ticks: n };
+  });
+  check("A5  a steady stream of changes is still saved while it goes on", /^busy \d+$/.test(busy.name || "") && busy.slides === 2, JSON.stringify(busy));
+  check("A5  no page errors", problems.length === 0, problems.join(" | "));
+  await b.close();
+}
+
 const failed = results.filter((r) => !r.ok).length;
 console.log(`\n${results.length - failed}/${results.length} passed`);
 process.exit(failed ? 1 : 0);

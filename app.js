@@ -5659,6 +5659,8 @@ async function projectStoreRequest(mode, run) {
 // review session.
 
 const AUTOSAVE_ID = "__autosave";
+// At most one write per this long, and never put off longer: a change starts
+// the wait, and changes during it ride along with the write at its end.
 const AUTOSAVE_DEBOUNCE_MS = 1500;
 let autosaveTimer = null;
 let autosaveDirty = false;
@@ -5738,8 +5740,11 @@ function isBatchSaved() {
 
 function markDirty() {
   autosaveDirty = true;
-  clearTimeout(autosaveTimer);
-  autosaveTimer = setTimeout(writeAutosave, AUTOSAVE_DEBOUNCE_MS);
+  // Not restarted by each change. Restarting it waited for a pause of
+  // AUTOSAVE_DEBOUNCE_MS, and a batch run, whose results arrive more often
+  // than that, never gave one: nothing was saved until it ended, and a crash
+  // before then lost the whole run.
+  if (!autosaveTimer) autosaveTimer = setTimeout(writeAutosave, AUTOSAVE_DEBOUNCE_MS);
   // A lecture open from the shared folder saves there as you work, so a
   // hand-off never depends on someone remembering to press Save.
   if (folderLecture) scheduleFolderSave();
@@ -5747,6 +5752,7 @@ function markDirty() {
 
 async function writeAutosave() {
   clearTimeout(autosaveTimer);
+  autosaveTimer = null;
   if (!autosaveReady || !autosaveDirty) return;
   // Written during a batch too. This used to stand down while batchRunning,
   // on the theory that mid-batch state is churn and the final renderAll
@@ -5754,7 +5760,7 @@ async function writeAutosave() {
   // landed before a reload, crash or closed tab was lost, minutes of API
   // spend included. A mid-batch snapshot is safe to restore: serializeProject
   // already records an in-flight slide as "pending", and the debounce keeps
-  // a 25-slide batch from writing more than once every 1.5 s.
+  // a batch from writing more than once every 1.5 s.
   autosaveDirty = false;
   const record = {
     ...serializeProject(),
@@ -6707,11 +6713,11 @@ function leaveFolderLecture() {
   pendingFolderRelink = null;
   if (!folderLecture) return;
   const leaving = folderLecture;
-  // An edit still waiting on the save's debounce goes to the folder first,
+  // An edit still waiting for the next save goes to the folder first,
   // as on leaving the tab — taken now, before the batch is replaced.
   const flushOf = folderBehind() ? { lecture: leaving, record: serializeProject(), signature: batchSignature() } : null;
   folderLecture = null;
-  clearTimeout(folderSaveTimer);
+  cancelFolderSave();
   imageNameCache.clear();
   if (flushOf) saveFolderLecture({ flushOf }).then(() => clearInUse(leaving));
   else clearInUse(leaving);
@@ -6877,9 +6883,20 @@ function announceFolder(message) {
   setStatus(message);
 }
 
-function scheduleFolderSave() {
+/** A folder save in `ms`, unless one is already waiting. Like the autosave,
+    not put off by each change: results arriving every second during a
+    batch run would otherwise keep the lecture from saving until it ended. */
+function scheduleFolderSave(ms = FOLDER_SAVE_DEBOUNCE_MS) {
+  if (folderSaveTimer) return;
+  folderSaveTimer = setTimeout(() => {
+    folderSaveTimer = null;
+    saveFolderLecture();
+  }, ms);
+}
+
+function cancelFolderSave() {
   clearTimeout(folderSaveTimer);
-  folderSaveTimer = setTimeout(() => saveFolderLecture(), FOLDER_SAVE_DEBOUNCE_MS);
+  folderSaveTimer = null;
 }
 
 /** One save at a time, in order: two overlapping writes of the same lecture
@@ -6895,7 +6912,7 @@ function saveFolderLecture(opts = {}) {
     signature } — the last edits of a lecture just left, saved to it although
     it is no longer the one on screen. */
 async function saveFolderLectureNow({ explicit = false, flushOf = null } = {}) {
-  if (!flushOf) clearTimeout(folderSaveTimer);
+  if (!flushOf) cancelFolderSave();
   const lecture = flushOf ? flushOf.lecture : folderLecture;
   if (!lecture || folderPermission !== "granted") return false;
   if (!flushOf) {
@@ -6928,8 +6945,8 @@ async function saveFolderLectureNow({ explicit = false, flushOf = null } = {}) {
       if (flushOf) reportFolderProblem(`${what}, so your last changes to it were not saved there.`);
       else if (explicit) reportFolderProblem(`${what}, so it was not replaced. DescribeMe will try again shortly.`);
       if (!flushOf) {
-        clearTimeout(folderSaveTimer);
-        folderSaveTimer = setTimeout(() => saveFolderLecture(), FOLDER_SAVE_DEBOUNCE_MS * 3);
+        cancelFolderSave();
+        scheduleFolderSave(FOLDER_SAVE_DEBOUNCE_MS * 3);
       }
       return false;
     }

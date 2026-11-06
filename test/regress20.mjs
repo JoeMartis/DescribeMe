@@ -781,6 +781,26 @@ const q9 = await page.evaluate(async () => {
 await page.click("#projectsClose");
 check("Q9  a folder error shows while the folder still needs permission", q9.shown && q9.ready, JSON.stringify(q9));
 
+// Q10: a lecture open from the folder keeps saving through a steady stream
+// of changes, as during a batch run, instead of waiting for it to stop.
+const q10 = await page.evaluate(async () => {
+  await folderSaveChain;
+  if (!folderLecture) {
+    const dir = await window.__lecture("Lecture 13");
+    const disk = await window.__read(dir, "project.json");
+    pendingFolderRelink = { dir: "Lecture 13", saveId: disk.saveId, saved: true };
+    await relinkFolderLecture();
+  }
+  const dir = folderLecture.handle;
+  let n = 0;
+  const tick = setInterval(() => { n += 1; [...jobs.values()][0].resultHtml = `<h2>One</h2><p>Stream ${n}.</p>`; renderAll(); }, 500);
+  await new Promise((r) => setTimeout(r, 5000));
+  const during = (await window.__read(dir, "project.json")).jobs[0].resultHtml;
+  clearInterval(tick);
+  return { during, ticks: n };
+});
+check("Q10 a lecture keeps saving to the folder through a steady stream of changes", /Stream \d+/.test(q10.during), JSON.stringify(q10));
+
 check("Z  no console errors or CSP violations", problems.length === 0, problems.join(" | "));
 
 await b.close();
