@@ -4366,8 +4366,12 @@ function useRevision(jobId, index) {
   // As applied, so "is this one in the description" compares like with like.
   m.revision.html = job.resultHtml;
   showingProposal = null;
+  // Settled: the chat closes, and what comes next is reviewing it. Discuss
+  // opens the same conversation again, with Undo on the revision used.
+  discussOpen = false;
   renderJobState(job);
   updateControls();
+  els.detailPane.querySelector(".js-approve")?.focus();
   setStatus(`Revision ${revisionNumber(job, index)} is in the description of ${job.name}. It needs your review.`);
 }
 

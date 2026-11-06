@@ -120,6 +120,9 @@ check("D3  Back to the description puts it back", !(await pane()).banner && !/<i
 // D4: Use this puts it in, undoably, needing review again.
 await page.evaluate(() => { [...jobs.values()][1].approved = true; renderAll(); });
 await page.click("#detailPane .js-discuss-use");
+const closed4 = await page.evaluate(() => ({ open: !els.detailPane.querySelector(".js-discuss").hidden, focus: document.activeElement?.classList.contains("js-approve") }));
+check("D4  Use this closes the chat and moves to Approve", !closed4.open && closed4.focus, JSON.stringify(closed4));
+await page.click("#detailPane .js-discuss-toggle");
 const d4 = await pane();
 check("D4  Use this puts the revision in the description", /stands for the atmosphere/.test(d4.html) && d4.history === 1, d4.html);
 check("D4  and it needs review again", d4.approved === false);
@@ -128,6 +131,7 @@ await page.click("#detailPane .js-discuss-undo");
 const undone = await pane();
 check("D4  Undo in the chat takes it back out", /leaves the box\.<\/p>/.test(undone.html) && undone.history === 0 && undone.log.some((l) => /Revision 1\s*\$[\d.]+\s*Preview\s*Compare\s*Use this/.test(l)), JSON.stringify(undone.log));
 await page.click("#detailPane .js-discuss-use");
+await page.click("#detailPane .js-discuss-toggle");
 
 // D5: a reply that fails says so, and Try again sends it again.
 replies.push({ status: 400, message: "Something was wrong with the request" });
