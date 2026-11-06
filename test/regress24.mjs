@@ -154,6 +154,13 @@ const d8 = await page.evaluate(() => validDiscussion([
 ], (html) => { const f = sanitizeHtmlFragment(html); const h = document.createElement("div"); h.appendChild(f.cloneNode(true)); return { html: h.innerHTML, text: domFragmentToText(f) }; }));
 check("D8  a saved conversation is sanitised", d8.length === 2 && !/script|onerror/.test(d8[0].revision.html) && d8[1].text === "fine", JSON.stringify(d8));
 
+// D10: a note Claude writes inside the revision tags goes in the chat, not
+// on the course page.
+const d10 = await page.evaluate(() => parseDiscussReply("<revision>\nI clarified the rotation.\n<h2>Tree Line</h2><p>The photograph is rotated.</p>\nThat should read better.\n</revision>", false));
+check("D10  a note inside the revision is moved to the message", d10.revision.html === "<h2>Tree Line</h2><p>The photograph is rotated.</p>" && /I clarified the rotation\.\s+That should read better\./.test(d10.text), JSON.stringify(d10));
+const d10b = await page.evaluate(() => parseDiscussReply("Named it.\n<revision><h2>T</h2><p>Body.</p></revision>", false));
+check("D10  a clean revision is left as it is", d10b.revision.html === "<h2>T</h2><p>Body.</p>" && d10b.text === "Named it.", JSON.stringify(d10b));
+
 // D9: removals are marked too, word by word.
 const d9a = await page.evaluate(() => diffHtml("<p>A very big box.</p>", "<p>A big red box.</p>"));
 check("D9  removed words are struck, added ones underlined", d9a === "<p>A <del>very </del>big <ins>red </ins>box.</p>", d9a);

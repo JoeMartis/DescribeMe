@@ -4149,6 +4149,7 @@ const DISCUSS_RULES = `DISCUSSING THE DESCRIPTION
 You are now talking with the member of the course team who is reviewing this description. The description as it stands is given below; they may have edited it, or written it themselves.
 - Answer questions plainly and briefly, in plain text with no HTML or markdown. Say what on the slide or in the transcript your answer rests on.
 - When they ask for a change, or a change is the answer to their point, propose a revised description: a sentence or two saying what you changed, then the WHOLE revised description, in the same HTML form and under the same rules as above, between <revision> and </revision>. Never a fragment, never only the changed part.
+- Between <revision> and </revision> goes the description and nothing else: it is put on the course page exactly as written. Your note about what you changed goes BEFORE <revision>, never inside it.
 - Propose only when a change is wanted. To explain or answer, give no revision.
 - The rules above still hold in a revision. If what they ask would break one (describing what the slide does not show, quoting the transcript), say so and offer what you can do instead.`;
 
@@ -4211,12 +4212,30 @@ function parseDiscussReply(raw, truncated) {
     return { text: text || (truncated ? "The reply was cut off before it finished." : "…"), revision: null };
   }
   const fragment = sanitizeHtmlFragment(m[1].trim());
+  // A description is all headings, paragraphs and lists. Loose text at its
+  // start or end, outside any of them, is Claude's note about the change
+  // written inside the tags: it goes in the message, not on the course page.
+  const loose = (node) =>
+    node && (node.nodeType === Node.TEXT_NODE || (node.nodeType === Node.ELEMENT_NODE && node.nodeName === "BR"));
+  const before = [];
+  const after = [];
+  while (loose(fragment.firstChild)) {
+    const t = fragment.firstChild.textContent.trim();
+    if (t) before.push(t);
+    fragment.firstChild.remove();
+  }
+  while (loose(fragment.lastChild)) {
+    const t = fragment.lastChild.textContent.trim();
+    if (t) after.unshift(t);
+    fragment.lastChild.remove();
+  }
+  const notes = [...before, ...after];
   const holder = document.createElement("div");
   holder.appendChild(fragment.cloneNode(true));
   const revision = { html: holder.innerHTML, text: domFragmentToText(fragment) };
-  if (!revision.text.trim() && !/<(math|img|table)[\s>]/i.test(revision.html)) return { text: raw.replace(m[0], "").trim() || "…", revision: null };
-  const text = raw.replace(m[0], "").trim() || "Here is a revision.";
-  return { text, revision };
+  const said = [raw.replace(m[0], "").trim(), ...notes].filter(Boolean).join("\n\n");
+  if (!revision.text.trim() && !/<(math|img|table)[\s>]/i.test(revision.html)) return { text: said || "…", revision: null };
+  return { text: said || "Here is a revision.", revision };
 }
 
 async function sendDiscussion(jobId, words) {
