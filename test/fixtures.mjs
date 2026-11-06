@@ -25,7 +25,8 @@ export function outDir() {
 
 export async function launch(opts = {}) {
   const b = await chromium.launch();
-  const ctx = await b.newContext({ viewport: { width: 1280, height: 800 }, ...opts });
+  const { keepSavePicker, ...contextOpts } = opts;
+  const ctx = await b.newContext({ viewport: { width: 1280, height: 800 }, ...contextOpts });
   const page = await ctx.newPage();
   // The app confirms before replacing an unsaved batch; Playwright dismisses
   // dialogs by default, which silently cancels the action under test.
@@ -35,6 +36,9 @@ export async function launch(opts = {}) {
     if (m.type() === "error") problems.push(`[console.error] ${m.text()}`);
   });
   page.on("pageerror", (e) => problems.push(`[pageerror] ${e.message}`));
+  // The browser's Save dialog cannot be answered in a test, so suites get the
+  // download every other browser does, unless they stand a fake one in.
+  if (!opts.keepSavePicker) await page.addInitScript(() => { Object.defineProperty(window, "showSaveFilePicker", { value: undefined, configurable: true, writable: true }); });
   await page.addInitScript(() => {
     document.addEventListener("securitypolicyviolation", (e) => {
       console.error(`CSP: ${e.violatedDirective} blocked ${e.blockedURI}`);

@@ -6502,10 +6502,16 @@ async function resizeImageForExport(base64, mediaType) {
 }
 
 async function exportApproved() {
+  const batch = els.batchName.value.trim() || "Untitled batch";
+  const target = await askWhereToSave(`${safeFileStem(batch, new Set())}-descriptions.zip`, "zip");
+  if (target === "cancelled") {
+    setStatus("Not exported: the save was cancelled.");
+    return;
+  }
   // Nothing in here used to catch: a slide whose bytes would not decode
   // rejected the click handler's promise, and the button just did nothing.
   try {
-    await exportApprovedNow();
+    await exportApprovedNow(target);
   } catch (err) {
     setError(`Export failed: ${(err && err.message) || err}`);
   }
@@ -6595,6 +6601,44 @@ async function prepareApprovedImages() {
 /** "Nothing was exported — a.png has no image data." */
 function nothingExportedMessage(skipped) {
   return `Nothing was exported — ${skipped.join(", ")} ${skipped.length === 1 ? "has" : "have"} no image data.`;
+}
+
+/**
+ * Where to save a file, asked at the click: the browser's own Save dialog,
+ * where it has one (Chrome, Edge), so the person picks the folder and the
+ * name. Elsewhere (Safari, Firefox) null, and the file goes to Downloads as
+ * an ordinary download. Asked before the file is made: the browser only
+ * opens the dialog straight after a click, and making a zip or a PDF can
+ * take longer than that. Resolves to "cancelled" if they cancel.
+ */
+const SAVE_TYPES = {
+  zip: { description: "Zip archive", accept: { "application/zip": [".zip"] } },
+  html: { description: "Web page", accept: { "text/html": [".html"] } },
+  pdf: { description: "PDF document", accept: { "application/pdf": [".pdf"] } },
+  json: { description: "DescribeMe project", accept: { "application/json": [".json"] } },
+};
+async function askWhereToSave(fileName, kind) {
+  if (typeof window.showSaveFilePicker !== "function") return null;
+  try {
+    return await window.showSaveFilePicker({ suggestedName: fileName, id: "describeme-save", types: [SAVE_TYPES[kind]] });
+  } catch (err) {
+    if (err && err.name === "AbortError") return "cancelled";
+    // Refused (the click no longer counts, a sandboxed frame): download.
+    return null;
+  }
+}
+
+/** Writes the file where askWhereToSave said, or downloads it. The name it
+    went out under, for the status line. */
+async function saveBlob(blob, fileName, target) {
+  if (target && target !== "cancelled") {
+    const writable = await target.createWritable();
+    await writable.write(blob);
+    await writable.close();
+    return target.name || fileName;
+  }
+  downloadBlob(blob, fileName);
+  return fileName;
 }
 
 function downloadBlob(blob, fileName) {
@@ -6687,7 +6731,7 @@ function exportFragment(entries, title) {
   return { html, clamped: blocks.filter((b) => b.clamped > 0).length };
 }
 
-async function exportApprovedNow() {
+async function exportApprovedNow(target) {
   const { approved, entries, skipped, apiCopies, shouldResize } = await prepareApprovedImages();
   if (approved.length === 0) return;
   const batch = els.batchName.value.trim() || "Untitled batch";
@@ -6729,7 +6773,7 @@ async function exportApprovedNow() {
     }
   }
 
-  downloadBlob(buildZipBlob(files), `${safeFileStem(batch, new Set())}-descriptions.zip`);
+  const savedAs = await saveBlob(buildZipBlob(files), `${safeFileStem(batch, new Set())}-descriptions.zip`, target);
   const notes = [];
   if (segments.size > 1) notes.push(`One folder for each of the ${segments.size} segments.`);
   const dependents = dependentsNote(dependentsWithoutPrevious(entries));
@@ -6755,7 +6799,8 @@ async function exportApprovedNow() {
   setStatus(
     `Exported ${prepared.length} approved description${prepared.length === 1 ? "" : "s"} — ` +
       (shouldResize ? "images resized to 800px wide." : apiCopies > 0 ? "images as available." : "images at full resolution.") +
-      (notes.length ? ` ${notes.join(" ")}` : "")
+      (notes.length ? ` ${notes.join(" ")}` : "") +
+      (target ? ` Saved as ${savedAs}.` : "")
   );
 }
 
@@ -6817,6 +6862,11 @@ function bytesToBase64(bytes) {
  * data: images, so it is told it may load nothing else, wherever it is
  * opened from.
  */
+/** The learner download's file name, without its extension. */
+function learnerStem(batch) {
+  return `${safeFileStem(batch, new Set())}-visual-descriptions`;
+}
+
 async function learnerDocument() {
   const prep = await prepareApprovedImages();
   if (prep.approved.length === 0) return null;
@@ -6881,7 +6931,7 @@ async function learnerDocument() {
     `\n</main>\n</body>\n</html>\n`;
   return {
     html,
-    stem: `${safeFileStem(batch, new Set())}-visual-descriptions`,
+    stem: learnerStem(batch),
     total,
     skipped: prep.skipped,
     clamped: blocks.filter((b) => b.clamped > 0).length,
@@ -6919,6 +6969,12 @@ function setLearnerBusy(busy) {
 
 async function runLearnerDownload(kind) {
   if (learnerBusy) return;
+  const batch = els.batchName.value.trim() || "Untitled batch";
+  const target = await askWhereToSave(`${learnerStem(batch)}.${kind}`, kind);
+  if (target === "cancelled") {
+    setLearnerStatus("Not saved: the save was cancelled.");
+    return;
+  }
   setLearnerBusy(true);
   setLearnerError("");
   setLearnerStatus(kind === "pdf" ? "Preparing the PDF…" : "Preparing the HTML file…");
@@ -6930,8 +6986,8 @@ async function runLearnerDownload(kind) {
       return;
     }
     if (kind === "html") {
-      downloadBlob(new Blob([doc.html], { type: "text/html;charset=utf-8" }), `${doc.stem}.html`);
-      setLearnerStatus(`Downloaded ${doc.stem}.html — ${doc.total} visual${doc.total === 1 ? "" : "s"}.${learnerNotes(doc)}`);
+      const savedAs = await saveBlob(new Blob([doc.html], { type: "text/html;charset=utf-8" }), `${doc.stem}.html`, target);
+      setLearnerStatus(`${target ? "Saved" : "Downloaded"} ${savedAs} — ${doc.total} visual${doc.total === 1 ? "" : "s"}.${learnerNotes(doc)}`);
       return;
     }
     // A page opened from a file on disk has no origin, and the browser will
@@ -6954,12 +7010,12 @@ async function runLearnerDownload(kind) {
     // even though nothing is ever applied.
     const parsed = new DOMParser().parseFromString(doc.html.replace(/<style>[\s\S]*?<\/style>/, ""), "text/html");
     const { bytes, brokenEquations } = await learnerPdf(parsed, { onProgress: setLearnerStatus });
-    downloadBlob(new Blob([bytes], { type: "application/pdf" }), `${doc.stem}.pdf`);
+    const savedAs = await saveBlob(new Blob([bytes], { type: "application/pdf" }), `${doc.stem}.pdf`, target);
     const broken =
       brokenEquations > 0
         ? ` ${brokenEquations} equation${brokenEquations === 1 ? "" : "s"} could not be typeset and ${brokenEquations === 1 ? "appears" : "appear"} as ${brokenEquations === 1 ? "its" : "their"} spoken reading in italics — the HTML download has ${brokenEquations === 1 ? "it" : "them"} in full.`
         : "";
-    setLearnerStatus(`Downloaded ${doc.stem}.pdf — ${doc.total} visual${doc.total === 1 ? "" : "s"}.${broken}${learnerNotes(doc)}`);
+    setLearnerStatus(`${target ? "Saved" : "Downloaded"} ${savedAs} — ${doc.total} visual${doc.total === 1 ? "" : "s"}.${broken}${learnerNotes(doc)}`);
   } catch (err) {
     setLearnerStatus("");
     setLearnerError(`${kind === "pdf" ? "The PDF" : "The HTML file"} could not be made: ${(err && err.message) || err}`);
@@ -7664,7 +7720,13 @@ async function refreshProjectList() {
 
 const PROJECT_FILE_FORMAT = "describeme-project";
 
-function exportProjectRecord(record) {
+async function exportProjectRecord(record) {
+  const fileName = `${safeFileStem(record.name, new Set())}.describeme.json`;
+  const target = await askWhereToSave(fileName, "json");
+  if (target === "cancelled") {
+    announceProjects("Not exported: the save was cancelled.");
+    return;
+  }
   const payload = {
     format: PROJECT_FILE_FORMAT,
     version: 1,
@@ -7673,8 +7735,12 @@ function exportProjectRecord(record) {
     jobs: record.jobs,
   };
   const blob = new Blob([JSON.stringify(payload)], { type: "application/json" });
-  downloadBlob(blob, `${safeFileStem(record.name, new Set())}.describeme.json`);
-  announceProjects(`Exported "${record.name}" as a project file.`);
+  try {
+    const savedAs = await saveBlob(blob, fileName, target);
+    announceProjects(`Exported "${record.name}" as a project file${target ? `, ${savedAs}` : ""}.`);
+  } catch (err) {
+    setProjectsError(`Couldn't save the project file: ${err.message || err}`);
+  }
 }
 
 /** Validate + sanitize a parsed project file into a fresh storable record.
