@@ -265,6 +265,65 @@ check("H5  the whole file name shows, its segment's part quiet and its own plain
   h5.whole === "Cronin_S4_00-06-29.png" && h5.shared === "Cronin_S4_" && h5.own === "00-06-29.png", JSON.stringify(h5));
 check("H5  the segment's bar shows its share approved", h5.bar === h5.expected, JSON.stringify(h5));
 
+// ---------- R: bug round 1
+// R1: Escape with focus back on Add closes its menu; Tab past the last item does too.
+await page.click("#railAddBtn");
+await page.focus("#railAddBtn");
+await page.keyboard.press("Escape");
+check("R1  Escape on the Add button closes its menu", await page.evaluate(() => document.getElementById("railAddMenu").hidden));
+await page.click("#railAddBtn");
+for (let i = 0; i < 4; i += 1) await page.keyboard.press("Tab");
+const r1 = await page.evaluate(() => ({ hidden: document.getElementById("railAddMenu").hidden, inMenu: !!document.activeElement.closest("#railAddMenu") }));
+check("R1  Tabbing out of the menu closes it", r1.hidden && !r1.inMenu, JSON.stringify(r1));
+
+// R2: a slide's row that is folded away hands focus to its segment's heading.
+const r2 = await page.evaluate(() => {
+  const job = [...jobs.values()].find((j) => j.name === "Cronin_S4_00-07-02.png");
+  job.railEl.closest("li").querySelector(".js-move-up").focus();
+  collapsedSegments.add(segmentKey(job));
+  renderRail();
+  const a = document.activeElement;
+  const result = { isHeading: !!a.closest(".rail-segment"), text: a.textContent };
+  collapsedSegments.delete(segmentKey(job));
+  renderRail();
+  return result;
+});
+check("R2  folding a segment moves focus from its row to its heading", r2.isHeading && /^Cronin_S4/.test(r2.text), JSON.stringify(r2));
+
+// R3: only a description that builds on the slide before is named on export.
+const r3 = await page.evaluate(() => {
+  const list = [...jobs.values()].filter((j) => segmentLabel(j) === "Cronin_S4");
+  const [a, b, c] = list;
+  a.resultHtml = "<h2>Feedbacks across models</h2><p>A bar chart.</p>";
+  b.resultHtml = "<h2>Feedbacks across models</h2><p>The same chart, now with the cloud bar highlighted.</p>";
+  b.resultText = "Feedbacks across models The same chart"; b.sameAsPrevious = false;
+  b.contextFrom = contextRecord(a, a.resultHtml);
+  c.resultHtml = "<h2>Sea level rise</h2><p>A different line graph.</p>";
+  c.resultText = "Sea level rise A different line graph."; c.sameAsPrevious = false;
+  c.contextFrom = contextRecord(b, b.resultHtml);
+  return { change: buildsOnPrevious(b), fresh: buildsOnPrevious(c) };
+});
+check("R3  a change to the same graph builds on the one before; a new visual does not", r3.change && !r3.fresh, JSON.stringify(r3));
+
+// R4: a folder whose transcript cannot be read says so, after its images are in.
+const bad = fs.mkdtempSync(path.join(os.tmpdir(), "describeme-bad-"));
+fs.mkdirSync(path.join(bad, "Bad_S1"));
+fs.writeFileSync(path.join(bad, "Bad_S1", "Bad_S1_00-00-01.png"), await makeImage(page, { w: 320, h: 180, label: "bad" }));
+fs.writeFileSync(path.join(bad, "Bad_S1", "Bad_S1.srt"), "this is not a caption file");
+await page.setInputFiles("#railFolderInput", bad);
+await page.waitForFunction(() => [...jobs.values()].some((j) => j.name === "Bad_S1_00-00-01.png"), null, { timeout: 10000 });
+await page.waitForTimeout(400);
+const r4 = await page.evaluate(() => (document.getElementById("errorMessage").hidden ? "" : document.getElementById("errorMessage").textContent));
+check("R4  a folder's unreadable transcript is reported, not wiped", /No captions found in "Bad_S1\.srt"/.test(r4), r4);
+fs.rmSync(bad, { recursive: true, force: true });
+
+// R5: with no slides, a render does not shut the Add menu.
+await page.evaluate(() => { jobs.clear(); els.railList.replaceChildren(); selectedJobId = null; renderAll(); });
+await page.click("#railAddBtn");
+await page.evaluate(() => renderAll());
+check("R5  a render with an empty batch leaves the Add menu open", await page.evaluate(() => !document.getElementById("railAddMenu").hidden));
+await page.keyboard.press("Escape");
+
 check("Z  no console errors", problems.filter((m) => !/404/.test(m)).length === 0, problems.join(" | "));
 fs.rmSync(root, { recursive: true, force: true });
 await b.close();

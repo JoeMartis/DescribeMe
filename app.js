@@ -1189,11 +1189,6 @@ function segmentLabel(job) {
   return job.videoName || job.folderName || "Other slides";
 }
 
-/** How many segments the batch holds. One is today's batch: no headings. */
-function segmentCount() {
-  return new Set(jobList().map(segmentKey)).size;
-}
-
 /**
  * Keeps each segment's slides together, in rail order: segments in the order
  * each first appears, and slides in the order they already had within it.
@@ -1911,6 +1906,8 @@ function segmentHead(key) {
 
 /** Each segment's heading, its slides under it, folded or not, in rail order. */
 function syncRailSegments(list) {
+  // Taken first: folding a segment hides its rows, and with them the focus.
+  const active = els.railList.contains(document.activeElement) ? document.activeElement : null;
   const multi = new Set(list.map(segmentKey)).size > 1;
   const wanted = [];
   const bySegment = new Map();
@@ -1948,11 +1945,22 @@ function syncRailSegments(list) {
     }
   }
   const current = [...els.railList.children];
-  if (wanted.length === current.length && wanted.every((el, i) => el === current[i])) return;
   // Moving a node takes focus out of it: put it back after.
-  const active = els.railList.contains(document.activeElement) ? document.activeElement : null;
-  for (const el of wanted) els.railList.appendChild(el);
-  if (active && active.isConnected) active.focus();
+  if (!(wanted.length === current.length && wanted.every((el, i) => el === current[i]))) {
+    for (const el of wanted) els.railList.appendChild(el);
+  }
+  // Put focus back where it was if a move took it, or on the segment's
+  // heading if its row has just been folded away.
+  if (active && active.isConnected && (document.activeElement !== active || active.closest("li[hidden]"))) {
+    // A row folded away cannot hold focus: its segment's heading takes it.
+    let target = active;
+    if (active.closest("li[hidden]")) {
+      let li = active.closest("li");
+      while (li && !li.classList.contains("rail-segment")) li = li.previousElementSibling;
+      target = li ? li.querySelector("button") : null;
+    }
+    if (target) target.focus();
+  }
 }
 
 function renderRail() {
@@ -2073,11 +2081,22 @@ async function addFolderFiles(fileList) {
     return;
   }
   // Transcripts first, so the names are read as addFiles will read them, with
-  // the folder's transcripts loaded: the sort and the segments agree.
+  // the folder's transcripts loaded: the sort and the segments agree. A
+  // transcript that will not read is said after the images are in: adding
+  // them clears the error line first.
   const transcripts = usable.filter(isTranscriptFile);
   const images = usable.filter((f) => !isTranscriptFile(f));
-  if (transcripts.length > 0) await addFiles(transcripts);
-  await addFiles(sortFolderImages(images));
+  const transcriptFailures = [];
+  for (const file of transcripts) {
+    const note = await registerWorkspaceTranscript(file);
+    if (typeof note === "string") transcriptFailures.push(note);
+  }
+  if (images.length > 0) await addFiles(sortFolderImages(images));
+  else renderAll();
+  if (transcriptFailures.length > 0) {
+    const shown = els.errorMessage.hidden ? "" : els.errorMessage.textContent;
+    setError([shown, ...transcriptFailures].filter(Boolean).join(" "));
+  }
   if (passed > 0) {
     setStatus(
       `${passed} file${passed === 1 ? "" : "s"} in the folder ${passed === 1 ? "is" : "are"} not ` +
@@ -2478,7 +2497,10 @@ function updateControls() {
   // Rail — head
   // New batch lives in the ⋯ menu, which only appears with a batch to clear.
   els.railMoreBtn.hidden = jobs.size === 0;
-  if (els.railMoreBtn.hidden) closeRailMenus();
+  if (els.railMoreBtn.hidden) {
+    els.railMoreMenu.hidden = true;
+    els.railMoreBtn.setAttribute("aria-expanded", "false");
+  }
   els.newBatchBtn.disabled = batchRunning;
   els.railCount.textContent = jobs.size > 0 ? String(jobs.size) : "";
   // Save sits beside it and appears on the same condition. It stays enabled
@@ -3389,12 +3411,19 @@ function closeRailMenus(except) {
     button.setAttribute("aria-expanded", String(open));
     if (open) menu.querySelector("input, button")?.focus();
   });
-  menu.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") {
+  const wrap = button.closest(".rail-menu-wrap");
+  wrap.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !menu.hidden) {
       e.stopPropagation();
       closeRailMenus();
       button.focus();
     }
+  });
+  // Tabbing on past the last item closes it, so it is not left drawn over the
+  // rows the focus has moved to. (A file picker opening takes focus to no
+  // element, and closes it too, as choosing the item would.)
+  wrap.addEventListener("focusout", (e) => {
+    if (!menu.hidden && !wrap.contains(e.relatedTarget)) closeRailMenus();
   });
 });
 document.addEventListener("click", (e) => {
@@ -3634,29 +3663,14 @@ async function runSegments(items, limit, worker) {
       }
       step();
     }
-  }, { progress: false });
+  });
 }
 
-async function runWithConcurrency(items, limit, worker, { progress = true } = {}) {
+/** Runs worker over items, at most `limit` at a time. */
+async function runWithConcurrency(items, limit, worker) {
   let idx = 0;
-  let completed = 0;
   const pool = new Array(Math.min(limit, items.length)).fill(null).map(async () => {
-    while (idx < items.length) {
-      if (cancelRequested && progress) {
-        const remaining = items[idx++];
-        if (remaining.state === "pending" || remaining.state === "describing") {
-          remaining.state = "canceled";
-          renderJobState(remaining);
-        }
-        completed += 1;
-        showProgress(completed, items.length);
-        continue;
-      }
-      const item = items[idx++];
-      await worker(item);
-      completed += 1;
-      if (progress) showProgress(completed, items.length);
-    }
+    while (idx < items.length) await worker(items[idx++]);
   });
   await Promise.all(pool);
 }
@@ -5852,13 +5866,29 @@ function dependentsWithoutPrevious(entries) {
   const exported = new Set(entries.map((e) => e.job));
   return entries
     .map((e) => e.job)
-    .filter((job) => {
-      const from = job.contextFrom;
-      if (!job.sameAsPrevious && !(from && from.html != null)) return false;
-      const prev = previousInSegment(job);
-      return !prev || !exported.has(prev);
-    })
+    .filter((job) => buildsOnPrevious(job) && !exported.has(previousInSegment(job)))
     .map((job) => job.name);
+}
+
+/**
+ * Whether a description needs the visual before it to make sense: it is
+ * "Same as the previous visual", or it describes a change to the same graph,
+ * which the rules have it say under the previous description's own title. A
+ * description of a new visual, written with the slide before in view but
+ * complete without it, is not. With the slide before gone, it may be.
+ */
+function buildsOnPrevious(job) {
+  if (job.sameAsPrevious || /Same as the previous visual/i.test(job.resultText || job.resultHtml || "")) return true;
+  if (!job.contextFrom || job.contextFrom.html == null) return false;
+  const prev = previousInSegment(job);
+  if (!prev) return true;
+  const title = firstHeadingText(job.resultHtml);
+  return !!title && title === firstHeadingText(contextHtml(prev));
+}
+
+function firstHeadingText(html) {
+  const m = /<h[1-6][^>]*>([\s\S]*?)<\/h[1-6]>/i.exec(html || "");
+  return m ? m[1].replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim().toLowerCase() : "";
 }
 
 function dependentsNote(names) {
