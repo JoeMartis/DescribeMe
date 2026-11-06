@@ -66,10 +66,13 @@ check("U0  the hint says these are estimates",
 
 await setKey("sk-test-parley");
 
+// Each slide its own picture: two identical images in a row are "Same as
+// the previous visual." with no request, which is not what this tests.
 const png = await makeImage(page, { label: "s" });
+const png2 = await makeImage(page, { label: "s2" });
 await addFiles(page, [
   { name: "a.png", mimeType: "image/png", buffer: png },
-  { name: "b.png", mimeType: "image/png", buffer: png },
+  { name: "b.png", mimeType: "image/png", buffer: png2 },
 ]);
 await page.waitForFunction(() => document.querySelectorAll("#railList .rail-row").length === 2);
 
@@ -227,7 +230,7 @@ await p2.evaluate(() => {
 });
 await addFiles(p2, [
   { name: "a.png", mimeType: "image/png", buffer: png },
-  { name: "b.png", mimeType: "image/png", buffer: png },
+  { name: "b.png", mimeType: "image/png", buffer: png2 },
 ]);
 await p2.waitForFunction(() => document.querySelectorAll("#railList .rail-row").length === 2);
 await p2.click("#describeBtn");

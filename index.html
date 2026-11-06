@@ -809,6 +809,14 @@
            math, so without this the defect hides in plain sight. -->
       <p class="error math-warning js-math-warning" hidden></p>
 
+      <!-- Shown when the slide before this one, in its segment, has been
+           edited, redone or replaced since this description was written with
+           it in view (see previousChanged). -->
+      <div class="error math-warning context-warning js-context-warning" hidden>
+        <p>The visual before this one has changed since this description was written with it in view. Check that it still fits, or describe it again.</p>
+        <button type="button" class="btn btn-small js-context-redo">Describe again</button>
+      </div>
+
       <article class="desc js-desc" hidden>
         <div class="result-preview js-preview" role="region"></div>
       </article>

@@ -225,9 +225,29 @@ A few things keep batches fast and cheap:
   would exceed the API's ~5 MB per-image cap (say, a many-frame GIF), in
   which case it's re-encoded as JPEG at the same dimensions instead of
   being rejected.
-- **Bounded concurrency.** Slides in a batch are described in parallel, up to
-  3 at a time, instead of either running one at a time (slow) or firing
-  everything at once (likely to hit rate limits and waste retries).
+- **One segment at a time per lane, three lanes.** A segment is one
+  recording's slides, read from the file name (`Cronin_S4` for
+  `Cronin_S4_00-06-29.png`); slides with no timestamp in their names are one
+  segment. Within a segment, slides are described one after another in rail
+  order, and up to 3 segments run side by side — fast across a folder of
+  segments without firing everything at once.
+- **The previous slide in view.** Lecture media often exports one graph
+  several times as it builds up. Each slide but a segment's first is sent
+  with the slide before it and that slide's finished description, and the
+  prompt's `PREVIOUS_VISUAL_RULES` say what to do with them: the same graph
+  with a change keeps its title, names the graph in one sentence and
+  describes only the change; an unchanged one is "Same as the previous
+  visual."; anything else gets a full description. A transcription
+  (Text & math) goes alone, as it always did.
+- **Identical slides are not sent.** A slide whose image is byte-for-byte the
+  one before it in its segment gets "Same as the previous visual." with no
+  request. Refining it (Shorter, More detail, a stronger model) does send it.
+- **A changed previous slide is flagged.** Each description records a
+  fingerprint of the slide it was written with in view — its image, and its
+  description unless the two images were the same (`contextFrom`). When that
+  slide is edited, redone, removed or replaced, the rail row and the pane say
+  to check this one, with Describe again. The fingerprints, not slide ids,
+  identify it, so saved projects and project files keep it across a reload.
 - **Automatic retry with backoff.** Rate-limit (429) and server (5xx)
   responses, and transient network failures, are retried with exponential
   backoff (respecting the API's `retry-after` header when present) instead of

@@ -28,10 +28,14 @@ await page.evaluate(() => {
   document.getElementById("model").value = "claude-sonnet-5";
 });
 
+// Each slide its own picture: two identical images in a row are "Same as
+// the previous visual." with no request, which is not what this tests.
 const png = await makeImage(page, { label: "s" });
+const png2 = await makeImage(page, { label: "s2" });
+const png3 = await makeImage(page, { label: "s3" });
 await addFiles(page, [
   { name: "a.png", mimeType: "image/png", buffer: png },
-  { name: "b.png", mimeType: "image/png", buffer: png },
+  { name: "b.png", mimeType: "image/png", buffer: png2 },
 ]);
 await page.waitForFunction(() => document.querySelectorAll("#railList .rail-row").length === 2);
 
@@ -69,7 +73,9 @@ await describeSelected();
 check("R1  slide 2 is NOT in transcription mode", !isOcr(last()),
   isOcr(last()) ? "LEAKED — slide 2 got the OCR prompt" : "");
 check("R1  slide 2's user turn asks for a description",
-  /Describe this STEM lecture slide/.test(last().messages[0].content.find((c) => c.type === "text").text));
+  // The last text block: with the slide before it in view, the request opens
+  // with that slide and its description, and the instruction comes last.
+  /Describe this STEM lecture slide/.test(last().messages[0].content.filter((c) => c.type === "text").pop().text));
 
 // ---------- R2: Shorter on slide 2 does not follow back to slide 1
 await select(1);
@@ -97,7 +103,7 @@ if (modelBtn && !(await modelBtn.isHidden())) {
     await page.$eval("#model", (e) => e.value));
 
   // A fresh slide must still use the picker, not the stronger model.
-  await addFiles(page, [{ name: "c.png", mimeType: "image/png", buffer: png }]);
+  await addFiles(page, [{ name: "c.png", mimeType: "image/png", buffer: png3 }]);
   await page.waitForFunction(() => document.querySelectorAll("#railList .rail-row").length === 3);
   await select(2);
   await describeSelected();

@@ -22,10 +22,14 @@ await page.route("**/v1/messages", async (route) => {
 });
 
 await openWorkspace(page);
+// Each slide its own picture: two identical images in a row are "Same as
+// the previous visual." with no request, which is not what this tests.
 const png = await makeImage(page, { label: "regression" });
+const png2 = await makeImage(page, { label: "regression 2" });
+const png3 = await makeImage(page, { label: "regression 3" });
 await addFiles(page, [
   { name: "M1_L1_S1.png", mimeType: "image/png", buffer: png },
-  { name: "M1_L1_S2.png", mimeType: "image/png", buffer: png },
+  { name: "M1_L1_S2.png", mimeType: "image/png", buffer: png2 },
 ]);
 await page.waitForFunction(() => document.querySelectorAll("#railList .rail-row").length === 2);
 
@@ -108,7 +112,7 @@ check("W6  the hand-written one is untouched", await page.evaluate(() => {
 
 // ---- W7: an empty draft is discarded rather than left approvable
 // Both existing slides now have descriptions, so this needs a fresh one.
-await addFiles(page, [{ name: "M1_L1_S3.png", mimeType: "image/png", buffer: png }]);
+await addFiles(page, [{ name: "M1_L1_S3.png", mimeType: "image/png", buffer: png3 }]);
 await page.waitForFunction(() => document.querySelectorAll("#railList .rail-row").length === 3);
 await page.evaluate(() => [...document.querySelectorAll("#railList .rail-row")][2].click());
 await page.waitForTimeout(200);

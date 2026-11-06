@@ -292,6 +292,31 @@ const REVISIONS = {
   // appended to the description prompt, which is what made it leak.
 };
 
+// Sent with a description when the slide before it in its segment is in
+// view (see describeOne). Lecture media often exports one graph several
+// times as it builds up, and described on its own each time, the whole graph
+// was read to a listener again and again, leaving them to work out what had
+// changed. A listener has just heard the previous description, so the rules
+// here are about what is new to them.
+const PREVIOUS_VISUAL_RULES = `PREVIOUS VISUAL: The visual shown just before this one, in the same lecture
+segment, is attached first, followed by the description already written for
+it. A listener has just heard that description. Compare the current visual with
+it, then describe the current visual only:
+- If it shows the same graph, chart, diagram or table as the previous visual,
+  with something added, highlighted, removed or otherwise changed: open with
+  the same title heading the previous description used, then one sentence that
+  names it as the same graph again, then describe only what changed. Do not
+  describe again anything that is unchanged.
+- If nothing visible has changed, return only: <p>Same as the previous visual.</p>
+- Otherwise it is a new visual: describe it in full, as if the previous one had
+  not been shown.
+Never describe the previous visual itself, and do not refer to it by its
+position or its time.`;
+
+// What a slide whose image is identical to the one before it in its segment
+// says. Written here, without a request: there is nothing for a model to see.
+const SAME_AS_PREVIOUS_HTML = "<p>Same as the previous visual.</p>";
+
 function currentVerbosity() {
   // Default is Concise (index 0), not Standard — even Opus, the most
   // succinct model, still needed the "Shorter" revision at least once at
@@ -317,7 +342,7 @@ function buildUserText(job) {
   return `${instruction}\n\n${framing}\n\n${job.transcriptContext}`;
 }
 
-function buildSystemPrompt(verbosity, revision, textOnly) {
+function buildSystemPrompt(verbosity, revision, textOnly, withPrevious) {
   if (textOnly) {
     // No verbosity addendum: it only ever talks about how much to describe,
     // and at Detailed it says "describe spatial layout … in more depth",
@@ -326,6 +351,7 @@ function buildSystemPrompt(verbosity, revision, textOnly) {
     return revision ? `${OCR_SYSTEM_PROMPT}\n\n${revision}` : OCR_SYSTEM_PROMPT;
   }
   let prompt = SYSTEM_PROMPT;
+  if (withPrevious) prompt += `\n\n${PREVIOUS_VISUAL_RULES}`;
   if (verbosity.promptAddendum) prompt += `\n\n${verbosity.promptAddendum}`;
   if (revision) prompt += `\n\n${revision}`;
   return prompt;
@@ -366,8 +392,13 @@ function estimateAverageSlideCostUsd(modelId, verbosity) {
   if (!pricing) return null;
   const promptTokens =
     estimateTokenCount(SYSTEM_PROMPT) +
+    estimateTokenCount(PREVIOUS_VISUAL_RULES) +
     estimateTokenCount(verbosity.promptAddendum) +
     estimateTokenCount(USER_INSTRUCTION_TEXT);
+  // Every slide but a segment's first goes with the one before it: its image
+  // and its description, about one description's length. A slide identical
+  // to the one before costs nothing, which this leaves out.
+  const slideTokens = 2 * ESTIMATED_IMAGE_TOKENS + verbosity.estimatedOutputTokens;
   const inputRate = pricing.inputPerMTok / 1e6;
   const outputCost = verbosity.estimatedOutputTokens * (pricing.outputPerMTok / 1e6);
 
@@ -384,11 +415,11 @@ function estimateAverageSlideCostUsd(modelId, verbosity) {
   if (!keyIsAnthropic(els.apiKey.value)) {
     return (
       promptTokens * inputRate * CACHE_READ_RATE_MULTIPLIER +
-      ESTIMATED_IMAGE_TOKENS * inputRate * CACHE_WRITE_RATE_MULTIPLIER["1h"] +
+      slideTokens * inputRate * CACHE_WRITE_RATE_MULTIPLIER["1h"] +
       outputCost
     );
   }
-  return (promptTokens + ESTIMATED_IMAGE_TOKENS) * inputRate + outputCost;
+  return (promptTokens + slideTokens) * inputRate + outputCost;
 }
 
 function formatUsd(amount, decimals) {
@@ -1132,6 +1163,73 @@ function jobList() {
   return [...jobs.values()];
 }
 
+// ---------- Segments ----------
+// A segment is one recording's slides: those whose file names tie them to
+// the same video (Cronin_S4 for Cronin_S4_00-06-29.png). Slides with no
+// timestamp in their names, such as a deck exported from PowerPoint, make one
+// segment of their own. Within a segment, rail order is the order shown.
+
+function segmentKey(job) {
+  return job.videoName ? stemKey(job.videoName) : "";
+}
+
+/** The slide shown just before this one in its segment, or null. */
+function previousInSegment(job) {
+  const list = jobList();
+  const key = segmentKey(job);
+  for (let i = list.indexOf(job) - 1; i >= 0; i -= 1) {
+    if (segmentKey(list[i]) === key) return list[i];
+  }
+  return null;
+}
+
+/** The bytes a slide was uploaded as, to tell an identical image from one
+    with a highlight added. */
+function imageIdentity(job) {
+  return job.originalBase64 || job.base64 || "";
+}
+
+/** A short fingerprint of a description, kept with the slide described after
+    it, so a later edit or redo of this one can be noticed there. */
+function textFingerprint(text) {
+  let hash = 0x811c9dc5;
+  const str = String(text || "");
+  for (let i = 0; i < str.length; i += 1) {
+    hash ^= str.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(16);
+}
+
+/** The fingerprint of a slide's image, worked out once: the image never
+    changes. It names the previous slide in a saved project, where slide ids
+    are not kept. */
+function imageFingerprint(job) {
+  if (!job.imageFingerprint) job.imageFingerprint = textFingerprint(imageIdentity(job));
+  return job.imageFingerprint;
+}
+
+/** What a description was written with in view: the previous slide's image,
+    and its description too unless the two images were the same. */
+function contextRecord(prev, html) {
+  return { image: imageFingerprint(prev), html: html == null ? null : textFingerprint(html) };
+}
+
+/**
+ * Whether the slide before this one has changed since this description was
+ * written with it in view: edited, redone, or another slide in its place.
+ * Such a description may describe a change that is no longer the change, or
+ * be "Same as" a visual that is no longer before it.
+ */
+function previousChanged(job) {
+  const from = job.contextFrom;
+  if (!from || job.state !== "done") return false;
+  const prev = previousInSegment(job);
+  if (!prev || imageFingerprint(prev) !== from.image) return true;
+  if (from.html == null) return false;
+  return prev.state !== "done" || textFingerprint(prev.resultHtml) !== from.html;
+}
+
 function selectedJob() {
   return selectedJobId ? jobs.get(selectedJobId) || null : null;
 }
@@ -1162,6 +1260,7 @@ function jobStatusMeta(job) {
           ? { state: "done", text: "Writing…", dot: "dot-describing" }
           : { state: "done", text: "Written by you · not approved", dot: "dot-done" };
       }
+      if (previousChanged(job)) return { state: "done", text: "Check: the visual before it changed", dot: "dot-error" };
       return { state: "done", text: "Described · needs review", dot: "dot-done" };
     case "error":
       return batchRunning && runScope === "batch"
@@ -2230,7 +2329,12 @@ function renderDetail() {
       );
     }
   }
-  if (job.resized) {
+  // How the image was prepared for sending says nothing true of a slide that
+  // was never sent: its size alone.
+  const unsent = job.state === "done" && (job.authored || job.sameAsPrevious);
+  if (unsent && job.width) {
+    metaBits.push(`${job.width}×${job.height}`);
+  } else if (job.resized) {
     metaBits.push(
       `Resized ${job.originalWidth}×${job.originalHeight} → ${job.width}×${job.height} before upload`
     );
@@ -2244,6 +2348,7 @@ function renderDetail() {
   // next to the other facts about what was sent.
   if (job.usedModel) metaBits.push(MODEL_SHORT_NAMES[job.usedModel] || job.usedModel);
   else if (job.authored) metaBits.push("Not sent to Claude");
+  else if (job.sameAsPrevious && job.state === "done") metaBits.push("Not sent: the same image as the visual before it");
   if (job.durationMs) metaBits.push(`${(job.durationMs / 1000).toFixed(1)}s`);
   // The billed cost of the request that wrote this description — a measured
   // number, not the model picker's estimate. The token counts sit in the
@@ -2336,6 +2441,7 @@ function renderDetail() {
     // would read as though the model had a hand in it.
     if (job.authored) features.push("written by you");
     else if (job.edited) features.push("edited by you");
+    if (job.contextFrom && job.contextFrom.html != null) features.push("written with the visual before it in view");
     q(".js-desc-meta").textContent = [`${words} words`, ...features].join(" · ");
 
     // Checked live on every render (so an edit that fixes the math clears
@@ -2354,6 +2460,13 @@ function renderDetail() {
         : (job.mathWarning || "This description's equation markup is malformed and will render scrambled.") +
           detail +
           " Try Redo with a stronger model, or re-describe this slide.";
+    }
+
+    // The slide before this one has changed since this was written with it in
+    // view: what this says changed, or that it is the same, may no longer be so.
+    if (previousChanged(job)) {
+      q(".js-context-warning").hidden = false;
+      q(".js-context-redo").addEventListener("click", () => refineJob(job.id, null));
     }
 
     const desc = q(".js-desc");
@@ -2830,6 +2943,9 @@ function snapshotOf(job) {
     usage: job.usage || null,
     costUsd: Number.isFinite(job.costUsd) ? job.costUsd : null,
     costMeasured: !!job.costMeasured,
+    // What this text was written with in view, so undo puts that back too.
+    contextFrom: job.contextFrom || null,
+    sameAsPrevious: !!job.sameAsPrevious,
   };
 }
 
@@ -2849,6 +2965,14 @@ function restoreSnapshot(job, snap) {
     job.costUsd = Number.isFinite(snap.costUsd) ? snap.costUsd : null;
     job.costMeasured = !!snap.costMeasured;
   }
+  if ("contextFrom" in snap) job.contextFrom = validContextRecord(snap.contextFrom);
+  if ("sameAsPrevious" in snap) job.sameAsPrevious = !!snap.sameAsPrevious;
+}
+
+/** A contextFrom read back from a save or a project file, or null. */
+function validContextRecord(raw) {
+  if (!raw || typeof raw !== "object" || typeof raw.image !== "string") return null;
+  return { image: raw.image, html: typeof raw.html === "string" ? raw.html : null };
 }
 
 function undoRevision(jobId) {
@@ -3009,9 +3133,7 @@ async function runBatch() {
 
   showProgress(0, runnable.length);
 
-  await runWithConcurrency(runnable, BATCH_CONCURRENCY, (job) =>
-    describeOne(job, { apiKey, model, verbosity })
-  );
+  await runSegments(runnable, BATCH_CONCURRENCY, (job) => describeOne(job, { apiKey, model, verbosity }));
 
   batchRunning = false;
   runScope = null;
@@ -3072,6 +3194,7 @@ async function refineJob(jobId, revisionKey, overrideModel) {
     model: overrideModel || job.usedModel || els.model.value,
     verbosity: currentVerbosity(),
     revision,
+    refining: true,
   });
 
   batchRunning = false;
@@ -3100,12 +3223,45 @@ function showProgress(completed, total) {
   els.progressFill.style.width = `${total ? Math.round((completed / total) * 100) : 0}%`;
 }
 
-async function runWithConcurrency(items, limit, worker) {
+/**
+ * The jobs a segment at a time, `limit` segments side by side, and within a
+ * segment one slide after another, in rail order: each is described with the
+ * one before it finished and in view. A batch of one segment, the usual case
+ * today, so runs one slide at a time.
+ */
+async function runSegments(items, limit, worker) {
+  const segments = new Map();
+  for (const item of items) {
+    const key = segmentKey(item);
+    if (!segments.has(key)) segments.set(key, []);
+    segments.get(key).push(item);
+  }
+  let completed = 0;
+  const step = () => {
+    completed += 1;
+    showProgress(completed, items.length);
+  };
+  await runWithConcurrency([...segments.values()], limit, async (segment) => {
+    for (const item of segment) {
+      if (cancelRequested) {
+        if (item.state === "pending" || item.state === "describing") {
+          item.state = "canceled";
+          renderJobState(item);
+        }
+      } else {
+        await worker(item);
+      }
+      step();
+    }
+  }, { progress: false });
+}
+
+async function runWithConcurrency(items, limit, worker, { progress = true } = {}) {
   let idx = 0;
   let completed = 0;
   const pool = new Array(Math.min(limit, items.length)).fill(null).map(async () => {
     while (idx < items.length) {
-      if (cancelRequested) {
+      if (cancelRequested && progress) {
         const remaining = items[idx++];
         if (remaining.state === "pending" || remaining.state === "describing") {
           remaining.state = "canceled";
@@ -3118,18 +3274,49 @@ async function runWithConcurrency(items, limit, worker) {
       const item = items[idx++];
       await worker(item);
       completed += 1;
-      showProgress(completed, items.length);
+      if (progress) showProgress(completed, items.length);
     }
   });
   await Promise.all(pool);
 }
 
-async function describeOne(job, { apiKey, model, verbosity, revision }) {
+async function describeOne(job, { apiKey, model, verbosity, revision, refining = false }) {
   // The job may have been removed from the queue while it was still waiting
   // for a concurrency slot — don't spend an API call describing something the
   // user already took off the list. A job with no base64 hasn't finished
   // decoding; a request for it would carry an undefined image payload.
   if (!jobs.has(job.id) || !job.base64) return;
+
+  // The slide before this one in its segment. An identical image needs no
+  // request: it is the previous visual again. Not when the slide is being
+  // refined, which asks for a new description of it on purpose.
+  const prev = previousInSegment(job);
+  if (!refining && prev && imageIdentity(prev) && imageIdentity(prev) === imageIdentity(job)) {
+    applyResult(job, SAME_AS_PREVIOUS_HTML);
+    Object.assign(job, {
+      sameAsPrevious: true,
+      contextFrom: contextRecord(prev, null),
+      state: "done",
+      usedModel: null,
+      usage: null,
+      costUsd: null,
+      costMeasured: false,
+      truncated: false,
+      durationMs: 0,
+      edited: false,
+      requestSent: false,
+    });
+    renderJobState(job);
+    return;
+  }
+  // Otherwise the previous slide goes with it, with its finished description,
+  // so a graph built up over several slides is described as it changes rather
+  // than from scratch each time. Taken now: it is what this request is sent.
+  // Not for a transcription, which is the same whatever came before.
+  const context =
+    !job.textOnly && prev && prev.state === "done" && prev.base64 && !isBlankDescription(prev)
+      ? { prev, html: prev.resultHtml, base64: prev.base64, mediaType: prev.mediaType }
+      : null;
 
   job.state = "describing";
   job.attempt = 1;
@@ -3178,11 +3365,12 @@ async function describeOne(job, { apiKey, model, verbosity, revision }) {
           // tokens of <mfrac>/<msub>/<mrow>), so a math-heavy visual hit the
           // cap and came back truncated with prose that was not long at all.
           max_tokens: 16384,
-          system: buildSystemPrompt(verbosity, revision, job.textOnly),
+          system: buildSystemPrompt(verbosity, revision, job.textOnly, !!context),
           messages: [
             {
               role: "user",
               content: [
+                ...previousVisualContent(context),
                 {
                   type: "image",
                   source: {
@@ -3285,6 +3473,8 @@ async function describeOne(job, { apiKey, model, verbosity, revision }) {
       job.usedModel = model;
       job.durationMs = performance.now() - startedAt;
       job.edited = false;
+      job.sameAsPrevious = false;
+      job.contextFrom = context ? contextRecord(context.prev, context.html) : null;
       renderJobState(job);
       return;
     } catch (err) {
@@ -3315,6 +3505,17 @@ async function describeOne(job, { apiKey, model, verbosity, revision }) {
       return;
     }
   }
+}
+
+/** The previous slide and its description, ahead of the slide described. */
+function previousVisualContent(context) {
+  if (!context) return [];
+  return [
+    { type: "text", text: "PREVIOUS VISUAL, shown just before this one:" },
+    { type: "image", source: { type: "base64", media_type: context.mediaType, data: context.base64 } },
+    { type: "text", text: `ITS DESCRIPTION, already written:\n\n${context.html}` },
+    { type: "text", text: "CURRENT VISUAL, the one to describe:" },
+  ];
 }
 
 function retryDelay(attempt, retryAfterSeconds) {
@@ -5895,6 +6096,8 @@ function serializeProject() {
       truncated: !!job.truncated,
       transcriptContext: job.transcriptContext,
       mathWarning: typeof job.mathWarning === "string" ? job.mathWarning : null,
+      contextFrom: job.contextFrom || null,
+      sameAsPrevious: !!job.sameAsPrevious,
     })),
   };
 }
@@ -6246,6 +6449,8 @@ function importedProjectRecord(raw) {
     if ("usedModel" in e) kept.usedModel = MODEL_LADDER.includes(e.usedModel) ? e.usedModel : null;
     if ("durationMs" in e) kept.durationMs = Number.isFinite(e.durationMs) ? e.durationMs : null;
     if ("usage" in e) Object.assign(kept, sanitizeSavedUsage(e));
+    if ("contextFrom" in e) kept.contextFrom = validContextRecord(e.contextFrom);
+    if ("sameAsPrevious" in e) kept.sameAsPrevious = !!e.sameAsPrevious;
     return kept;
   };
 
@@ -6327,6 +6532,8 @@ function importedProjectRecord(raw) {
           ? saved.transcriptContext
           : null,
       mathWarning: typeof saved.mathWarning === "string" && saved.mathWarning ? saved.mathWarning : null,
+      contextFrom: validContextRecord(saved.contextFrom),
+      sameAsPrevious: !!saved.sameAsPrevious,
     };
   });
 
