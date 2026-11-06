@@ -36,6 +36,22 @@
   font-weight: 300 700;
   font-display: swap;
 }
+/* Open edX's text face, for the description preview only (see
+   .result-preview): what a learner reads in the LMS. Latin subset. */
+@font-face {
+  font-family: "Open Sans";
+  src: url("fonts/OpenSans-Variable.woff2") format("woff2-variations");
+  font-weight: 300 800;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Open Sans";
+  src: url("fonts/OpenSans-Italic-Variable.woff2") format("woff2-variations");
+  font-weight: 300 800;
+  font-style: italic;
+  font-display: swap;
+}
 
 :root {
   /* Living Isle base palette */
@@ -1051,53 +1067,58 @@ code, kbd {
 }
 
 .desc {
-  background: var(--panel);
+  /* White, as the LMS page is: the description inside is drawn as edX
+     draws it (below). */
+  background: #fff;
   border: var(--border-width) solid var(--border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
   padding: 30px 34px;
 }
-.result-preview { font-size: 16px; line-height: 1.6; }
+/* The description as a learner sees it in edX, not in DescribeMe's own
+   look: the LMS's type, colours and spacing for an HTML component
+   (HtmlBlockDisplay.css, Open edX Ulmo), as the converter's learner
+   preview draws it. Only the card around it is the app's. */
+.result-preview {
+  font: 16px/1.4 "Open Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  color: #313131;
+}
+.result-preview * { line-height: 1.4em; }
+/* The app's own rules for headings and tables would otherwise reach in. */
+.result-preview :is(h1, h2, h3, h4, h5, h6, th, td, caption, li) { font-family: inherit; }
 .result-preview > :first-child { margin-top: 0; }
-.result-preview p { margin: 0 0 16px; }
-.result-preview :is(h2, h3) { font-family: var(--font-heading); margin: 22px 0 8px; }
-.result-preview h2 { font-size: 19px; }
-.result-preview h3 { font-size: 16px; }
-.result-preview ul, .result-preview ol { margin: 0 0 16px; padding-left: 22px; }
-.result-preview li { margin-bottom: 4px; }
-.result-preview table {
-  border-collapse: collapse;
-  width: 100%;
-  font-size: 14px;
-  margin: 0 0 16px;
-}
+.result-preview a { color: #0075b4; text-decoration: none; }
+.result-preview img { max-width: 100%; height: auto; }
+.result-preview h2 { font-size: 1.2em; font-weight: 400; color: #646464; letter-spacing: 1px; margin: 0 0 15px; }
+.result-preview h3 { font-size: 1.2em; font-weight: 600; margin: 0 0 10px; }
+.result-preview h4 { font-size: 1em; font-weight: 600; margin: 0 0 10px; }
+.result-preview p { line-height: 1.6em; margin: 0 0 1.416em; }
+.result-preview p + p { margin-top: 20px; }
+.result-preview ul, .result-preview ol { margin: 1em 0; padding-left: 1em; }
+.result-preview ul { list-style: disc; }
+.result-preview ol { list-style: decimal; }
+.result-preview li { margin-bottom: .708em; }
+.result-preview li ul, .result-preview li ol { margin: .708em 0 0; }
+.result-preview table { width: 100%; margin: 20px 0; border-collapse: collapse; }
 .result-preview :is(th, td) {
+  font-size: 14px;
+  padding: 10px;
+  border: 1px solid #c8c8c8;
   text-align: left;
-  padding: 9px 12px;
-  border: 2px solid var(--border);
+  vertical-align: top;
 }
-.result-preview th { font-family: var(--font-heading); font-size: 12px; background: var(--mustard); }
-.result-preview figure {
-  margin: 0 0 16px;
-  padding: 16px 18px;
-  background: var(--raised);
-  border: var(--border-width) solid var(--border);
-  border-radius: var(--radius-md);
-}
-.result-preview figcaption { font-size: 12px; color: var(--faint); margin-top: 6px; }
+.result-preview th { background: #eee; font-weight: 700; }
+.result-preview caption { caption-side: top; text-align: left; padding: 0 0 6px; }
 /* `block math`, not `block`: the second half is the *inner* display type, and
    dropping it turns <math> into an ordinary flow container. Its children keep
    the UA stylesheet's `block math`, so unless a single <mrow> happens to wrap
    the whole equation, every token becomes its own block box and the equation
-   renders as a vertical stack of one symbol per line. */
-.result-preview math {
+   renders as a vertical stack of one symbol per line. Only display math
+   takes its own line, centred, as MathJax sets it in the LMS; math written
+   inline stays in its sentence. */
+.result-preview math[display="block"] {
   display: block math;
-  background: var(--raised);
-  border: var(--border-width) solid var(--border);
-  border-radius: var(--radius-md);
-  padding: 18px;
-  margin: 0 0 10px;
-  font-size: 1.3em;
+  margin: 1em 0;
   text-align: center;
 }
 .result-preview[contenteditable="true"] {

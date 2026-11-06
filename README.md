@@ -411,8 +411,11 @@ covers.
   state, zip export, sanitizing/rendering, and copy-to-clipboard
 - `fonts/` — self-hosted `Bungee-Regular.woff2`, `BungeeShade-Regular.woff2`,
   `Boogaloo-Regular.woff2`, and `Quicksand-Variable.woff2` (see the note at
-  the top of `style.css`); without them the fallback font stack is used and
-  nothing breaks
+  the top of `style.css`), plus Open Sans (`OpenSans-Variable.woff2`,
+  `OpenSans-Italic-Variable.woff2`, under the SIL Open Font License in
+  `OpenSans-OFL.txt`), which only the description preview uses, so it reads
+  as the description will in edX; without them the fallback font stack is
+  used and nothing breaks
 - `learner-pdf.mjs` — the learner PDF: HTML and MathML to Typst, spoken
   alt text for equations, compiling, and the PDF/UA-1 identification;
   loaded on demand
