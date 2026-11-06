@@ -204,9 +204,10 @@ check("B7  the export names a description whose previous visual is not in it", /
 const b8 = await page.evaluate(async () => {
   jobs.forEach((j) => { j.approved = j.state === "done"; j.sameAsPrevious = false; });
   const doc = await learnerDocument();
-  return { h2: [...doc.html.matchAll(/<h2>([^<]+)/g)].map((m) => m[1].trim()), restarts: (doc.html.match(/Visual 1 of/g) || []).length };
+  return { h2: [...doc.html.matchAll(/<h2>([^<]+)/g)].map((m) => m[1].split(" — ")[0].trim()), separated: /<h2>Cronin_S4 — 3 visuals<\/h2>/.test(doc.html), restarts: (doc.html.match(/Visual 1 of/g) || []).length };
 });
 check("B8  the learner download has a heading per segment, numbered within each", b8.h2.slice(0, 2).join() === "Atalay_S2,Cronin_S4" && b8.restarts >= 3, JSON.stringify(b8));
+check("B8  its segment heading reads name — count", b8.separated, JSON.stringify(b8));
 
 // B9: an image's fingerprint is quick, whatever its size.
 const b9 = await page.evaluate(() => {

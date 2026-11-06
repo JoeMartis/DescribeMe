@@ -190,6 +190,66 @@ await page.evaluate(() => {
 });
 check("B3  OCR on a slide identical to the one before is sent", sent.length === beforeOcr + 1 && /Transcribe/.test(sent[beforeOcr].texts));
 
+// ---------- Q: bug round 2
+const r2a = await img("round two chart");
+const r2b = await img("round two chart + highlight");
+const r2c = await img("round two chart + two highlights");
+await page.setInputFiles("#railFileInput", [
+  { name: "Two_S1_00-00-01.png", mimeType: "image/png", buffer: r2a },
+  { name: "Two_S1_00-00-02.png", mimeType: "image/png", buffer: r2a },
+  { name: "Two_S1_00-00-03.png", mimeType: "image/png", buffer: r2b },
+  { name: "Two_S1_00-00-04.png", mimeType: "image/png", buffer: r2c },
+]);
+await page.waitForFunction(() => [...jobs.values()].filter((j) => j.name.startsWith("Two_S1")).every((j) => j.base64) && [...jobs.values()].filter((j) => j.name.startsWith("Two_S1")).length === 4);
+const two = (n) => `[...jobs.values()].find((j) => j.name === "Two_S1_00-00-0${n}.png")`;
+
+// Q1: a Same-as visual is exported with a heading: the title it repeats, numbered.
+await page.evaluate(() => {
+  const [a, b] = [...jobs.values()].filter((j) => j.name.startsWith("Two_S1"));
+  a.state = "done"; a.resultHtml = "<h2>Round Two Chart</h2><p>A chart.</p>"; a.resultText = "Round Two Chart A chart.";
+  b.state = "done"; b.resultHtml = "<p>Same as the previous visual.</p>"; b.resultText = "Same as the previous visual."; b.sameAsPrevious = true;
+});
+const q1 = await page.evaluate(() => {
+  const b = [...jobs.values()].find((j) => j.name === "Two_S1_00-00-02.png");
+  return exportBlockFor({ job: b, imageName: "b.png", titleLevel: 3, position: 2, total: 4 }).html;
+});
+check("Q1  a Same-as visual exports with a heading: its number and the title it repeats", /<h3[^>]*><span class="visual-count">Visual 2 of 4: <\/span>Round Two Chart<\/h3>/.test(q1), q1.slice(0, 160));
+
+// Q2: a Same-as the model wrote is walked past for context, as an identical image's is.
+const q2 = await page.evaluate(() => {
+  const b = [...jobs.values()].find((j) => j.name === "Two_S1_00-00-02.png");
+  b.sameAsPrevious = false; // the model's own answer, not the shortcut's
+  return contextHtml(b);
+});
+check("Q2  a model-written Same-as is not sent as the previous description", /Round Two Chart/.test(q2 || ""), q2);
+
+// Q3: a slide described without the one before (it had none yet) is flagged once that one has.
+const before3 = sent.length;
+await page.evaluate(() => {
+  const c = [...jobs.values()].find((j) => j.name === "Two_S1_00-00-03.png");
+  const b = [...jobs.values()].find((j) => j.name === "Two_S1_00-00-02.png");
+  b.state = "error"; b.resultHtml = ""; b.resultText = "";
+  return describeSingleJob(c.id);
+});
+const q3a = await page.evaluate(() => { const c = [...jobs.values()].find((j) => j.name === "Two_S1_00-00-03.png"); return { status: previousStatus(c), sent: c.state }; });
+await page.evaluate(() => {
+  const b = [...jobs.values()].find((j) => j.name === "Two_S1_00-00-02.png");
+  b.state = "done"; b.resultHtml = "<p>Same as the previous visual.</p>"; b.resultText = "Same as the previous visual.";
+  renderAll();
+});
+const q3b = await page.evaluate(() => { const c = [...jobs.values()].find((j) => j.name === "Two_S1_00-00-03.png"); return { status: previousStatus(c), rail: c.railEl.textContent.replace(/\s+/g, " ") }; });
+check("Q3  described without the slide before, it is sent alone", sent.length === before3 + 1 && sent[before3].images === 1 && q3a.status === null, JSON.stringify(q3a));
+check("Q3  and flagged once that slide is described", q3b.status === "missing" && /Check: described without the visual before it/.test(q3b.rail), JSON.stringify(q3b));
+
+// Q4: Retry on a failed transcription identical to the slide before is still sent.
+const before4 = sent.length;
+await page.evaluate(() => {
+  const b = [...jobs.values()].find((j) => j.name === "Two_S1_00-00-02.png");
+  b.textOnly = true; b.state = "error"; b.resultHtml = ""; b.resultText = "";
+  return describeSingleJob(b.id);
+});
+check("Q4  Retry on a failed transcription identical to the one before is sent", sent.length === before4 + 1 && /Transcribe/.test(sent[before4].texts));
+
 check("Z  no console errors", problems.filter((m) => !/404/.test(m)).length === 0, problems.join(" | "));
 await b.close();
 const failed = results.filter((r) => !r.ok);

@@ -91,10 +91,13 @@ await page.fill("#batchName", "Long lecture");
 await page.click("#projectsBtn");
 await page.click("#saveProjectBtn");
 await page.waitForSelector('#projectList button[aria-label="Open project Long lecture"]', { timeout: 30000 });
-await page.evaluate(() => { jobs.clear(); renderAll(); });
+// Emptied as New batch does, rows and all: with the rows left in, the wait
+// below passed before the project had even been read, and the dialog it then
+// found open closed under the next step.
+await page.evaluate(() => { jobs.clear(); els.railList.replaceChildren(); renderAll(); });
 await page.click('#projectList button[aria-label="Open project Long lecture"]');
 const reopened = await page
-  .waitForFunction((n) => document.querySelectorAll("#railList li").length === n, COUNT, { timeout: 30000 })
+  .waitForFunction((n) => !document.querySelector("#projectsDialog").open && document.querySelectorAll("#railList .rail-row").length === n, COUNT, { timeout: 30000 })
   .then(() => true, () => false);
 check(`B3  a saved ${COUNT}-slide project reopens whole`, reopened);
 

@@ -1272,7 +1272,7 @@ function contextHtml(prev) {
     const j = list[i];
     if (segmentKey(j) !== key) continue;
     if (j.state !== "done" || isBlankDescription(j)) return null;
-    if (!j.sameAsPrevious) return j.resultHtml;
+    if (!isSameAsPrevious(j)) return j.resultHtml;
   }
   return null;
 }
@@ -1290,12 +1290,30 @@ function contextRecord(prev, html) {
  * be "Same as" a visual that is no longer before it.
  */
 function previousChanged(job) {
+  return previousStatus(job) !== null;
+}
+
+/**
+ * "changed": the slide before has changed since this was written with it in
+ * view. "missing": this was written without it, because it had not been
+ * described yet (it failed, or the run was stopped), and it has been since,
+ * so this may describe the whole graph where it should describe a change.
+ * null: neither.
+ */
+function previousStatus(job) {
   const from = job.contextFrom;
-  if (!from || job.state !== "done") return false;
+  if (!from || job.state !== "done") return null;
   const prev = previousInSegment(job);
-  if (!prev || imageFingerprint(prev) !== from.image) return true;
-  if (from.html == null) return false;
-  return prev.state !== "done" || textFingerprint(contextHtml(prev)) !== from.html;
+  if (!prev || imageFingerprint(prev) !== from.image) return "changed";
+  if (from.missing) return prev.state === "done" && !isBlankDescription(prev) ? "missing" : null;
+  if (from.html == null) return null;
+  return prev.state !== "done" || textFingerprint(contextHtml(prev)) !== from.html ? "changed" : null;
+}
+
+/** "Same as the previous visual.", written here for an identical image or by
+    the model for a slide it saw had not changed. */
+function isSameAsPrevious(job) {
+  return !!job.sameAsPrevious || /^\s*Same as the previous visual\.?\s*$/i.test(job.resultText || "");
 }
 
 function selectedJob() {
@@ -1321,8 +1339,10 @@ function jobStatusMeta(job) {
     case "done":
       // Ahead of everything else, approval included: an approved slide is the
       // one about to be exported describing a change that may no longer be one.
-      if (previousChanged(job)) {
-        return { state: "done", text: job.approved ? "Approved · check: the visual before it changed" : "Check: the visual before it changed", dot: "dot-error" };
+      const previous = previousStatus(job);
+      if (previous) {
+        const what = previous === "missing" ? "described without the visual before it" : "the visual before it changed";
+        return { state: "done", text: job.approved ? `Approved · check: ${what}` : `Check: ${what}`, dot: "dot-error" };
       }
       if (job.approved) return { state: "approved", text: "Approved", dot: "dot-approved" };
       // A hand-written description is never "described" — nothing described
@@ -2369,7 +2389,7 @@ async function describeSingleJob(jobId, mode) {
   cancelRequested = false;
   renderAll();
 
-  await describeOne(job, { apiKey, model, verbosity, forceRequest: mode === "ocr" });
+  await describeOne(job, { apiKey, model, verbosity });
 
   batchRunning = false;
   runScope = null;
@@ -2810,8 +2830,13 @@ function renderDetail() {
 
     // The slide before this one has changed since this was written with it in
     // view: what this says changed, or that it is the same, may no longer be so.
-    if (previousChanged(job)) {
+    const previous = previousStatus(job);
+    if (previous) {
       q(".js-context-warning").hidden = false;
+      q(".js-context-text").textContent =
+        previous === "missing"
+          ? "This description was written without the visual before this one, which had not been described yet. It has been since: describe this one again to describe it alongside the visual before it."
+          : "The visual before this one has changed since this description was written with it in view. Check that it still fits, or describe it again.";
       q(".js-context-redo").addEventListener("click", () => refineJob(job.id, null));
     }
 
@@ -3318,7 +3343,7 @@ function restoreSnapshot(job, snap) {
 /** A contextFrom read back from a save or a project file, or null. */
 function validContextRecord(raw) {
   if (!raw || typeof raw !== "object" || typeof raw.image !== "string") return null;
-  return { image: raw.image, html: typeof raw.html === "string" ? raw.html : null };
+  return { image: raw.image, html: typeof raw.html === "string" ? raw.html : null, ...(raw.missing === true ? { missing: true } : {}) };
 }
 
 function undoRevision(jobId) {
@@ -3686,7 +3711,7 @@ async function describeOne(job, { apiKey, model, verbosity, revision, forceReque
   // request: it is the previous visual again. Not when the slide is refined,
   // or switched to text, which ask for a new description of it on purpose.
   const prev = previousInSegment(job);
-  if (!forceRequest && prev && imageIdentity(prev) && imageIdentity(prev) === imageIdentity(job)) {
+  if (!forceRequest && !job.textOnly && prev && imageIdentity(prev) && imageIdentity(prev) === imageIdentity(job)) {
     applyResult(job, SAME_AS_PREVIOUS_HTML);
     Object.assign(job, {
       sameAsPrevious: true,
@@ -3867,7 +3892,13 @@ async function describeOne(job, { apiKey, model, verbosity, revision, forceReque
       job.durationMs = performance.now() - startedAt;
       job.edited = false;
       job.sameAsPrevious = false;
-      job.contextFrom = context ? contextRecord(context.prev, context.html) : null;
+      // Without the slide before because it had no description yet: said, so
+      // that once it has one this can be described again alongside it.
+      job.contextFrom = context
+        ? contextRecord(context.prev, context.html)
+        : !job.textOnly && prev && prev.state !== "invalid"
+          ? { image: imageFingerprint(prev), html: null, missing: true }
+          : null;
       renderJobState(job);
       return;
     } catch (err) {
@@ -5643,6 +5674,18 @@ function shiftHeadings(container, titleLevel) {
 function exportBlockFor({ job, imageName, titleLevel, position, total, imageSrc, imageSize, focusableTitles = true, inlineGap = true }) {
   const container = document.createElement("div");
   container.innerHTML = job.resultHtml;
+  // "Same as the previous visual." has no heading, so it had no place in a
+  // page's headings and no "Visual N of M": heading navigation skipped it and
+  // the count jumped. It takes the title of the visual it repeats.
+  if (isSameAsPrevious(job) && !container.querySelector("h1, h2, h3, h4, h5, h6")) {
+    const prev = previousInSegment(job);
+    const source = document.createElement("div");
+    source.innerHTML = (prev && contextHtml(prev)) || "";
+    const title = source.querySelector("h1, h2, h3, h4, h5, h6");
+    const heading = document.createElement("h2");
+    heading.textContent = title ? title.textContent.trim() : "The same visual again";
+    container.prepend(heading);
+  }
 
   // Relative shift, then the slide title gets its tabindex — keyed to
   // whatever level the title ended up on, not a hardcoded h2.
@@ -5878,7 +5921,7 @@ function dependentsWithoutPrevious(entries) {
  * complete without it, is not. With the slide before gone, it may be.
  */
 function buildsOnPrevious(job) {
-  if (job.sameAsPrevious || /Same as the previous visual/i.test(job.resultText || job.resultHtml || "")) return true;
+  if (isSameAsPrevious(job)) return true;
   if (!job.contextFrom || job.contextFrom.html == null) return false;
   const prev = previousInSegment(job);
   if (!prev) return true;
@@ -6086,7 +6129,8 @@ async function learnerDocument() {
   for (const members of segmentOf.values()) {
     if (multi) {
       const label = escapeHtml(segmentLabel(members[0].job));
-      const count = counted ? ` <span class="visual-count">${members.length} visual${members.length === 1 ? "" : "s"}</span>` : "";
+      // "Cronin_S4 — 3 visuals", as Export all heads a segment.
+      const count = counted ? ` — ${members.length} visual${members.length === 1 ? "" : "s"}` : "";
       blocks.push({ html: `<h2>${label}${count}</h2>`, clamped: 0 });
     }
     for (const [i, entry] of members.entries()) {
