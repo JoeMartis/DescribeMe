@@ -4482,12 +4482,6 @@ function renderDiscussion(job, frag) {
   });
   const log = q(".js-discuss-log");
   const messages = job.discussion || [];
-  if (messages.length === 0) {
-    const li = document.createElement("li");
-    li.className = "discuss-note";
-    li.textContent = "Ask why it says what it says, or tell Claude what to change. A revision goes in only when you choose Use this.";
-    log.append(li);
-  }
   messages.forEach((m, i) => log.append(discussMessageEl(job, m, i)));
   const busy = discussInFlight && discussInFlight.jobId === job.id;
   if (busy) {
@@ -4519,6 +4513,9 @@ function renderDiscussion(job, frag) {
     }
     log.append(li);
   }
+
+  // Nothing said yet: no empty space waiting for it, just the message box.
+  log.hidden = log.children.length === 0;
 
   const input = q(".js-discuss-input");
   input.value = discussDrafts.get(job.id) || "";

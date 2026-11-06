@@ -71,6 +71,7 @@ const d1 = await pane();
 check("D1  Discuss opens the conversation", d1.open && d1.discussing && d1.pressed === "true", JSON.stringify(d1));
 check("D1  it says what Claude sees", /this slide, the slide before it and its description, the transcript around it/.test(d1.sees), d1.sees);
 
+check("D1  with nothing said yet, there is no empty message area", await page.evaluate(() => els.detailPane.querySelector(".js-discuss-log").hidden));
 check("D1  focus goes to the message box", await page.evaluate(() => document.activeElement?.classList.contains("js-discuss-input")));
 const seesFolded = await page.evaluate(() => els.detailPane.querySelector(".js-discuss-sees").hidden);
 await page.click("#detailPane .js-discuss-sees-toggle");

@@ -1149,7 +1149,6 @@ code, kbd {
   gap: 14px;
   background: var(--paper-white);
   max-height: 46vh;
-  min-height: 140px;
   overflow-y: auto;
 }
 .discuss-msg { display: flex; flex-direction: column; gap: 4px; font-size: 14px; line-height: 1.5; }
@@ -1172,7 +1171,8 @@ code, kbd {
 .btn-chip[aria-pressed="true"] { background: var(--swamp-parchment); }
 .btn-use { background: var(--fg); color: var(--paper-white); }
 .btn-use:hover:not(:disabled) { background: var(--neutral-700); color: var(--paper-white); }
-.discuss-compose { display: flex; flex-direction: column; gap: 10px; padding: 12px 14px 14px; border-top: 2px solid var(--swamp-sunken); }
+.discuss-compose { display: flex; flex-direction: column; gap: 10px; padding: 12px 14px 14px; }
+.discuss-log:not([hidden]) + .discuss-compose { border-top: 2px solid var(--swamp-sunken); }
 .discuss-quick { display: flex; flex-wrap: wrap; gap: 6px; }
 .discuss-input { display: flex; align-items: flex-end; gap: 8px; }
 .discuss-field { flex: 1; display: flex; }
