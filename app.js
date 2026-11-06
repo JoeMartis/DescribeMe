@@ -1277,6 +1277,15 @@ function contextHtml(prev) {
   return null;
 }
 
+/** The previous slide as a request sends it, its image and the description
+    it stands for, or null when there is none to send. Not for a
+    transcription, which is the same whatever came before. */
+function contextFor(job, prev) {
+  if (job.textOnly || !prev || prev.state !== "done" || !prev.base64) return null;
+  const html = contextHtml(prev);
+  return html ? { prev, html, base64: prev.base64, mediaType: prev.mediaType } : null;
+}
+
 /** What a description was written with in view: the previous slide's image,
     and its description too unless the two images were the same. */
 function contextRecord(prev, html) {
@@ -1305,7 +1314,10 @@ function previousStatus(job) {
   if (!from || job.state !== "done") return null;
   const prev = previousInSegment(job);
   if (!prev || imageFingerprint(prev) !== from.image) return "changed";
-  if (from.missing) return prev.state === "done" && !isBlankDescription(prev) ? "missing" : null;
+  // Only once the slide before can go with it: a "Same as" whose original
+  // failed, or an image missing from the folder, cannot, and Describe again
+  // would send it without it again, flagged again.
+  if (from.missing) return contextFor(job, prev) ? "missing" : null;
   if (from.html == null) return null;
   return prev.state !== "done" || textFingerprint(contextHtml(prev)) !== from.html ? "changed" : null;
 }
@@ -2049,11 +2061,32 @@ function selectNextUnapproved() {
 
 const fileFolders = new WeakMap(); // a dropped folder's File → its path in the folder
 
+const folderNames = new WeakMap(); // a folder's File → its segment's folder name
+
 /** The folder a file sits in, when it came from a folder; "" otherwise. */
 function folderOfFile(file) {
+  return folderNames.has(file) ? folderNames.get(file) : folderPathParts(file).join("/");
+}
+
+function folderPathParts(file) {
   const path = fileFolders.get(file) || file.webkitRelativePath || "";
-  const parts = path.split("/").filter(Boolean);
-  return parts.length > 1 ? parts[parts.length - 2] : "";
+  return path.split("/").filter(Boolean).slice(0, -1);
+}
+
+/**
+ * Names each file's folder by its path below the folder brought in: "S2" and
+ * "S3" in a module's folder, and "M1/Slides" and "M2/Slides" where two
+ * folders share a name, so they stay two segments rather than one. A folder
+ * of slides brought in by itself is named for itself.
+ */
+function nameFolders(files) {
+  const paths = files.map(folderPathParts);
+  const root = paths[0]?.[0];
+  const shared = root != null && paths.every((p) => p[0] === root) && paths.some((p) => p.length > 1);
+  files.forEach((file, i) => {
+    const parts = shared && paths[i].length > 1 ? paths[i].slice(1) : paths[i];
+    folderNames.set(file, parts.join("/"));
+  });
 }
 
 /** A folder's images in the order they were shown: by segment, then time.
@@ -2096,6 +2129,7 @@ async function addFolderFiles(fileList) {
   const all = Array.from(fileList).filter((f) => !isSystemFile(f));
   const usable = all.filter((f) => ACCEPTED_TYPES.includes(f.type) || isTranscriptFile(f));
   const passed = all.length - usable.length;
+  nameFolders(usable);
   if (usable.length === 0) {
     setError("That folder has no slide images or transcripts in it.");
     return;
@@ -3194,6 +3228,9 @@ function commitEdit() {
   job.resultHtml = holder.innerHTML;
   job.resultText = domFragmentToText(fragment);
   job.edited = true;
+  // Rewritten, it is no longer the shortcut's "Same as": unless it still
+  // says just that, it is a description of its own (isSameAsPrevious).
+  job.sameAsPrevious = false;
   job.mathWarning = null;
   // A person has taken the text over; if the model's version was cut off,
   // the warning about that is theirs to have acted on.
@@ -3270,6 +3307,9 @@ function commitSourceEdit() {
   job.resultHtml = holder.innerHTML;
   job.resultText = domFragmentToText(fragment);
   job.edited = true;
+  // Rewritten, it is no longer the shortcut's "Same as": unless it still
+  // says just that, it is a description of its own (isSameAsPrevious).
+  job.sameAsPrevious = false;
   job.mathWarning = null;
   // A person has taken the text over; if the model's version was cut off,
   // the warning about that is theirs to have acted on.
@@ -3733,8 +3773,7 @@ async function describeOne(job, { apiKey, model, verbosity, revision, forceReque
   // so a graph built up over several slides is described as it changes rather
   // than from scratch each time. Taken now: it is what this request is sent.
   // Not for a transcription, which is the same whatever came before.
-  const prevHtml = !job.textOnly && prev && prev.state === "done" && prev.base64 ? contextHtml(prev) : null;
-  const context = prevHtml ? { prev, html: prevHtml, base64: prev.base64, mediaType: prev.mediaType } : null;
+  const context = contextFor(job, prev);
 
   job.state = "describing";
   job.attempt = 1;
@@ -5938,7 +5977,7 @@ function dependentsNote(names) {
   if (names.length === 0) return "";
   return (
     `${names.join(", ")} ${names.length === 1 ? "builds" : "build"} on the visual before ${names.length === 1 ? "it" : "them"}, ` +
-    `which is not approved, so the description may refer to a visual that is not there. ` +
+    `which is not in the export, so the description may refer to a visual that is not there. ` +
     `Approve the visual before, or describe ${names.length === 1 ? "it" : "them"} again on ${names.length === 1 ? "its" : "their"} own.`
   );
 }

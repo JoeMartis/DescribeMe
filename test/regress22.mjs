@@ -148,6 +148,7 @@ const dropped = await page.evaluate(async () => {
   };
   const tree = dirEntry("Seg", "/Mod/Seg", [fileEntry("Seg_00-00-02.png", "/Mod/Seg/Seg_00-00-02.png"), fileEntry("Seg_00-00-01.png", "/Mod/Seg/Seg_00-00-01.png")]);
   const files = await filesFromEntries([tree]);
+  nameFolders(files);
   return { names: files.map((f) => f.name), folders: files.map((f) => folderOfFile(f)) };
 });
 check("F5  a dropped folder is read to the end, across reader batches", dropped.names.length === 2 && dropped.folders.every((f) => f === "Seg"), JSON.stringify(dropped));
@@ -198,7 +199,7 @@ const dl7 = page.waitForEvent("download", { timeout: 8000 }).catch(() => null);
 await page.click("#exportBtn");
 await dl7;
 const b7 = await page.$eval("#statusMessage", (e) => e.textContent);
-check("B7  the export names a description whose previous visual is not in it", /Cronin_S4_00-08-30\.png builds on the visual before it, which is not approved/.test(b7), b7.slice(0, 200));
+check("B7  the export names a description whose previous visual is not in it", /Cronin_S4_00-08-30\.png builds on the visual before it, which is not in the export/.test(b7), b7.slice(0, 200));
 
 // B8: the learner download heads each segment and numbers within it.
 const b8 = await page.evaluate(async () => {
@@ -324,6 +325,60 @@ await page.click("#railAddBtn");
 await page.evaluate(() => renderAll());
 check("R5  a render with an empty batch leaves the Add menu open", await page.evaluate(() => !document.getElementById("railAddMenu").hidden));
 await page.keyboard.press("Escape");
+
+// ---------- T: bug round 3
+// T1: folders of one name in different places are two segments; the folder
+// brought in is not part of the name.
+const t1 = await page.evaluate(() => {
+  const named = (paths) => {
+    const files = paths.map((p) => { const f = new File([new Uint8Array([1])], p.split("/").pop(), { type: "image/png" }); fileFolders.set(f, "/" + p); return f; });
+    nameFolders(files);
+    return files.map(folderOfFile);
+  };
+  return {
+    twins: named(["Module/M1/Slides/a.png", "Module/M2/Slides/b.png"]),
+    module: named(["UCE_M3/S2/a.png", "UCE_M3/S3/b.png"]),
+    single: named(["Lecture/a.png", "Lecture/b.png"]),
+  };
+});
+check("T1  two folders of one name are two segments", t1.twins.join() === "M1/Slides,M2/Slides", JSON.stringify(t1.twins));
+check("T1  a module's folders are named below it, a lone folder for itself", t1.module.join() === "S2,S3" && t1.single.join() === "Lecture,Lecture", JSON.stringify(t1));
+
+// T2/T3 on a segment of their own.
+const tImg = async (label) => makeImage(page, { w: 320, h: 180, label });
+const ta = await tImg("t round A"), tc = await tImg("t round C");
+await page.setInputFiles("#railFileInput", [
+  { name: "Tee_S1_00-00-01.png", mimeType: "image/png", buffer: ta },
+  { name: "Tee_S1_00-00-02.png", mimeType: "image/png", buffer: ta },
+  { name: "Tee_S1_00-00-03.png", mimeType: "image/png", buffer: tc },
+]);
+await page.waitForFunction(() => { const t = [...jobs.values()].filter((j) => j.name.startsWith("Tee_S1")); return t.length === 3 && t.every((j) => j.base64); });
+
+// T2: a "Same as" whose original failed cannot go with the next slide, so
+// the next is not flagged for going without it, until the original is done.
+const t2 = await page.evaluate(() => {
+  const [a, b, c] = [...jobs.values()].filter((j) => j.name.startsWith("Tee_S1"));
+  a.state = "error"; a.resultHtml = ""; a.resultText = "";
+  b.state = "done"; b.resultHtml = "<p>Same as the previous visual.</p>"; b.resultText = "Same as the previous visual."; b.sameAsPrevious = true;
+  b.contextFrom = contextRecord(a, null);
+  c.state = "done"; c.resultHtml = "<h2>C</h2>"; c.resultText = "C"; c.contextFrom = { image: imageFingerprint(b), html: null, missing: true };
+  const before = previousStatus(c);
+  a.state = "done"; a.resultHtml = "<h2>Tee</h2><p>A graph.</p>"; a.resultText = "Tee A graph.";
+  return { before, after: previousStatus(c) };
+});
+check("T2  not flagged while the visual before cannot be sent with it", t2.before === null, JSON.stringify(t2));
+check("T2  flagged once it can", t2.after === "missing", JSON.stringify(t2));
+
+// T3: a "Same as" rewritten by hand is a description of its own.
+const t3 = await page.evaluate(() => {
+  const [, b, c] = [...jobs.values()].filter((j) => j.name.startsWith("Tee_S1"));
+  selectJob(b.id);
+  toggleEdit(b.id);
+  els.detailPane.querySelector(".js-preview").innerHTML = "<h2>Tee</h2><p>The same graph, now with the peak circled.</p>";
+  commitEdit();
+  return { same: isSameAsPrevious(b), context: contextHtml(b), pane: els.detailPane.textContent.includes("Not sent: the same image") };
+});
+check("T3  a rewritten Same-as is not Same-as any more", !t3.same && /peak circled/.test(t3.context || "") && !t3.pane, JSON.stringify(t3));
 
 check("Z  no console errors", problems.filter((m) => !/404/.test(m)).length === 0, problems.join(" | "));
 fs.rmSync(root, { recursive: true, force: true });
