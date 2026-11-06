@@ -9,10 +9,10 @@ const cues = srt([{ start: 0, end: 4, text: "Today we look at the cell cycle." }
 const srtFile = (name) => ({ name, mimeType: "text/plain", buffer: Buffer.from(cues) });
 async function png(page, name) { return { name, mimeType: "image/png", buffer: await makeImage(page, { w: 400, h: 225, label: name }) }; }
 async function addViaRail(page, files) {
-  const before = await page.$$eval("#railList li", (l) => l.length);
+  const before = await page.$$eval("#railList .rail-row", (l) => l.length);
   const imgs = files.filter((f) => f.mimeType.startsWith("image/")).length;
   await page.setInputFiles(before === 0 && imgs ? "#fileInput" : "#railFileInput", files);
-  if (imgs) await page.waitForFunction((n) => document.querySelectorAll("#railList li").length === n, before + imgs);
+  if (imgs) await page.waitForFunction((n) => document.querySelectorAll("#railList .rail-row").length === n, before + imgs);
   else await page.waitForTimeout(300);
 }
 const railState = (page) => page.evaluate(() => ({

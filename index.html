@@ -261,6 +261,11 @@
             <input type="file" id="railFileInput" accept="image/png,image/jpeg,image/webp,image/gif,.srt,.vtt" multiple
                    aria-label="Add slide images or a transcript" aria-describedby="uploadHint">
           </span>
+          <span class="btn btn-small rail-add">
+            Add folder
+            <input type="file" id="railFolderInput" webkitdirectory multiple
+                   aria-label="Add a folder of segments: slide images and their transcripts">
+          </span>
         </div>
       </div>
       <!-- Offered, never applied on its own. Slides exported by the video
@@ -327,6 +332,13 @@
                  aria-label="Upload slide images or a transcript" aria-describedby="uploadHint">
         </div>
         <p class="empty-video-row">
+          <span class="empty-or">or</span>
+          <span class="btn rail-add folder-add">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" width="16" height="16"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg>
+            Pick a folder of segments
+            <input type="file" id="folderInput" webkitdirectory multiple
+                   aria-label="Pick a folder of segments: slide images and their transcripts">
+          </span>
           <span class="empty-or">or</span>
           <button type="button" class="btn" id="videoBtnEmpty" aria-haspopup="dialog">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" width="16" height="16"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>

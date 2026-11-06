@@ -65,7 +65,7 @@ const files = [
   { name: "Atalay_S2_00-02-00.png", buffer: other2 },
 ].map((f) => ({ ...f, mimeType: "image/png" }));
 await page.setInputFiles("#fileInput", files);
-await page.waitForFunction(() => document.querySelectorAll("#railList li").length === 6);
+await page.waitForFunction(() => document.querySelectorAll("#railList .rail-row").length === 6);
 await page.waitForFunction(() => !document.getElementById("describeBtn").disabled, null, { timeout: 5000 });
 
 // ---------- S1: a segment runs in order, each slide with the one before it

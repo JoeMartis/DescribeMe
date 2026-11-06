@@ -680,6 +680,8 @@ const els = {
 
   // rail
   railList: document.getElementById("railList"),
+  folderInput: document.getElementById("folderInput"),
+  railFolderInput: document.getElementById("railFolderInput"),
   railEmpty: document.getElementById("railEmpty"),
   railFileInput: document.getElementById("railFileInput"),
   railTranscripts: document.getElementById("railTranscripts"),
@@ -1170,7 +1172,43 @@ function jobList() {
 // segment of their own. Within a segment, rail order is the order shown.
 
 function segmentKey(job) {
-  return job.videoName ? stemKey(job.videoName) : "";
+  if (job.videoName) return stemKey(job.videoName);
+  // A folder's slides with no timestamp in their names: the folder is the
+  // segment.
+  return job.folderName ? `folder:${stemKey(job.folderName)}` : "";
+}
+
+/** A segment's name as the rail and the export show it. */
+function segmentLabel(job) {
+  return job.videoName || job.folderName || "Other slides";
+}
+
+/** How many segments the batch holds. One is today's batch: no headings. */
+function segmentCount() {
+  return new Set(jobList().map(segmentKey)).size;
+}
+
+/**
+ * Keeps each segment's slides together, in rail order: segments in the order
+ * each first appears, and slides in the order they already had within it.
+ * The previous slide is the one above in the rail, so a slide moved among
+ * another segment's would otherwise be described against a stranger's.
+ * Returns whether anything moved.
+ */
+function groupBySegment() {
+  const groups = new Map();
+  for (const entry of jobs) {
+    const key = segmentKey(entry[1]);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(entry);
+  }
+  if (groups.size < 2) return false;
+  const grouped = [...groups.values()].flat();
+  const ids = [...jobs.keys()];
+  if (grouped.every(([id], i) => id === ids[i])) return false;
+  jobs.clear();
+  for (const [id, job] of grouped) jobs.set(id, job);
+  return true;
 }
 
 /** The slide shown just before this one in its segment, or null. */
@@ -1316,7 +1354,11 @@ function moveJobTo(jobId, targetIndex) {
   const entries = [...jobs.entries()];
   const from = entries.findIndex(([id]) => id === jobId);
   if (from === -1) return;
-  const to = Math.max(0, Math.min(entries.length - 1, targetIndex));
+  // Within its segment: the slide above is the one it is described against,
+  // and a slide dragged among another segment's would only be put back.
+  const key = segmentKey(entries[from][1]);
+  const own = entries.map(([, job], i) => (segmentKey(job) === key ? i : -1)).filter((i) => i >= 0);
+  const to = Math.max(own[0], Math.min(own[own.length - 1], targetIndex));
   if (to === from) return;
   // Otherwise renderAll below is blocked by the editMode guard and the
   // kicker/prev-next state goes stale until the edit is saved.
@@ -1752,19 +1794,99 @@ function detachTranscript(entry) {
   // a long caption filename in the status line was noise on top of that.
 }
 
+// ---------- Segment headings in the rail ----------
+// With more than one segment in the batch, each opens with a heading that
+// folds it open and shut. One segment is today's batch, with none.
+
+const segmentHeads = new Map(); // segment key → its heading <li>
+const collapsedSegments = new Set();
+
+function segmentHead(key) {
+  let li = segmentHeads.get(key);
+  if (!li) {
+    li = document.createElement("li");
+    li.className = "rail-segment";
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "rail-segment-toggle";
+    const name = document.createElement("span");
+    name.className = "rail-segment-name";
+    const meta = document.createElement("span");
+    meta.className = "rail-segment-meta";
+    button.append(name, meta);
+    button.addEventListener("click", () => {
+      if (collapsedSegments.has(key)) collapsedSegments.delete(key);
+      else collapsedSegments.add(key);
+      renderRail();
+    });
+    li.append(button);
+    segmentHeads.set(key, li);
+  }
+  return li;
+}
+
+/** Each segment's heading, its slides under it, folded or not, in rail order. */
+function syncRailSegments(list) {
+  const multi = new Set(list.map(segmentKey)).size > 1;
+  const wanted = [];
+  const bySegment = new Map();
+  for (const job of list) {
+    const key = segmentKey(job);
+    if (!bySegment.has(key)) bySegment.set(key, []);
+    bySegment.get(key).push(job);
+  }
+  for (const [key, members] of bySegment) {
+    const collapsed = multi && collapsedSegments.has(key);
+    if (multi) {
+      const head = segmentHead(key);
+      const button = head.firstChild;
+      const approved = members.filter((j) => j.state === "done" && j.approved).length;
+      button.querySelector(".rail-segment-name").textContent = segmentLabel(members[0]);
+      button.querySelector(".rail-segment-meta").textContent =
+        `${members.length} slide${members.length === 1 ? "" : "s"} · ${approved} approved`;
+      button.setAttribute("aria-expanded", String(!collapsed));
+      wanted.push(head);
+    }
+    for (const job of members) {
+      const li = job.railEl?.closest("li");
+      if (!li) continue;
+      li.hidden = collapsed;
+      wanted.push(li);
+    }
+  }
+  // Headings of segments no longer in the batch go.
+  for (const [key, head] of segmentHeads) {
+    if (!multi || !bySegment.has(key)) {
+      head.remove();
+      segmentHeads.delete(key);
+      collapsedSegments.delete(key);
+    }
+  }
+  const current = [...els.railList.children];
+  if (wanted.length === current.length && wanted.every((el, i) => el === current[i])) return;
+  // Moving a node takes focus out of it: put it back after.
+  const active = els.railList.contains(document.activeElement) ? document.activeElement : null;
+  for (const el of wanted) els.railList.appendChild(el);
+  if (active && active.isConnected) active.focus();
+}
+
 function renderRail() {
+  groupBySegment();
   jobs.forEach(renderRailRow);
   els.railEmpty.hidden = jobs.size > 0;
   renderTranscripts();
 
   const list = jobList();
+  syncRailSegments(list);
   list.forEach((job, i) => {
     const li = job.railEl?.closest("li");
     if (!li) return;
     const up = li.querySelector(".js-move-up");
     const down = li.querySelector(".js-move-down");
-    up.disabled = i === 0;
-    down.disabled = i === list.length - 1;
+    // A slide moves within its segment only: the slide above it is the one it
+    // is described against.
+    up.disabled = i === 0 || segmentKey(list[i - 1]) !== segmentKey(job);
+    down.disabled = i === list.length - 1 || segmentKey(list[i + 1]) !== segmentKey(job);
     up.setAttribute("aria-label", `Move ${job.name} earlier (position ${i + 1} of ${list.length})`);
     down.setAttribute("aria-label", `Move ${job.name} later (position ${i + 1} of ${list.length})`);
   });
@@ -1784,6 +1906,8 @@ function selectJob(jobId, options) {
   if (!jobs.has(jobId)) return;
   commitPendingEdit();
   selectedJobId = jobId;
+  // A slide chosen in a folded segment opens it.
+  collapsedSegments.delete(segmentKey(jobs.get(jobId)));
   renderRail();
   renderDetail();
   if (options && options.focusDetail) els.detail.focus();
@@ -1801,6 +1925,84 @@ function selectNextUnapproved() {
   const next = jobList().find((j) => j.state === "done" && !j.approved);
   if (next) selectJob(next.id);
   else selectRelative(1);
+}
+
+// ---------- Folders ----------
+// A folder of segments, one lecture or a whole module, comes in at once:
+// picked with Add folder, or dragged onto the page. Its slides sort into
+// segments by their names, and its transcripts pair by name, as single files
+// always have. Anything else a folder holds (a .DS_Store, the recording
+// itself) is passed over, and counted.
+
+const fileFolders = new WeakMap(); // a dropped folder's File → its path in the folder
+
+/** The folder a file sits in, when it came from a folder; "" otherwise. */
+function folderOfFile(file) {
+  const path = fileFolders.get(file) || file.webkitRelativePath || "";
+  const parts = path.split("/").filter(Boolean);
+  return parts.length > 1 ? parts[parts.length - 2] : "";
+}
+
+/** A folder's files in the order they were shown: by segment, then time. */
+function compareFolderFiles(a, b) {
+  const key = (file) => {
+    const stamp = timestampFromName(file.name);
+    return {
+      segment: stamp ? stamp.prefix : folderOfFile(file),
+      seconds: stamp ? stamp.seconds : Infinity,
+      position: stamp && Number.isInteger(stamp.position) ? stamp.position : Infinity,
+    };
+  };
+  const ka = key(a);
+  const kb = key(b);
+  return (
+    compareNatural(ka.segment, kb.segment) ||
+    (ka.seconds === kb.seconds ? 0 : ka.seconds < kb.seconds ? -1 : 1) ||
+    (ka.position === kb.position ? 0 : ka.position < kb.position ? -1 : 1) ||
+    compareNatural(a.name, b.name)
+  );
+}
+
+async function addFolderFiles(fileList) {
+  const all = Array.from(fileList);
+  const usable = all.filter((f) => ACCEPTED_TYPES.includes(f.type) || isTranscriptFile(f));
+  const passed = all.length - usable.length;
+  if (usable.length === 0) {
+    setError("That folder has no slide images or transcripts in it.");
+    return;
+  }
+  usable.sort(compareFolderFiles);
+  await addFiles(usable);
+  if (passed > 0) {
+    setStatus(
+      `${passed} file${passed === 1 ? "" : "s"} in the folder ${passed === 1 ? "is" : "are"} not ` +
+        `a slide image or a transcript, so ${passed === 1 ? "it was" : "they were"} left out.`
+    );
+  }
+}
+
+/** Every file under dropped folders (and dropped files beside them). */
+async function filesFromEntries(entries) {
+  const files = [];
+  const walk = async (entry) => {
+    if (entry.isFile) {
+      const file = await new Promise((resolve, reject) => entry.file(resolve, reject)).catch(() => null);
+      if (file) {
+        fileFolders.set(file, entry.fullPath);
+        files.push(file);
+      }
+    } else if (entry.isDirectory) {
+      const reader = entry.createReader();
+      // A batch at a time (100 in Chrome), until an empty one.
+      for (;;) {
+        const batch = await new Promise((resolve, reject) => reader.readEntries(resolve, reject)).catch(() => []);
+        if (batch.length === 0) break;
+        for (const child of batch) await walk(child);
+      }
+    }
+  };
+  for (const entry of entries) await walk(entry);
+  return files;
 }
 
 /**
@@ -1874,6 +2076,9 @@ async function addFiles(fileList, meta) {
       slidePosition: null,
       textOnly: false,
       transcriptContext: null,
+      // The folder it came from, for a folder brought in whole: the segment
+      // of a slide whose name carries no timestamp. See segmentKey.
+      folderName: folderOfFile(file) || null,
       ...meta,
     };
 
@@ -2151,10 +2356,13 @@ function updateControls() {
 
   // Header — export
   els.exportBtn.disabled = c.approved === 0;
+  const segmentsNow = segmentCount();
   els.exportBtnLabel.textContent =
     c.approved === 0
       ? "Export as .zip"
-      : `Export ${c.approved} approved as .zip`;
+      : segmentsNow > 1
+        ? `Export all ${c.approved} approved as .zip`
+        : `Export ${c.approved} approved as .zip`;
   els.learnerBtn.disabled = c.approved === 0;
 
   // Rail — the offer to sort by slide position
@@ -2292,7 +2500,13 @@ function renderDetail() {
   const frag = els.detailTemplate.content.cloneNode(true);
   const q = (sel) => frag.querySelector(sel);
 
-  q(".js-kicker").textContent = `Slide ${idx + 1} of ${list.length} · ${job.name}`;
+  // With several segments, where it sits in its own: that is what review
+  // goes through, and the whole batch's count says little.
+  const segment = list.filter((j) => segmentKey(j) === segmentKey(job));
+  q(".js-kicker").textContent =
+    segment.length < list.length
+      ? `${segmentLabel(job)} · Slide ${segment.indexOf(job) + 1} of ${segment.length} · ${job.name}`
+      : `Slide ${idx + 1} of ${list.length} · ${job.name}`;
   const prevBtn = q(".js-prev");
   const nextBtn = q(".js-next");
   prevBtn.disabled = idx <= 0;
@@ -3029,10 +3243,26 @@ els.railSaveBtn.addEventListener("click", () => {
   });
 });
 
-els.app.addEventListener("drop", (e) => {
+els.app.addEventListener("drop", async (e) => {
+  // Taken before anything is awaited: a drop's items are readable only
+  // while the event is being handled.
+  const entries = [...(e.dataTransfer.items || [])]
+    .map((item) => (typeof item.webkitGetAsEntry === "function" ? item.webkitGetAsEntry() : null))
+    .filter(Boolean);
+  if (entries.some((entry) => entry.isDirectory)) {
+    addFolderFiles(await filesFromEntries(entries));
+    return;
+  }
   if (e.dataTransfer.files && e.dataTransfer.files.length) {
     addFiles(e.dataTransfer.files);
   }
+});
+
+[els.folderInput, els.railFolderInput].forEach((input) => {
+  input.addEventListener("change", (e) => {
+    addFolderFiles(e.target.files);
+    input.value = "";
+  });
 });
 
 // ---------- Keyboard review ----------
@@ -5463,16 +5693,12 @@ function downloadBlob(blob, fileName) {
   setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
 
-async function exportApprovedNow() {
-  const { approved, entries, skipped, apiCopies, shouldResize } = await prepareApprovedImages();
-  if (approved.length === 0) return;
-  const batch = els.batchName.value.trim() || "Untitled batch";
-  const prepared = entries;
-  if (entries.length === 0) {
-    setError(nothingExportedMessage(skipped));
-    return;
-  }
-
+/**
+ * The Studio fragment for some approved visuals: their blocks under an
+ * optional heading, numbered among themselves. `title` is the batch's name,
+ * or a segment's in Export all.
+ */
+function exportFragment(entries, title) {
   // The fragment lands inside a page that already has headings, so its
   // titles sit at the configured level and everything below shifts with
   // them. The batch heading, when asked for, sits one level above the
@@ -5483,7 +5709,6 @@ async function exportApprovedNow() {
   const blocks = entries.map((entry, i) =>
     exportBlockFor({ ...entry, titleLevel, position: counted ? i + 1 : 0, total })
   );
-  const clampedSlides = blocks.filter((b) => b.clamped > 0).length;
 
   let html = "";
   if (els.exportBatchHeading.checked) {
@@ -5491,8 +5716,8 @@ async function exportApprovedNow() {
     // The total up front is the half of this that matters most: it says how
     // long the sequence is before anyone starts scrolling it.
     const heading = counted
-      ? `${escapeHtml(batch)} — ${total} visual${total === 1 ? "" : "s"}`
-      : escapeHtml(batch);
+      ? `${escapeHtml(title)} — ${total} visual${total === 1 ? "" : "s"}`
+      : escapeHtml(title);
     html += `<h${batchLevel}>${heading}</h${batchLevel}>\n\n`;
   } else if (counted) {
     // No heading to carry it, so the count leads as a plain sentence — still
@@ -5500,14 +5725,54 @@ async function exportApprovedNow() {
     html += `<p>${total} visual${total === 1 ? "" : "s"}, described in order.</p>\n\n`;
   }
   html += blocks.map((b) => b.html).join("\n\n") + "\n";
+  return { html, clamped: blocks.filter((b) => b.clamped > 0).length };
+}
 
-  const files = [{ name: "description.html", content: html }];
-  for (const { imageName, bytes } of entries) {
-    files.push({ name: `static/${imageName}`, bytes });
+async function exportApprovedNow() {
+  const { approved, entries, skipped, apiCopies, shouldResize } = await prepareApprovedImages();
+  if (approved.length === 0) return;
+  const batch = els.batchName.value.trim() || "Untitled batch";
+  const prepared = entries;
+  if (entries.length === 0) {
+    setError(nothingExportedMessage(skipped));
+    return;
+  }
+  const titleLevel = Number(els.exportHeadingLevel.value) || 3;
+
+  // One segment is today's export. More is Export all: a folder per
+  // segment, each with its own description.html and static/, numbered within
+  // itself. The image names are unique across the whole export, since every
+  // segment's images go into the one Files & Uploads of the course.
+  const segments = new Map();
+  for (const entry of entries) {
+    const key = segmentKey(entry.job);
+    if (!segments.has(key)) segments.set(key, []);
+    segments.get(key).push(entry);
+  }
+  const files = [];
+  let clampedSlides = 0;
+  if (segments.size === 1) {
+    const { html, clamped } = exportFragment(entries, batch);
+    clampedSlides = clamped;
+    files.push({ name: "description.html", content: html });
+    for (const { imageName, bytes } of entries) files.push({ name: `static/${imageName}`, bytes });
+  } else {
+    const folders = new Set();
+    for (const members of segments.values()) {
+      const label = segmentLabel(members[0].job);
+      // A stand-in extension for safeFileStem to take off, so a dot in the
+      // name (UCE.3_L2) is kept.
+      const folder = safeFileStem(`${label}.folder`, folders);
+      const { html, clamped } = exportFragment(members, label);
+      clampedSlides += clamped;
+      files.push({ name: `${folder}/description.html`, content: html });
+      for (const { imageName, bytes } of members) files.push({ name: `${folder}/static/${imageName}`, bytes });
+    }
   }
 
   downloadBlob(buildZipBlob(files), `${safeFileStem(batch, new Set())}-descriptions.zip`);
   const notes = [];
+  if (segments.size > 1) notes.push(`One folder for each of the ${segments.size} segments.`);
   if (apiCopies > 0) {
     // Not "full resolution" — say what actually went out.
     notes.push(
@@ -5865,6 +6130,10 @@ const AUTOSAVE_ID = "__autosave";
 const AUTOSAVE_DEBOUNCE_MS = 1500;
 let autosaveTimer = null;
 let autosaveDirty = false;
+// How long the last write took. A folder of segments can hold hundreds of
+// slides, and each write copies every image; the wait between writes grows
+// with it, so saving never takes up much of the tab's time.
+let lastAutosaveMs = 0;
 // Writes are gated until the load-time restore attempt settles: init's
 // first renderAll marks dirty with an EMPTY batch, and if the restore's
 // read were slower than the debounce, that empty write would destroy the
@@ -5945,7 +6214,7 @@ function markDirty() {
   // AUTOSAVE_DEBOUNCE_MS, and a batch run, whose results arrive more often
   // than that, never gave one: nothing was saved until it ended, and a crash
   // before then lost the whole run.
-  if (!autosaveTimer) autosaveTimer = setTimeout(writeAutosave, AUTOSAVE_DEBOUNCE_MS);
+  if (!autosaveTimer) autosaveTimer = setTimeout(writeAutosave, Math.max(AUTOSAVE_DEBOUNCE_MS, lastAutosaveMs * 4));
   // A lecture open from the shared folder saves there as you work, so a
   // hand-off never depends on someone remembering to press Save.
   if (folderLecture) scheduleFolderSave();
@@ -5979,12 +6248,14 @@ async function writeAutosave() {
       ? { dir: folderLecture.dir, saveId: folderLecture.saveId, saved: folderLecture.savedSignature === batchSignature() }
       : pendingFolderRelink && { ...pendingFolderRelink, saved: relinkUnchanged(pendingFolderRelink) },
   };
+  const started = performance.now();
   try {
     await projectStoreRequest("readwrite", (store) => store.put(record));
   } catch (_err) {
     // Best-effort by design: never interrupt real work over a failed
     // background save. An empty-jobs record doubles as "nothing to restore".
   }
+  lastAutosaveMs = performance.now() - started;
 }
 
 // Flush on tab hide/close so the last action before closing is kept.
@@ -6090,6 +6361,7 @@ function serializeProject() {
       originalBase64: job.originalBase64,
       originalMediaType: job.originalMediaType,
       videoName: job.videoName,
+      folderName: job.folderName || null,
       captureSeconds: job.captureSeconds,
       slidePosition: Number.isInteger(job.slidePosition) ? job.slidePosition : null,
       textOnly: !!job.textOnly,
@@ -6516,6 +6788,7 @@ function importedProjectRecord(raw) {
       originalWidth: num(saved.originalWidth),
       originalHeight: num(saved.originalHeight),
       videoName: typeof saved.videoName === "string" ? saved.videoName : null,
+      folderName: typeof saved.folderName === "string" && saved.folderName ? saved.folderName : null,
       // num() maps a non-finite value to null, so a frame captured at 0:00
       // keeps its legitimate 0 while junk is discarded.
       captureSeconds: num(saved.captureSeconds),

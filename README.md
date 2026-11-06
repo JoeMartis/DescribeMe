@@ -52,6 +52,20 @@ selected slide's image plus its description on the right.
    lecture round-trips: capture frames, export, and later re-upload the
    images plus the `.srt` with everything still lining up.
 
+   **A folder of segments** comes in at once: **Add folder** in the rail,
+   **Pick a folder of segments** on the empty workspace, or a folder dragged
+   onto the page. One lecture or a whole module, its subfolders included.
+   Its slides sort into segments by name (`Cronin_S4_00-06-29.png` is
+   Cronin S4 at 6:29) and each segment's into time order; a folder's
+   slides with no timestamp in their names take the folder as their
+   segment. Transcripts pair by name as above, and anything else the
+   folder holds is left out and counted. With more than one segment, the
+   rail shows a heading per segment (its slide count and how many are
+   approved) that folds it open and shut; a slide moves only within its
+   own segment, and the detail pane gives its place in it ("Cronin_S4 ·
+   Slide 2 of 3"). **Describe all** runs every segment — see "Making the
+   API calls efficient" below.
+
    Or use **From video** (in the header, or right on the empty workspace's
    splash screen) to pull slides out of a lecture
    recording: pick a video file from this computer, scrub to a slide, and
@@ -129,6 +143,13 @@ selected slide's image plus its description on the right.
    for full-resolution exports. PNGs stay lossless PNG; other
    formats re-encode as high-quality JPEG. This runs against each slide's
    original bytes, not whatever was resized for the API call.
+
+   With more than one segment in the batch it is **Export all**: one zip
+   with a folder per segment, each holding that segment's own
+   `description.html` (its visuals numbered within it, and headed by the
+   segment's name when the batch-name heading is on) and its own `static/`.
+   Image names are unique across the whole export, since every segment's
+   images go into the course's one Files & Uploads.
 
    Each slide's block is shaped for reading order: the `<h2>` title (with
    `tabindex="0"` so slide sections are keyboard-reachable), the opening

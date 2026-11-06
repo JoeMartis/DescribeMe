@@ -150,7 +150,18 @@ await page.waitForFunction(() => jobs.size === 6);
 await page.waitForTimeout(400);
 let o = await offer();
 check("S2  offered for a batch out of position order", o.shown && o.btn === "Sort by position", o.btn);
-check("S2  …and the batch is NOT reordered until asked", JSON.stringify(await railNames()) === JSON.stringify(MESSY));
+// Each video's slides go together at once, as segments, in the order they came
+// in; a slide from no video is a segment of its own. Order within a video is
+// left alone until asked.
+const GROUPED = [
+  `${V5}_0003_00-01-10.png`,
+  `${V5}_00-00-01-01.png`,
+  `${V5}__0002_00-00-40.png`,
+  `${V6}_00-00-20-02.png`,
+  `${V6}_0001_00-00-05.png`,
+  "whiteboard photo.png",
+];
+check("S2  …each video's slides go together, but are NOT put in position order until asked", JSON.stringify(await railNames()) === JSON.stringify(GROUPED), (await railNames()).join(" | "));
 
 await page.click("#railSortBtn");
 await page.waitForTimeout(300);
@@ -160,11 +171,11 @@ check("S2  sorts by position, grouping each video's slides together",
     `${V5}_00-00-01-01.png`,
     `${V5}__0002_00-00-40.png`,
     `${V5}_0003_00-01-10.png`,
-    "whiteboard photo.png",
     `${V6}_0001_00-00-05.png`,
     `${V6}_00-00-20-02.png`,
+    "whiteboard photo.png",
   ]), sorted.join(" | "));
-check("S2  a slide with no position keeps its place", sorted[3] === "whiteboard photo.png");
+check("S2  a slide with no position keeps its place, in a segment of its own", sorted[5] === "whiteboard photo.png");
 check("S2  the jobs follow the rail — it is the batch order, not just the display",
   JSON.stringify(await page.evaluate(() => [...jobs.values()].map((j) => j.name))) === JSON.stringify(sorted));
 
@@ -173,7 +184,7 @@ o = await offer();
 check("S3  after sorting, the offer becomes Undo", o.shown && o.btn === "Undo sort", o.btn);
 await page.click("#railSortBtn");
 await page.waitForTimeout(300);
-check("S3  Undo puts back exactly the order before", JSON.stringify(await railNames()) === JSON.stringify(MESSY));
+check("S3  Undo puts back exactly the order before", JSON.stringify(await railNames()) === JSON.stringify(GROUPED));
 check("S3  …and the offer to sort comes back", (await offer()).btn === "Sort by position");
 
 // A hand move after sorting retires Undo: undoing would discard it.
