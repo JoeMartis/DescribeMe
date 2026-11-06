@@ -2917,8 +2917,49 @@ function renderDetail() {
     preview.innerHTML = job.resultHtml;
     preview.setAttribute("aria-label", `Description of ${job.name}`);
 
+    // A proposed revision's changes, shown in place until used or hidden.
+    const proposal = showingProposal && showingProposal.jobId === job.id
+      ? job.discussion?.[showingProposal.index]?.revision
+      : null;
+    if (proposal && proposal.html !== job.resultHtml) {
+      const n = revisionNumber(job, showingProposal.index);
+      const marked = diffHtml(job.resultHtml, proposal.html);
+      preview.innerHTML = marked ?? proposal.html;
+      preview.setAttribute("aria-label", `Changes revision ${n} would make to the description of ${job.name}`);
+      q(".js-proposal-banner").hidden = false;
+      q(".js-proposal-text").textContent = marked
+        ? `Showing the changes revision ${n} would make: struck through comes out, underlined goes in. Nothing has changed yet.`
+        : `Showing revision ${n} in place of the description (its changes can't be marked inside equations). Nothing has changed yet.`;
+      q(".js-proposal-hide").addEventListener("click", () => {
+        showingProposal = null;
+        renderDetail();
+      });
+    }
+
+    const discussBtn = q(".js-discuss-toggle");
+    discussBtn.setAttribute("aria-pressed", String(discussOpen));
+    discussBtn.disabled = !job.base64;
+    discussBtn.addEventListener("click", () => {
+      discussOpen = !discussOpen;
+      showingProposal = null;
+      renderDetail();
+      els.detailPane.querySelector(discussOpen ? ".js-discuss-input" : ".js-discuss-toggle")?.focus();
+    });
+    if (discussOpen && job.base64) {
+      renderDiscussion(job, frag);
+      q(".split").classList.add("discussing");
+      q(".js-refine").hidden = true;
+    }
+
     const editBtn = q(".js-edit");
-    editBtn.addEventListener("click", () => toggleEdit(job.id));
+    editBtn.addEventListener("click", () => {
+      // Never edit the marked-up comparison: back to the description first.
+      if (showingProposal) {
+        showingProposal = null;
+        renderDetail();
+      }
+      toggleEdit(job.id);
+    });
 
     // Formatting toolbar (visible only while editing). mousedown is
     // prevented so clicking a tool never steals the selection from the
@@ -3096,6 +3137,8 @@ function renderDetail() {
 
   els.detailPane.replaceChildren(frag);
   els.detailPane.hidden = false;
+  const log = els.detailPane.querySelector(".js-discuss-log");
+  if (log && !log.closest("[hidden]")) log.scrollTop = log.scrollHeight;
 
   if (focusSel) {
     const target = els.detailPane.querySelector(focusSel);
@@ -3452,6 +3495,35 @@ function restoreSnapshot(job, snap) {
   }
   if ("contextFrom" in snap) job.contextFrom = validContextRecord(snap.contextFrom);
   if ("sameAsPrevious" in snap) job.sameAsPrevious = !!snap.sameAsPrevious;
+}
+
+/**
+ * A slide's discussion read back from a project file or the shared folder:
+ * untrusted, so each message is checked, its words kept as plain text (they
+ * are only ever shown as text) and a revision's markup sanitised like any
+ * description.
+ */
+function validDiscussion(raw, sanitizeToStored) {
+  if (!Array.isArray(raw)) return [];
+  return raw.slice(-200).flatMap((m) => {
+    if (!m || typeof m !== "object" || (m.role !== "user" && m.role !== "assistant")) return [];
+    if (typeof m.text !== "string") return [];
+    const kept = { role: m.role, text: m.text.slice(0, 20000) };
+    if (m.role === "assistant") {
+      if (m.revision && typeof m.revision.html === "string") {
+        const stored = sanitizeToStored(m.revision.html);
+        kept.revision = { html: stored.html, text: stored.text };
+      } else {
+        kept.revision = null;
+      }
+      kept.model = MODEL_LADDER.includes(m.model) ? m.model : null;
+      kept.costUsd = Number.isFinite(m.costUsd) && m.costUsd >= 0 ? m.costUsd : null;
+      kept.costMeasured = !!m.costMeasured;
+      kept.usage = null;
+      kept.contextFrom = validContextRecord(m.contextFrom);
+    }
+    return [kept];
+  });
 }
 
 /** A contextFrom read back from a save or a project file, or null. */
@@ -4061,6 +4133,429 @@ function previousVisualContent(context) {
     { type: "text", text: `ITS DESCRIPTION, already written:\n\n${context.html}` },
     { type: "text", text: "CURRENT VISUAL, the one to describe:" },
   ];
+}
+
+// ---------- Discuss with Claude ----------
+//
+// A conversation about one slide's description, with Claude seeing what the
+// description was written from: the slide, the slide before it and its
+// description, the transcript excerpt, the rules, and the description as it
+// stands. Claude answers, and when a change is wanted proposes a whole
+// revised description. A revision goes in only on Use this, through the same
+// undo history as every other change, and puts the slide back to needing
+// review: approval is still the person's.
+
+const DISCUSS_RULES = `DISCUSSING THE DESCRIPTION
+You are now talking with the member of the course team who is reviewing this description. The description as it stands is given below; they may have edited it, or written it themselves.
+- Answer questions plainly and briefly, in plain text with no HTML or markdown. Say what on the slide or in the transcript your answer rests on.
+- When they ask for a change, or a change is the answer to their point, propose a revised description: a sentence or two saying what you changed, then the WHOLE revised description, in the same HTML form and under the same rules as above, between <revision> and </revision>. Never a fragment, never only the changed part.
+- Propose only when a change is wanted. To explain or answer, give no revision.
+- The rules above still hold in a revision. If what they ask would break one (describing what the slide does not show, quoting the transcript), say so and offer what you can do instead.`;
+
+let discussOpen = false;
+const discussDrafts = new Map(); // job id → what is typed and not yet sent
+const discussErrors = new Map(); // job id → why the last reply did not come
+let discussInFlight = null; // { jobId, controller }
+let showingProposal = null; // { jobId, index }: whose changes the description shows
+
+function discussModel(job) {
+  return job.usedModel || els.model.value.trim() || "claude-sonnet-5";
+}
+
+/** What Claude is given, in words, for the top of the panel. */
+function discussSees(job) {
+  const prev = previousInSegment(job);
+  const bits = ["this slide"];
+  if (contextFor(job, prev)) bits.push("the slide before it and its description");
+  if (job.transcriptContext) bits.push("the transcript around it");
+  bits.push(job.textOnly ? "the transcription rules" : "the rules the description was written under");
+  const list = bits.length > 1 ? `${bits.slice(0, -1).join(", ")} and ${bits[bits.length - 1]}` : bits[0];
+  return `Claude sees ${list}, and the description as it stands now.`;
+}
+
+/** The request: the description's own context first, then the conversation. */
+function discussionRequest(job) {
+  const prev = previousInSegment(job);
+  const context = contextFor(job, prev);
+  const system = `${buildSystemPrompt(currentVerbosity(), null, job.textOnly, !!context)}\n\n${DISCUSS_RULES}`;
+  const who = job.authored ? "a person wrote it" : job.edited ? "a person has edited it" : "you wrote it";
+  const opening = [
+    ...previousVisualContent(context),
+    { type: "image", source: { type: "base64", media_type: job.mediaType, data: job.base64 } },
+    { type: "text", text: `THE REQUEST THE DESCRIPTION ANSWERS:\n\n${buildUserText(job)}` },
+    { type: "text", text: `THE DESCRIPTION AS IT STANDS NOW (${who}):\n\n${job.resultHtml}` },
+  ];
+  // Turns alternate; two of a kind in a row (a message sent again after a
+  // reply failed) go as one.
+  const turns = [];
+  for (const m of job.discussion || []) {
+    const text =
+      m.role === "assistant" && m.revision ? `${m.text}\n\n<revision>\n${m.revision.html}\n</revision>` : m.text;
+    const last = turns[turns.length - 1];
+    if (last && last.role === m.role) last.text += `\n\n${text}`;
+    else turns.push({ role: m.role, text });
+  }
+  const messages = turns.map((t, i) => ({
+    role: t.role,
+    content: i === 0 ? [...opening, { type: "text", text: `THE REVIEWER:\n\n${t.text}` }] : t.text,
+  }));
+  return { system, messages, context };
+}
+
+/** A reply: what Claude said, and the revision in it, if it proposed one. */
+function parseDiscussReply(raw, truncated) {
+  const m = /<revision>([\s\S]*?)<\/revision>/i.exec(raw);
+  if (!m) {
+    // An opened revision the reply never closed was cut off: not a proposal.
+    const text = raw.replace(/<revision>[\s\S]*$/i, "").trim();
+    return { text: text || (truncated ? "The reply was cut off before it finished." : "…"), revision: null };
+  }
+  const fragment = sanitizeHtmlFragment(m[1].trim());
+  const holder = document.createElement("div");
+  holder.appendChild(fragment.cloneNode(true));
+  const revision = { html: holder.innerHTML, text: domFragmentToText(fragment) };
+  if (!revision.text.trim() && !/<(math|img|table)[\s>]/i.test(revision.html)) return { text: raw.replace(m[0], "").trim() || "…", revision: null };
+  const text = raw.replace(m[0], "").trim() || "Here is a revision.";
+  return { text, revision };
+}
+
+async function sendDiscussion(jobId, words) {
+  const job = jobs.get(jobId);
+  const text = String(words || "").trim();
+  if (!job || !text || discussInFlight || batchRunning) return;
+  if (!els.apiKey.value.trim()) {
+    setError(NO_KEY_ERROR);
+    openSettings();
+    return;
+  }
+  commitPendingEdit();
+  job.discussion = [...(job.discussion || []), { role: "user", text }];
+  discussDrafts.delete(jobId);
+  markDirty();
+  await requestDiscussionReply(job);
+}
+
+async function requestDiscussionReply(job) {
+  const apiKey = els.apiKey.value.trim();
+  const model = discussModel(job);
+  const { system, messages, context } = discussionRequest(job);
+  const controller = new AbortController();
+  discussInFlight = { jobId: job.id, controller };
+  discussErrors.delete(job.id);
+  renderDetail();
+  setStatus("Claude is replying…");
+  try {
+    const headers = { "content-type": "application/json", "x-api-key": apiKey, "anthropic-version": ANTHROPIC_VERSION };
+    if (keyIsAnthropic(apiKey)) headers["anthropic-dangerous-direct-browser-access"] = "true";
+    let payload = null;
+    let response = null;
+    for (let attempt = 1; ; attempt += 1) {
+      response = await fetch(`${apiBaseFor(apiKey)}/v1/messages`, {
+        method: "POST",
+        signal: controller.signal,
+        headers,
+        body: JSON.stringify({ model, max_tokens: 16384, system, messages }),
+      });
+      const body = await readResponseBody(response);
+      payload = body.json;
+      if ((response.status === 429 || response.status >= 500) && attempt < MAX_ATTEMPTS) {
+        await sleep(retryDelay(attempt, parseFloat(response.headers.get("retry-after"))));
+        continue;
+      }
+      if (!response.ok) throw new Error(payload ? apiErrorMessage(payload, response.status) : nonJsonDiagnostic(response, body.raw));
+      if (!payload || !Array.isArray(payload.content)) throw new Error("Unexpected response shape from the API.");
+      break;
+    }
+    if (payload.stop_reason === "refusal") throw new Error("Claude declined to reply to that.");
+    const raw = payload.content.filter((b) => b.type === "text").map((b) => b.text).join("\n").trim();
+    if (!raw) throw new Error("The reply had no text in it.");
+    const usage = readUsage(payload);
+    let costUsd = null;
+    let costMeasured = false;
+    if (usage) {
+      const headerCost = reportedCostUsd(response);
+      costUsd = headerCost != null ? headerCost : usageCostUsd(usage, model);
+      costMeasured = headerCost != null;
+      recordSpend(usage, model, headerCost);
+    }
+    const reply = parseDiscussReply(raw, payload.stop_reason === "max_tokens");
+    if (!jobs.has(job.id)) return; // removed while Claude was replying
+    job.discussion = [
+      ...(job.discussion || []),
+      {
+        role: "assistant",
+        text: reply.text,
+        revision: reply.revision,
+        model,
+        usage,
+        costUsd,
+        costMeasured,
+        // What a revision was written with in view, for the context flag.
+        contextFrom: context ? contextRecord(context.prev, context.html) : null,
+      },
+    ];
+    markDirty();
+    setStatus(reply.revision ? `Claude proposed a revision of ${job.name}. Nothing changes until you use it.` : "Claude replied.");
+  } catch (err) {
+    discussErrors.set(job.id, err.name === "AbortError" ? "Stopped. Nothing was added." : describeFetchError(err, apiBaseFor(apiKey)));
+    setStatus("");
+  } finally {
+    discussInFlight = null;
+    if (job.id === selectedJobId) renderDetail();
+  }
+}
+
+/** Puts a proposed revision in the description, undoably, to be reviewed. */
+function useRevision(jobId, index) {
+  const job = jobs.get(jobId);
+  const m = job?.discussion?.[index];
+  if (!m?.revision || batchRunning) return;
+  commitPendingEdit();
+  job.history.push(snapshotOf(job));
+  applyResult(job, m.revision.html);
+  Object.assign(job, {
+    state: "done",
+    edited: false,
+    truncated: false,
+    approved: false,
+    sameAsPrevious: false,
+    usedModel: m.model || job.usedModel,
+    usage: m.usage || null,
+    costUsd: Number.isFinite(m.costUsd) ? m.costUsd : null,
+    costMeasured: !!m.costMeasured,
+    durationMs: null,
+    contextFrom: m.contextFrom || null,
+  });
+  // As applied, so "is this one in the description" compares like with like.
+  m.revision.html = job.resultHtml;
+  showingProposal = null;
+  renderJobState(job);
+  updateControls();
+  setStatus(`Revision ${revisionNumber(job, index)} is in the description of ${job.name}. It needs your review.`);
+}
+
+function revisionNumber(job, index) {
+  return job.discussion.slice(0, index + 1).filter((m) => m.revision).length;
+}
+
+function discussMessageEl(job, m, index) {
+  const li = document.createElement("li");
+  li.className = `discuss-msg ${m.role === "user" ? "from-you" : "from-claude"}`;
+  if (m.role === "assistant") {
+    const who = document.createElement("span");
+    who.className = "discuss-who";
+    who.textContent = "Claude";
+    li.append(who);
+  } else {
+    const who = document.createElement("span");
+    who.className = "visually-hidden";
+    who.textContent = "You: ";
+    li.append(who);
+  }
+  if (!m.revision) {
+    const p = document.createElement("p");
+    p.textContent = m.text;
+    li.append(p);
+    return li;
+  }
+  const n = revisionNumber(job, index);
+  const inUse = job.resultHtml === m.revision.html;
+  const card = document.createElement("div");
+  card.className = `discuss-revision${inUse ? " in-use" : ""}`;
+  const p = document.createElement("p");
+  p.style.padding = "10px 14px 4px";
+  p.textContent = m.text;
+  const bar = document.createElement("div");
+  bar.className = "discuss-revision-bar";
+  const name = document.createElement("span");
+  name.className = "discuss-revision-name";
+  name.textContent = inUse ? `Revision ${n} is in the description` : `Revision ${n}`;
+  bar.append(name);
+  if (Number.isFinite(m.costUsd)) {
+    const cost = document.createElement("span");
+    cost.className = "discuss-revision-cost";
+    cost.textContent = formatUsd(m.costUsd, 3);
+    bar.append(cost);
+  }
+  const spacer = document.createElement("span");
+  spacer.className = "spacer";
+  bar.append(spacer);
+  if (inUse) {
+    if (job.history.length > 0) {
+      const undo = document.createElement("button");
+      undo.type = "button";
+      undo.className = "btn btn-outline btn-chip js-discuss-undo";
+      undo.textContent = "Undo";
+      undo.setAttribute("aria-label", `Undo revision ${n}`);
+      undo.addEventListener("click", () => undoRevision(job.id));
+      bar.append(undo);
+    }
+  } else {
+    const showing = showingProposal && showingProposal.jobId === job.id && showingProposal.index === index;
+    const show = document.createElement("button");
+    show.type = "button";
+    show.className = "btn btn-outline btn-chip js-discuss-show";
+    show.setAttribute("aria-pressed", String(!!showing));
+    show.textContent = showing ? "Showing changes" : "Show changes";
+    show.setAttribute("aria-label", `Show the changes revision ${n} would make`);
+    show.addEventListener("click", () => {
+      showingProposal = showing ? null : { jobId: job.id, index };
+      renderDetail();
+    });
+    const use = document.createElement("button");
+    use.type = "button";
+    use.className = "btn btn-outline btn-chip btn-use js-discuss-use";
+    use.textContent = "Use this";
+    use.setAttribute("aria-label", `Use revision ${n}`);
+    use.disabled = batchRunning;
+    use.addEventListener("click", () => useRevision(job.id, index));
+    bar.append(show, use);
+  }
+  card.append(p, bar);
+  li.append(card);
+  return li;
+}
+
+/** Fills the panel in a freshly cloned detail pane. */
+function renderDiscussion(job, frag) {
+  const q = (sel) => frag.querySelector(sel);
+  q(".js-discuss").hidden = false;
+  q(".js-discuss-sees").textContent = discussSees(job);
+  const log = q(".js-discuss-log");
+  const messages = job.discussion || [];
+  if (messages.length === 0) {
+    const li = document.createElement("li");
+    li.className = "discuss-note";
+    li.textContent = "Ask why it says what it says, or tell Claude what to change. A revision goes in only when you choose Use this.";
+    log.append(li);
+  }
+  messages.forEach((m, i) => log.append(discussMessageEl(job, m, i)));
+  const busy = discussInFlight && discussInFlight.jobId === job.id;
+  if (busy) {
+    const li = document.createElement("li");
+    li.className = "discuss-note";
+    li.textContent = "Claude is replying… ";
+    const stop = document.createElement("button");
+    stop.type = "button";
+    stop.className = "btn btn-text js-discuss-stop";
+    stop.textContent = "Stop";
+    stop.addEventListener("click", () => discussInFlight?.controller.abort());
+    li.append(stop);
+    log.append(li);
+  }
+  const error = discussErrors.get(job.id);
+  if (error && !busy) {
+    const li = document.createElement("li");
+    li.className = "discuss-error";
+    li.setAttribute("role", "alert");
+    li.textContent = `No reply: ${error} `;
+    const last = messages[messages.length - 1];
+    if (last && last.role === "user") {
+      const retry = document.createElement("button");
+      retry.type = "button";
+      retry.className = "btn btn-outline btn-chip js-discuss-retry";
+      retry.textContent = "Try again";
+      retry.addEventListener("click", () => requestDiscussionReply(job));
+      li.append(retry);
+    }
+    log.append(li);
+  }
+
+  const input = q(".js-discuss-input");
+  input.value = discussDrafts.get(job.id) || "";
+  input.addEventListener("input", () => discussDrafts.set(job.id, input.value));
+  const send = () => sendDiscussion(job.id, input.value);
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+      e.preventDefault();
+      send();
+    }
+  });
+  const blocked = !!discussInFlight || batchRunning;
+  const sendBtn = q(".js-discuss-send");
+  sendBtn.disabled = blocked;
+  sendBtn.addEventListener("click", send);
+  frag.querySelectorAll(".js-discuss-quick").forEach((b) => {
+    b.disabled = blocked;
+    b.addEventListener("click", () => sendDiscussion(job.id, b.dataset.ask));
+  });
+  q(".js-discuss-close").addEventListener("click", () => {
+    discussOpen = false;
+    showingProposal = null;
+    renderDetail();
+    els.detailPane.querySelector(".js-discuss-toggle")?.focus();
+  });
+  const spent = messages.reduce((sum, m) => sum + (Number.isFinite(m.costUsd) ? m.costUsd : 0), 0);
+  const modelName = MODEL_SHORT_NAMES[discussModel(job)] || discussModel(job);
+  q(".js-discuss-foot").textContent =
+    `${modelName}${spent > 0 ? ` · this discussion so far ${formatUsd(spent, 3)}` : ""} · Enter sends, Shift+Enter adds a line`;
+}
+
+/**
+ * The description with a revision's changes marked in it: words taken out
+ * struck through, words put in underlined. Worked out word by word on the
+ * markup, keeping the revision's tags. Null where it cannot be marked
+ * cleanly (equations, or a description too long to compare quickly).
+ */
+function diffHtml(oldHtml, newHtml) {
+  if (/<math/i.test(oldHtml) || /<math/i.test(newHtml)) return null;
+  // Tags, entities, words, spaces, and each mark of punctuation on its own,
+  // so "box." becoming "box, which…" marks the full stop, not the word.
+  const tokens = (html) => html.match(/<[^>]+>|&[#\w]+;|[\p{L}\p{N}\p{M}'’-]+|\s+|[^<\s]/gu) || [];
+  const a = tokens(oldHtml);
+  const b = tokens(newHtml);
+  const n = a.length;
+  const m = b.length;
+  if (n * m > 4000000) return null;
+  // Longest common subsequence, from the end.
+  const width = m + 1;
+  const table = new Uint16Array((n + 1) * width);
+  for (let i = n - 1; i >= 0; i -= 1) {
+    for (let j = m - 1; j >= 0; j -= 1) {
+      table[i * width + j] =
+        a[i] === b[j] ? table[(i + 1) * width + j + 1] + 1 : Math.max(table[(i + 1) * width + j], table[i * width + j + 1]);
+    }
+  }
+  const out = [];
+  let run = null; // { kind: "del"|"ins", text }
+  const flush = () => {
+    if (run) out.push(`<${run.kind}>${run.text}</${run.kind}>`);
+    run = null;
+  };
+  const add = (kind, token) => {
+    if (token.startsWith("<")) {
+      flush();
+      if (kind !== "del") out.push(token); // the revision's structure
+      return;
+    }
+    if (kind === "same") {
+      flush();
+      out.push(token);
+      return;
+    }
+    if (run && run.kind !== kind) flush();
+    run = run || { kind, text: "" };
+    run.text += token;
+  };
+  let i = 0;
+  let j = 0;
+  while (i < n && j < m) {
+    if (a[i] === b[j]) {
+      add("same", a[i]);
+      i += 1;
+      j += 1;
+    } else if (table[(i + 1) * width + j] >= table[i * width + j + 1]) {
+      add("del", a[i]);
+      i += 1;
+    } else {
+      add("ins", b[j]);
+      j += 1;
+    }
+  }
+  while (i < n) add("del", a[i++]);
+  while (j < m) add("ins", b[j++]);
+  flush();
+  return out.join("");
 }
 
 function retryDelay(attempt, retryAfterSeconds) {
@@ -6773,6 +7268,7 @@ function serializeProject() {
       mathWarning: typeof job.mathWarning === "string" ? job.mathWarning : null,
       contextFrom: job.contextFrom || null,
       sameAsPrevious: !!job.sameAsPrevious,
+      discussion: Array.isArray(job.discussion) ? job.discussion : [],
     })),
   };
 }
@@ -7210,6 +7706,7 @@ function importedProjectRecord(raw) {
       mathWarning: typeof saved.mathWarning === "string" && saved.mathWarning ? saved.mathWarning : null,
       contextFrom: validContextRecord(saved.contextFrom),
       sameAsPrevious: !!saved.sameAsPrevious,
+      discussion: validDiscussion(saved.discussion, sanitizeToStored),
     };
   });
 

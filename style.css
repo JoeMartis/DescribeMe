@@ -1126,6 +1126,93 @@ code, kbd {
 .desc-actions { display: flex; align-items: center; gap: 2px; flex-wrap: wrap; margin-top: 8px; }
 .desc-meta { font-family: var(--font-body); font-weight: 600; font-size: 13px; color: var(--faint); }
 
+/* ---------- Discuss with Claude ---------- */
+/* While discussing, the slide shrinks to make room for the conversation
+   under it, and the refine card gives way to the chat's quick requests. */
+.split.discussing .slide-frame { width: 240px; }
+/* Taller than the window with the conversation in it: it scrolls with the
+   page, or its top (the slide) is cut off under the sticky position. */
+.split.discussing .slide-pane { position: static; }
+.btn-text[aria-pressed="true"] { background: var(--swamp-parchment); }
+.discuss {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  background: var(--raised);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+.discuss-head { display: flex; align-items: flex-start; gap: 10px; padding: 14px 12px 12px 18px; border-bottom: 2px solid var(--swamp-sunken); }
+.discuss-intro { flex: 1; display: flex; flex-direction: column; gap: 6px; }
+.discuss-title { font-family: var(--font-body); font-weight: 700; font-size: 15px; }
+.discuss-sees { font-weight: 500; font-size: 12.5px; line-height: 1.45; color: var(--faint); }
+.discuss-log {
+  list-style: none;
+  margin: 0;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  background: var(--paper-white);
+  max-height: 46vh;
+  min-height: 140px;
+  overflow-y: auto;
+}
+.discuss-msg { display: flex; flex-direction: column; gap: 4px; font-size: 14px; line-height: 1.5; }
+.discuss-msg p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.discuss-msg.from-you { align-self: flex-end; max-width: 85%; }
+.discuss-msg.from-you p { padding: 10px 14px; border-radius: 16px 16px 4px 16px; background: var(--swamp-parchment); }
+.discuss-msg.from-claude { align-self: flex-start; width: 94%; }
+.discuss-who { font-weight: 700; font-size: 12px; color: var(--faint); }
+.discuss-msg.from-claude > p { padding: 10px 14px; border-radius: 16px 16px 16px 4px; background: var(--raised); border: 2px solid var(--swamp-sunken); }
+.discuss-note { align-self: center; font-weight: 600; font-size: 12.5px; color: var(--faint); text-align: center; }
+.discuss-error { align-self: stretch; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 14px; border-radius: 14px; background: #fde3dc; color: #7a2412; font-weight: 600; font-size: 13px; }
+.discuss-revision { border: 2px solid var(--border); border-radius: 16px; background: var(--raised); overflow: hidden; }
+.discuss-revision.in-use { border-color: var(--sage-press); }
+.discuss-revision-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 10px 10px 14px; }
+.discuss-revision.in-use .discuss-revision-bar { background: var(--sage-100); }
+.discuss-revision-name { font-weight: 700; font-size: 13px; color: var(--sage-700); }
+.discuss-revision-cost { font-weight: 600; font-size: 12px; color: var(--faint); }
+.discuss-revision-bar .spacer { flex: 1; }
+.btn-chip { padding: 5px 12px; font-size: 13px; }
+.btn-chip[aria-pressed="true"] { background: var(--swamp-parchment); }
+.btn-use { background: var(--fg); color: var(--paper-white); }
+.btn-use:hover:not(:disabled) { background: var(--neutral-700); color: var(--paper-white); }
+.discuss-compose { display: flex; flex-direction: column; gap: 10px; padding: 12px 14px 14px; border-top: 2px solid var(--swamp-sunken); }
+.discuss-quick { display: flex; flex-wrap: wrap; gap: 6px; }
+.discuss-input { display: flex; align-items: flex-end; gap: 8px; }
+.discuss-field { flex: 1; display: flex; }
+.discuss-field textarea {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  min-height: 48px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 2px solid var(--border);
+  background: var(--raised);
+  font: 500 14px/1.45 var(--font-body);
+  color: var(--fg);
+}
+.discuss-foot { font-weight: 600; font-size: 12px; color: var(--faint); }
+
+.proposal-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 8px 8px 8px 14px;
+  border-radius: 14px;
+  background: #fff3d0;
+  border: 2px solid #c9a227;
+}
+.proposal-banner p { flex: 1; font-weight: 600; font-size: 13.5px; }
+/* A proposed revision's changes, marked in the description: removals struck
+   through, additions underlined. The two differ in form, not colour alone. */
+.result-preview del { text-decoration: line-through; text-decoration-thickness: 2px; color: #8a2a14; background: #fde3dc; }
+.result-preview ins { text-decoration: underline; text-decoration-thickness: 2px; text-decoration-color: #1f6b37; background: #d8f0dd; }
+
 /* The ⋯ menu: Remove from batch, kept off the everyday row. */
 .more-wrap { position: relative; }
 .btn-more { width: 40px; height: 40px; padding: 0; }
