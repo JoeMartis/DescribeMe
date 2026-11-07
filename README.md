@@ -126,11 +126,29 @@ selected slide's image plus its description on the right.
    transcription instead), or **Redo with a stronger model** re-run just that
    slide with an adjusted prompt — the previous version is kept so **Undo
    revision** can restore it.
-6. **Approve & next** (or press <kbd>A</kbd>) marks the slide ready for
-   export and jumps to the next unapproved one; <kbd>←</kbd>/<kbd>→</kbd>
-   move between slides at any time. Only approved slides go into the export.
+
+   **Discuss**, beside **Edit**, opens a conversation with Claude about the
+   description, under the slide. Claude sees what the description was written
+   from — the slide, the slide before it and its description, the transcript
+   excerpt, the rules — and the description as it stands (**What Claude
+   sees** says so). It answers questions without changing anything; asked for
+   a change, it proposes a whole revised description, shown in full in the
+   chat. **Preview** puts it in the description's place, **Compare** marks
+   what it changes (struck through out, underlined in), and **Use this** puts
+   it in: onto the undo stack, back to needing review, flagging the slides
+   after it as any change does. More detail, Shorter and Text only are quick
+   requests there, and the **Model** picker steps the conversation up to a
+   stronger model. Each slide's conversation is saved with the project and
+   the shared folder, never exported. Using a revision, or approving, closes
+   the chat; **Discuss** opens it again.
+6. **Approve & next** (or press <kbd>A</kbd>), at the foot of the
+   description, marks the slide ready for export and jumps to the next
+   unapproved one; on an approved slide it becomes **Un-approve**, beside the
+   Approved tag. <kbd>←</kbd>/<kbd>→</kbd> move between slides at any time.
+   Only approved slides go into the export.
 7. Failed slides show the error inline with a **Retry** button; any slide can
-   be removed from the batch from its detail pane, and **New batch**, in the
+   be removed from the batch with **Remove from batch**, in the **⋯** menu at
+   the top right of its description, and **New batch**, in the
    rail's **⋯** menu, clears all of them to start over (always behind a confirm — the
    warning is sharper when descriptions would be lost).
 8. **Export as .zip** combines every approved slide, in rail order, into a
@@ -145,6 +163,12 @@ selected slide's image plus its description on the right.
    for full-resolution exports. PNGs stay lossless PNG; other
    formats re-encode as high-quality JPEG. This runs against each slide's
    original bytes, not whatever was resized for the API call.
+
+   Where the browser has a Save dialog (Chrome, Edge), the zip, a learner
+   download and a project file open it at the click, with the name filled in,
+   so you pick the folder; elsewhere (Safari, Firefox) they download as
+   usual. Cancelling saves nothing, and an export that fails takes back the
+   empty file the dialog made.
 
    With more than one segment in the batch it is **Export all**: one zip
    with a folder per segment, each holding that segment's own
