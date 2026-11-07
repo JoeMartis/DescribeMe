@@ -4446,7 +4446,8 @@ async function requestDiscussionReply(job) {
     setStatus("");
   } finally {
     discussInFlight = null;
-    if (job.id === selectedJobId) renderDetail();
+    // Whichever slide is open: if it is another, its Send was waiting.
+    renderDetail();
   }
 }
 
@@ -4654,6 +4655,14 @@ function renderDiscussion(job, frag) {
     }
   });
   const blocked = !!discussInFlight || batchRunning;
+  // Send waits, and says what for: a reply coming about another slide, or
+  // a run in progress.
+  const elsewhere = discussInFlight && discussInFlight.jobId !== job.id ? jobs.get(discussInFlight.jobId) : null;
+  const waitingFor = elsewhere
+    ? `Claude is replying about ${elsewhere.name}; you can send once it has.`
+    : batchRunning
+      ? "Send once the run has finished."
+      : "";
   const sendBtn = q(".js-discuss-send");
   sendBtn.disabled = blocked;
   sendBtn.addEventListener("click", send);
@@ -4670,7 +4679,7 @@ function renderDiscussion(job, frag) {
   const spent = messages.reduce((sum, m) => sum + (Number.isFinite(m.costUsd) ? m.costUsd : 0), 0);
   const modelName = MODEL_SHORT_NAMES[discussModel(job)] || discussModel(job);
   q(".js-discuss-foot").textContent =
-    `${modelName}${spent > 0 ? ` · this discussion so far ${formatUsd(spent, 3)}` : ""} · Enter sends, Shift+Enter adds a line`;
+    waitingFor || `${modelName}${spent > 0 ? ` · this discussion so far ${formatUsd(spent, 3)}` : ""} · Enter sends, Shift+Enter adds a line`;
 }
 
 /**
@@ -6624,19 +6633,25 @@ async function resizeImageForExport(base64, mediaType) {
 }
 
 async function exportApproved() {
-  const batch = els.batchName.value.trim() || "Untitled batch";
-  const target = await askWhereToSave(`${safeFileStem(batch, new Set())}-descriptions.zip`, "zip");
-  if (target === "cancelled") {
-    setStatus("Not exported: the save was cancelled.");
-    return;
-  }
-  // Nothing in here used to catch: a slide whose bytes would not decode
-  // rejected the click handler's promise, and the button just did nothing.
+  if (saveInProgress) return;
+  saveInProgress = true;
   try {
-    if (!(await exportApprovedNow(target))) await discardSaveTarget(target);
-  } catch (err) {
-    await discardSaveTarget(target);
-    setError(`Export failed: ${(err && err.message) || err}`);
+    const batch = els.batchName.value.trim() || "Untitled batch";
+    const target = await askWhereToSave(`${safeFileStem(batch, new Set())}-descriptions.zip`, "zip");
+    if (target === "cancelled") {
+      setStatus("Not exported: the save was cancelled.");
+      return;
+    }
+    // Nothing in here used to catch: a slide whose bytes would not decode
+    // rejected the click handler's promise, and the button just did nothing.
+    try {
+      if (!(await exportApprovedNow(target))) await discardSaveTarget(target);
+    } catch (err) {
+      await discardSaveTarget(target);
+      setError(`Export failed: ${(err && err.message) || err}`);
+    }
+  } finally {
+    saveInProgress = false;
   }
 }
 
@@ -6740,6 +6755,10 @@ const SAVE_TYPES = {
   pdf: { description: "PDF document", accept: { "application/pdf": [".pdf"] } },
   json: { description: "DescribeMe project", accept: { "application/json": [".json"] } },
 };
+// One save at a time: a second click while a Save dialog is open was
+// refused one, and fell back to an ordinary download beside it.
+let saveInProgress = false;
+
 async function askWhereToSave(fileName, kind) {
   if (typeof window.showSaveFilePicker !== "function") return null;
   try {
@@ -7103,7 +7122,16 @@ function setLearnerBusy(busy) {
 }
 
 async function runLearnerDownload(kind) {
-  if (learnerBusy) return;
+  if (learnerBusy || saveInProgress) return;
+  saveInProgress = true;
+  try {
+    await runLearnerDownloadNow(kind);
+  } finally {
+    saveInProgress = false;
+  }
+}
+
+async function runLearnerDownloadNow(kind) {
   // Said before the Save dialog, not after a folder has been picked for it.
   if (!jobList().some((j) => j.state === "done" && j.approved)) {
     setLearnerError("Approve at least one visual first — only approved visuals go into a learner download.");
@@ -7880,6 +7908,16 @@ async function refreshProjectList() {
 const PROJECT_FILE_FORMAT = "describeme-project";
 
 async function exportProjectRecord(record) {
+  if (saveInProgress) return;
+  saveInProgress = true;
+  try {
+    await exportProjectRecordNow(record);
+  } finally {
+    saveInProgress = false;
+  }
+}
+
+async function exportProjectRecordNow(record) {
   const fileName = `${safeFileStem(record.name, new Set())}.describeme.json`;
   const target = await askWhereToSave(fileName, "json");
   if (target === "cancelled") {

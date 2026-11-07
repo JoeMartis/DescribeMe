@@ -105,6 +105,31 @@ const r5 = await page.evaluate(async () => {
 });
 check("R5  an export with nothing to write removes the empty file", r5.removed === "picked-Cell-Biology-descriptions.zip" && r5.written === 0, JSON.stringify(r5));
 
+// R8: a second click while the Save dialog is open does not start a second
+// save, nor download beside it.
+const r8 = await page.evaluate(async () => {
+  const [a] = [...jobs.values()];
+  a.state = "done"; a.approved = true; renderAll();
+  window.__save.answer = "file";
+  const real = window.showSaveFilePicker;
+  let open = 0;
+  window.showSaveFilePicker = async (opts) => {
+    if (open) throw new DOMException("A picker is already showing.", "NotAllowedError");
+    open += 1;
+    await new Promise((r) => setTimeout(r, 300));
+    open -= 1;
+    return real(opts);
+  };
+  const asked = window.__save.asked.length;
+  const first = exportApproved();
+  const second = exportApproved();
+  await Promise.all([first, second]);
+  window.showSaveFilePicker = real;
+  return { asked: window.__save.asked.length - asked };
+});
+await page.waitForTimeout(500);
+check("R8  a double click makes one save, not a save and a download", r8.asked === 1 && downloads === 1, JSON.stringify({ ...r8, downloads }));
+
 check("Z  no console errors", problems.filter((m) => !/404/.test(m)).length === 0, problems.join(" | "));
 await b.close();
 const failed = results.filter((r) => !r.ok);

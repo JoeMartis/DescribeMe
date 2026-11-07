@@ -414,6 +414,23 @@ const r7b = await page.evaluate(() => {
 });
 check("R7  both versions can be previewed and used", r7b.n === 2 && r7b.sameView && r7b.uses, JSON.stringify(r7b));
 
+// ---------- R8: bug round 8
+// R8: while Claude replies about another slide, Send says why it waits, and
+// is back as soon as that reply is in.
+replies.push({ text: "About slide one." });
+const r8 = await page.evaluate(async () => {
+  const [a, c] = [...jobs.values()];
+  a.discussion = [...(a.discussion || []), { role: "user", text: "And this one?" }];
+  selectJob(c.id); discussOpen = true; renderDetail();
+  const pending = requestDiscussionReply(a);
+  const during = { foot: els.detailPane.querySelector(".js-discuss-foot").textContent, send: els.detailPane.querySelector(".js-discuss-send").disabled };
+  await pending;
+  const after = { foot: els.detailPane.querySelector(".js-discuss-foot").textContent, send: els.detailPane.querySelector(".js-discuss-send").disabled };
+  return { during, after };
+});
+check("R8  Send says it waits for a reply about another slide", r8.during.send && /Claude is replying about Talk_S1_00-00-01\.png/.test(r8.during.foot), JSON.stringify(r8.during));
+check("R8  and is back once that reply is in", !r8.after.send && !/replying about/.test(r8.after.foot), JSON.stringify(r8.after));
+
 check("Z  no console errors", problems.filter((m) => !/400|503|Bad Request|Service Unavailable/i.test(m)).length === 0, problems.join(" | "));
 await b.close();
 const failed = results.filter((r) => !r.ok);
