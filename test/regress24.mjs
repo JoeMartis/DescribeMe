@@ -266,6 +266,44 @@ await page.evaluate(() => { showingProposal = null; renderDetail(); });
 // R2c: a removed space leaves no space behind.
 check("R2  a removed space is not shown", (await page.evaluate(() => diffHtml("<p>red  box</p>", "<p>red box</p>"))) === "<p>red box</p>");
 
+// ---------- R3: bug round 3
+// R3a: focus comes back to the button pressed, not the first of its kind.
+const r3a = await page.evaluate(() => {
+  const c = [...jobs.values()][1];
+  const unused = c.discussion.map((m, i) => (m.revision && m.revision.html !== c.resultHtml ? i : -1)).filter((i) => i >= 0);
+  const last = unused[unused.length - 1];
+  const btn = els.detailPane.querySelector(`[data-focus-key="compare-${last}"]`);
+  btn.focus();
+  btn.click();
+  return { unused: unused.length, want: `compare-${last}`, got: document.activeElement?.dataset.focusKey };
+});
+check("R3  focus returns to the very button pressed", r3a.unused >= 2 && r3a.got === r3a.want, JSON.stringify(r3a));
+await page.evaluate(() => { showingProposal = null; renderDetail(); });
+
+// R3b: a redraw keeps the conversation where it was scrolled to.
+const r3b = await page.evaluate(() => {
+  document.activeElement?.blur(); // a focused button is kept in view, rightly
+  const log = els.detailPane.querySelector(".js-discuss-log");
+  const scrollable = log.scrollHeight > log.clientHeight + 20;
+  log.scrollTop = 0;
+  renderDetail();
+  return { scrollable, top: els.detailPane.querySelector(".js-discuss-log").scrollTop };
+});
+check("R3  a redraw keeps the conversation's place", r3b.scrollable && r3b.top === 0, JSON.stringify(r3b));
+
+// R3c: a reply to a slide no longer open says which slide it is about.
+replies.push({ text: "Still here." });
+const r3c = await page.evaluate(async () => {
+  const [a, c] = [...jobs.values()];
+  c.discussion = [...c.discussion, { role: "user", text: "Still there?" }];
+  selectJob(a.id);
+  await requestDiscussionReply(c);
+  const status = document.getElementById("statusMessage").textContent;
+  selectJob(c.id);
+  return status;
+});
+check("R3  a reply about another slide names it", /^Claude \(about Talk_S1_00-00-02\.png\): Still here\./.test(r3c), r3c);
+
 check("Z  no console errors", problems.filter((m) => !/400|503|Bad Request|Service Unavailable/i.test(m)).length === 0, problems.join(" | "));
 await b.close();
 const failed = results.filter((r) => !r.ok);

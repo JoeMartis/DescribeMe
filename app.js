@@ -3150,12 +3150,22 @@ function renderDetail() {
     // button (now reading "Edit" again) is the natural continuation; the
     // preview div itself isn't focusable.
     focusSel = jsClass === "js-preview" ? ".js-edit" : jsClass ? `.${jsClass}` : null;
+    // A button that is one of several alike (each revision has a Preview)
+    // is found again by its own key, not as the first of its kind.
+    if (active.dataset.focusKey) focusSel = `[data-focus-key="${active.dataset.focusKey}"]`;
   }
+  // Where the conversation was scrolled to, and how long it was: it moves to
+  // the newest message only when there is a new one, not on every redraw.
+  const oldLog = els.detailPane.querySelector(".js-discuss-log");
+  const oldScroll = oldLog && oldLog.dataset.jobId === job.id ? { top: oldLog.scrollTop, count: oldLog.children.length } : null;
 
   els.detailPane.replaceChildren(frag);
   els.detailPane.hidden = false;
   const log = els.detailPane.querySelector(".js-discuss-log");
-  if (log && !log.closest("[hidden]")) log.scrollTop = log.scrollHeight;
+  if (log && !log.closest("[hidden]")) {
+    log.dataset.jobId = job.id;
+    log.scrollTop = oldScroll && log.children.length <= oldScroll.count ? oldScroll.top : log.scrollHeight;
+  }
 
   if (focusSel) {
     const target = els.detailPane.querySelector(focusSel);
@@ -4358,10 +4368,12 @@ async function requestDiscussionReply(job) {
     // The panel is drawn afresh, so its log never announces what arrives:
     // the status line says it, the start of it at least.
     const said = reply.text.length > 300 ? `${reply.text.slice(0, 300).trimEnd()}…` : reply.text;
+    // Moved on to another slide meanwhile: say which one this is about.
+    const about = job.id === selectedJobId ? "" : ` (about ${job.name})`;
     setStatus(
       reply.revision
-        ? `Claude proposed revision ${revisionNumber(job, job.discussion.length - 1)}: ${said} Nothing changes until you use it.`
-        : `Claude: ${said}`
+        ? `Claude proposed revision ${revisionNumber(job, job.discussion.length - 1)}${about}: ${said} Nothing changes until you use it.`
+        : `Claude${about}: ${said}`
     );
   } catch (err) {
     discussErrors.set(job.id, err.name === "AbortError" ? "Stopped. Nothing was added." : describeFetchError(err, apiBaseFor(apiKey)));
@@ -4466,6 +4478,7 @@ function discussMessageEl(job, m, index) {
       undo.className = "btn btn-outline btn-chip js-discuss-undo";
       undo.textContent = "Undo";
       undo.setAttribute("aria-label", `Undo revision ${n}`);
+      undo.dataset.focusKey = `undo-${index}`;
       undo.addEventListener("click", () => undoRevision(job.id));
       bar.append(undo);
     }
@@ -4478,6 +4491,7 @@ function discussMessageEl(job, m, index) {
       btn.setAttribute("aria-pressed", String(showing === mode));
       btn.textContent = label;
       btn.setAttribute("aria-label", name);
+      btn.dataset.focusKey = `${mode}-${index}`;
       btn.addEventListener("click", () => {
         // An edit in progress would block the redraw, and the click do nothing.
         commitPendingEdit();
@@ -4493,6 +4507,7 @@ function discussMessageEl(job, m, index) {
     use.className = "btn btn-outline btn-chip btn-use js-discuss-use";
     use.textContent = "Use this";
     use.setAttribute("aria-label", `Use revision ${n}`);
+    use.dataset.focusKey = `use-${index}`;
     use.disabled = batchRunning;
     use.addEventListener("click", () => useRevision(job.id, index));
     bar.append(look, show, use);
