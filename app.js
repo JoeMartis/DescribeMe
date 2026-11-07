@@ -2945,6 +2945,7 @@ function renderDetail() {
       });
       q(".js-proposal-use").hidden = false;
       q(".js-proposal-use").addEventListener("click", () => useRevision(job.id, showingProposal.index));
+
       q(".js-proposal-hide").addEventListener("click", () => {
         showingProposal = null;
         renderDetail();
@@ -3012,6 +3013,14 @@ function renderDetail() {
     source.hidden = false;
     q(".js-source-code").value = job.resultHtml;
     q(".js-edit-source").addEventListener("click", () => toggleSourceEdit(job.id));
+
+    // Copy, Edit, Undo and the source all act on the description, which is
+    // not what is on screen while a revision stands in its place: put away,
+    // as Approve is, until Use this or Back.
+    if (!q(".js-proposal-banner").hidden) {
+      for (const sel of [".js-edit", ".js-copy-text", ".js-copy-html", ".js-undo"]) q(sel).hidden = true;
+      source.hidden = true;
+    }
 
     // Approve is the pane's one big button while the slide needs it. Once
     // approved there is nothing left to do, so the same button goes up
@@ -4302,6 +4311,7 @@ async function requestDiscussionReply(job) {
   }
   const model = discussModel(job);
   const { system, messages, context } = discussionRequest(job);
+  const prev = previousInSegment(job);
   const controller = new AbortController();
   discussInFlight = { jobId: job.id, controller };
   discussErrors.delete(job.id);
@@ -4360,8 +4370,14 @@ async function requestDiscussionReply(job) {
         usage,
         costUsd,
         costMeasured,
-        // What a revision was written with in view, for the context flag.
-        contextFrom: context ? contextRecord(context.prev, context.html) : null,
+        // What a revision was written with in view, for the context flag;
+        // without the slide before, because it had no description yet, said
+        // so, as describeOne says it, to be flagged once it has one.
+        contextFrom: context
+          ? contextRecord(context.prev, context.html)
+          : !job.textOnly && prev && prev.state !== "invalid"
+            ? { image: imageFingerprint(prev), html: null, missing: true }
+            : null,
       },
     ];
     markDirty();

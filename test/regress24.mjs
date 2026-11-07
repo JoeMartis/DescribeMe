@@ -304,6 +304,40 @@ const r3c = await page.evaluate(async () => {
 });
 check("R3  a reply about another slide names it", /^Claude \(about Talk_S1_00-00-02\.png\): Still here\./.test(r3c), r3c);
 
+// ---------- R4: bug round 4
+// R4a: while a revision is previewed, the tools that act on the description
+// are put away; Discuss stays.
+const r4a = await page.evaluate(() => {
+  const c = [...jobs.values()][1];
+  const i = c.discussion.findIndex((m) => m.revision && m.revision.html !== c.resultHtml);
+  showingProposal = { jobId: c.id, index: i, mode: "preview" };
+  renderDetail();
+  const shown = (sel) => { const e = els.detailPane.querySelector(sel); return !!e && !e.hidden && !e.closest("[hidden]"); };
+  const out = { edit: shown(".js-edit"), copy: shown(".js-copy-text") || shown(".js-copy-html"), source: shown(".js-source"), discuss: shown(".js-discuss-toggle") };
+  showingProposal = null;
+  renderDetail();
+  out.back = shown(".js-edit") && shown(".js-copy-text") && shown(".js-source");
+  return out;
+});
+check("R4  while previewing, Edit, Copy and the source are put away", !r4a.edit && !r4a.copy && !r4a.source && r4a.discuss && r4a.back, JSON.stringify(r4a));
+
+// R4b: a revision written without the slide before (it had failed) is
+// flagged once that slide is described, as a description would be.
+replies.push({ text: "Rewritten.\n<revision><h2>Net Zero</h2><p>Written alone.</p></revision>" });
+await page.evaluate(() => { const [a] = [...jobs.values()]; a.state = "error"; renderAll(); });
+await page.fill("#detailPane .js-discuss-input", "Rewrite it.");
+await page.keyboard.press("Enter");
+await page.waitForFunction(() => [...jobs.values()][1].discussion.some((m) => m.revision && /Written alone/.test(m.revision.html)));
+const r4b = await page.evaluate(() => {
+  const [a, c] = [...jobs.values()];
+  useRevision(c.id, c.discussion.findIndex((m) => m.revision && /Written alone/.test(m.revision.html)));
+  const whileFailed = previousStatus(c);
+  a.state = "done";
+  renderAll();
+  return { whileFailed, missing: !!c.contextFrom?.missing, after: previousStatus(c) };
+});
+check("R4  a revision written without the slide before is flagged once it is described", r4b.missing && r4b.whileFailed === null && r4b.after === "missing", JSON.stringify(r4b));
+
 check("Z  no console errors", problems.filter((m) => !/400|503|Bad Request|Service Unavailable/i.test(m)).length === 0, problems.join(" | "));
 await b.close();
 const failed = results.filter((r) => !r.ok);
