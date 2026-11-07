@@ -519,6 +519,9 @@ code, kbd {
   transform: rotate(-2deg);
 }
 .header-rule { width: var(--border-width); height: 26px; background: var(--border); }
+/* On a phone the batch name wraps under the wordmark, and the rule between
+   them was left standing on its own at the end of the line. */
+@media (max-width: 560px) { .header-rule { display: none; } }
 /* Shrinkable, so the row gives here — truncating the batch name — before
    the whole tools cluster wraps to a second header line. */
 .batch-meta { min-width: 0; flex: 0 1 auto; }
@@ -720,9 +723,10 @@ code, kbd {
 .rail-segment-bar { flex: 1; height: 6px; border-radius: 999px; background: var(--swamp-sunken); overflow: hidden; }
 .rail-segment-bar > span { display: block; height: 100%; width: 0; background: var(--sage); }
 .rail-move { display: flex; flex-direction: column; gap: 3px; flex-shrink: 0; }
+/* 24 by 24 at least: the smallest target WCAG 2.2 allows (2.5.8). */
 .rail-move-btn {
-  width: 22px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
   display: inline-flex;
   align-items: center;
   justify-content: center;

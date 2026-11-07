@@ -2942,6 +2942,7 @@ function renderDetail() {
       other.addEventListener("click", () => {
         showingProposal = { ...showingProposal, mode: showingProposal.mode === "compare" ? "preview" : "compare" };
         renderDetail();
+        setStatus(showingProposal.mode === "compare" ? `Comparing revision ${n} with the description.` : `Previewing revision ${n}.`);
       });
       q(".js-proposal-use").hidden = false;
       q(".js-proposal-use").disabled = batchRunning;
@@ -2950,6 +2951,7 @@ function renderDetail() {
       q(".js-proposal-hide").addEventListener("click", () => {
         showingProposal = null;
         renderDetail();
+        setStatus("Back to the description.");
       });
     }
 
@@ -4578,6 +4580,15 @@ function discussMessageEl(job, m, index) {
         commitPendingEdit();
         showingProposal = showing === mode ? null : { jobId: job.id, index, mode };
         renderDetail();
+        // The banner is drawn with its words already in it, which a screen
+        // reader does not announce: the status line says what changed.
+        setStatus(
+          showingProposal
+            ? mode === "compare"
+              ? `Comparing revision ${n} with the description. Nothing has changed yet.`
+              : `Previewing revision ${n} in the description's place. Nothing has changed yet.`
+            : "Back to the description."
+        );
       });
       return btn;
     };

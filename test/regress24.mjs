@@ -454,6 +454,33 @@ const r9b = await page.evaluate(() => {
 });
 check("R9  the message box is described by the line under it", /Enter sends/.test(r9b || ""), r9b);
 
+// ---------- R10: bug round 10
+// R10a: switching to Preview, Compare and back is announced.
+const r10a = await page.evaluate(() => {
+  const c = [...jobs.values()][1];
+  selectJob(c.id); discussOpen = true; showingProposal = null; renderDetail();
+  const i = c.discussion.findIndex((m) => m.revision && m.revision.html !== c.resultHtml);
+  const said = [];
+  els.detailPane.querySelector(`[data-focus-key="preview-${i}"]`).click();
+  said.push(document.getElementById("statusMessage").textContent);
+  els.detailPane.querySelector(".js-proposal-switch").click();
+  said.push(document.getElementById("statusMessage").textContent);
+  els.detailPane.querySelector(".js-proposal-hide").click();
+  said.push(document.getElementById("statusMessage").textContent);
+  return said;
+});
+check("R10  Preview, Compare and Back are announced", /^Previewing revision \d+/.test(r10a[0]) && /^Comparing revision \d+/.test(r10a[1]) && r10a[2] === "Back to the description.", JSON.stringify(r10a));
+
+// R10b: the rail's move buttons are 24 by 24 at least.
+const r10b = await page.evaluate(() => { const r = document.querySelector("#railList .rail-move-btn").getBoundingClientRect(); return { w: r.width, h: r.height }; });
+check("R10  the move buttons are at least 24 by 24", r10b.w >= 24 && r10b.h >= 24, JSON.stringify(r10b));
+
+// R10c: on a phone the header's rule is not left on its own.
+await page.setViewportSize({ width: 390, height: 800 });
+const r10c = await page.evaluate(() => getComputedStyle(document.querySelector(".header-rule")).display);
+await page.setViewportSize({ width: 1280, height: 800 });
+check("R10  no stray rule in the header on a phone", r10c === "none", r10c);
+
 check("Z  no console errors", problems.filter((m) => !/400|503|Bad Request|Service Unavailable/i.test(m)).length === 0, problems.join(" | "));
 await b.close();
 const failed = results.filter((r) => !r.ok);
