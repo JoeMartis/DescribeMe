@@ -481,6 +481,19 @@ const r10c = await page.evaluate(() => getComputedStyle(document.querySelector("
 await page.setViewportSize({ width: 1280, height: 800 });
 check("R10  no stray rule in the header on a phone", r10c === "none", r10c);
 
+// ---------- R11: bug round 11
+// R11: the chat's model can be stepped up, as Redo with a stronger model can.
+await page.evaluate(() => { const c = [...jobs.values()][1]; selectJob(c.id); discussOpen = true; showingProposal = null; renderDetail(); });
+const r11opts = await page.evaluate(() => { const s = els.detailPane.querySelector(".js-discuss-model"); return { options: [...s.options].map((o) => o.textContent), value: s.value, label: s.closest("label")?.textContent.trim() }; });
+check("R11  the chat offers each model, starting from the one that wrote it", r11opts.options.join() === "Haiku 4.5,Sonnet 5,Opus 5" && r11opts.value === "claude-sonnet-5" && /^Model/.test(r11opts.label), JSON.stringify(r11opts));
+await page.selectOption("#detailPane .js-discuss-model", "claude-opus-5");
+replies.push({ text: "Opus here." });
+await page.fill("#detailPane .js-discuss-input", "A second opinion?");
+await page.keyboard.press("Enter");
+await page.waitForFunction(() => [...jobs.values()][1].discussion.some((m) => m.text === "Opus here."));
+check("R11  and the next reply comes from the model picked", sent[sent.length - 1].model === "claude-opus-5", sent[sent.length - 1].model);
+check("R11  the pick stays for that slide", await page.evaluate(() => els.detailPane.querySelector(".js-discuss-model").value === "claude-opus-5"));
+
 check("Z  no console errors", problems.filter((m) => !/400|503|Bad Request|Service Unavailable/i.test(m)).length === 0, problems.join(" | "));
 await b.close();
 const failed = results.filter((r) => !r.ok);

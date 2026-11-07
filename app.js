@@ -4217,8 +4217,12 @@ let discussInFlight = null; // { jobId, controller }
 // "preview" (as it would read) or "compare" (its changes marked).
 let showingProposal = null;
 
+// The model a slide's conversation uses when one is picked for it; else
+// the one that wrote the description, else the one in Settings.
+const discussModelChoice = new Map(); // job id → model id
+
 function discussModel(job) {
-  return job.usedModel || els.model.value.trim() || "claude-sonnet-5";
+  return discussModelChoice.get(job.id) || job.usedModel || els.model.value.trim() || "claude-sonnet-5";
 }
 
 /** What Claude is given, in words, for the top of the panel. */
@@ -4693,10 +4697,32 @@ function renderDiscussion(job, frag) {
     renderDetail();
     els.detailPane.querySelector(".js-discuss-toggle")?.focus();
   });
+  // Which model answers: the one that wrote the description to begin with,
+  // and a stronger one a click away, as Redo with a stronger model is.
+  const picker = q(".js-discuss-model");
+  for (const id of MODEL_LADDER) {
+    const option = document.createElement("option");
+    option.value = id;
+    option.textContent = MODEL_SHORT_NAMES[id] || id;
+    picker.append(option);
+  }
+  const current = discussModel(job);
+  if (!MODEL_LADDER.includes(current)) {
+    const option = document.createElement("option");
+    option.value = current;
+    option.textContent = current;
+    picker.append(option);
+  }
+  picker.value = current;
+  picker.disabled = blocked;
+  picker.addEventListener("change", () => {
+    discussModelChoice.set(job.id, picker.value);
+    renderDetail();
+  });
   const spent = messages.reduce((sum, m) => sum + (Number.isFinite(m.costUsd) ? m.costUsd : 0), 0);
   const modelName = MODEL_SHORT_NAMES[discussModel(job)] || discussModel(job);
   q(".js-discuss-foot").textContent =
-    waitingFor || `${modelName}${spent > 0 ? ` · this discussion so far ${formatUsd(spent, 3)}` : ""} · Enter sends, Shift+Enter adds a line`;
+    waitingFor || `${spent > 0 ? `This discussion so far ${formatUsd(spent, 3)} · ` : ""}Enter sends, Shift+Enter adds a line`;
 }
 
 /**

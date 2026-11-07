@@ -1192,7 +1192,18 @@ code, kbd {
   font: 500 14px/1.45 var(--font-body);
   color: var(--fg);
 }
-.discuss-foot { font-weight: 600; font-size: 12px; color: var(--faint); }
+.discuss-foot { flex: 1 1 200px; font-weight: 600; font-size: 12px; color: var(--faint); }
+.discuss-foot-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.discuss-model { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; font-size: 12px; color: var(--faint); }
+.discuss-model select {
+  font: 700 13px var(--font-body);
+  color: var(--fg);
+  padding: 4px 8px;
+  border-radius: 10px;
+  border: 2px solid var(--border);
+  background: var(--raised);
+  min-height: 32px;
+}
 
 .proposal-banner {
   display: flex;
