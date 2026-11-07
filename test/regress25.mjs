@@ -80,6 +80,16 @@ await page.waitForFunction(() => window.__save.written.length === 3, null, { tim
 const s5 = await page.evaluate(() => ({ asked: window.__save.asked[window.__save.asked.length - 1], written: window.__save.written[2], status: document.getElementById("learnerStatus")?.textContent || "" }));
 check("S5  the learner download is saved where the person says", s5.asked.suggestedName === "Cell-Biology-visual-descriptions.html" && s5.written.type.startsWith("text/html") && /^Saved picked-Cell-Biology-visual-descriptions\.html/.test(s5.status), JSON.stringify(s5));
 
+// R2: with nothing approved, no Save dialog: the reason first.
+const r2 = await page.evaluate(async () => {
+  const asked = window.__save.asked.length;
+  for (const j of jobs.values()) j.approved = false;
+  renderAll();
+  await runLearnerDownload("html");
+  return { asked: window.__save.asked.length - asked, error: document.getElementById("learnerError")?.textContent || "" };
+});
+check("R2  nothing approved: no Save dialog, just the reason", r2.asked === 0 && /Approve at least one visual/.test(r2.error), JSON.stringify(r2));
+
 check("Z  no console errors", problems.filter((m) => !/404/.test(m)).length === 0, problems.join(" | "));
 await b.close();
 const failed = results.filter((r) => !r.ok);

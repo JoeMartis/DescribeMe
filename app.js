@@ -4355,7 +4355,14 @@ async function requestDiscussionReply(job) {
       },
     ];
     markDirty();
-    setStatus(reply.revision ? `Claude proposed a revision of ${job.name}. Nothing changes until you use it.` : "Claude replied.");
+    // The panel is drawn afresh, so its log never announces what arrives:
+    // the status line says it, the start of it at least.
+    const said = reply.text.length > 300 ? `${reply.text.slice(0, 300).trimEnd()}…` : reply.text;
+    setStatus(
+      reply.revision
+        ? `Claude proposed revision ${revisionNumber(job, job.discussion.length - 1)}: ${said} Nothing changes until you use it.`
+        : `Claude: ${said}`
+    );
   } catch (err) {
     discussErrors.set(job.id, err.name === "AbortError" ? "Stopped. Nothing was added." : describeFetchError(err, apiBaseFor(apiKey)));
     setStatus("");
@@ -4472,6 +4479,8 @@ function discussMessageEl(job, m, index) {
       btn.textContent = label;
       btn.setAttribute("aria-label", name);
       btn.addEventListener("click", () => {
+        // An edit in progress would block the redraw, and the click do nothing.
+        commitPendingEdit();
         showingProposal = showing === mode ? null : { jobId: job.id, index, mode };
         renderDetail();
       });
@@ -4650,7 +4659,7 @@ function diffHtml(oldHtml, newHtml) {
     let text = "";
     const flush = () => {
       if (text.trim()) out.push(`<${kind}>${text}</${kind}>`);
-      else out.push(text);
+      else if (kind === "ins") out.push(text); // a removed space just goes
       text = "";
     };
     for (const t of tokens) {
@@ -6993,6 +7002,18 @@ function setLearnerBusy(busy) {
 
 async function runLearnerDownload(kind) {
   if (learnerBusy) return;
+  // Said before the Save dialog, not after a folder has been picked for it.
+  if (!jobList().some((j) => j.state === "done" && j.approved)) {
+    setLearnerError("Approve at least one visual first — only approved visuals go into a learner download.");
+    return;
+  }
+  if (kind === "pdf" && location.protocol === "file:") {
+    setLearnerError(
+      "The PDF could not be made: it needs DescribeMe opened from a web address, such as joemartis.github.io/DescribeMe " +
+        "or a local web server. Download HTML works either way."
+    );
+    return;
+  }
   const batch = els.batchName.value.trim() || "Untitled batch";
   const target = await askWhereToSave(`${learnerStem(batch)}.${kind}`, kind);
   if (target === "cancelled") {

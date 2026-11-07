@@ -244,6 +244,28 @@ await page.click("#detailPane .js-discuss-stop");
 const stopped = await page.waitForFunction(() => /Stopped/.test(document.querySelector("#detailPane .discuss-error")?.textContent || ""), null, { timeout: 3000 }).then(() => true, () => false);
 check("R1  Stop ends a reply waiting to retry, at once", stopped && Date.now() - t0 < 800, `${Date.now() - t0} ms`);
 
+// ---------- R2: bug round 2
+// R2a: what Claude says is announced, not only drawn.
+replies.push({ text: "The arrows match because the sinks equal the emissions." });
+await page.fill("#detailPane .js-discuss-input", "Why equal arrows?");
+await page.keyboard.press("Enter");
+await page.waitForFunction(() => /^Claude: The arrows match/.test(document.getElementById("statusMessage").textContent), null, { timeout: 8000 }).catch(() => {});
+check("R2  a reply is announced in the status line", /^Claude: The arrows match because/.test(await page.$eval("#statusMessage", (e) => e.textContent)), await page.$eval("#statusMessage", (e) => e.textContent));
+
+// R2b: Preview works while the description is open for editing.
+const r2b = await page.evaluate(() => {
+  const c = [...jobs.values()][1];
+  const i = c.discussion.findIndex((m) => m.revision && m.revision.html !== c.resultHtml);
+  toggleEdit(c.id);
+  els.detailPane.querySelector(`.js-discuss-log > li:nth-child(${i + 1}) .js-discuss-preview`).click();
+  return { banner: !els.detailPane.querySelector(".js-proposal-banner").hidden, editing: editMode };
+});
+check("R2  Preview shows even with the description open for editing", r2b.banner && !r2b.editing, JSON.stringify(r2b));
+await page.evaluate(() => { showingProposal = null; renderDetail(); });
+
+// R2c: a removed space leaves no space behind.
+check("R2  a removed space is not shown", (await page.evaluate(() => diffHtml("<p>red  box</p>", "<p>red box</p>"))) === "<p>red box</p>");
+
 check("Z  no console errors", problems.filter((m) => !/400|503|Bad Request|Service Unavailable/i.test(m)).length === 0, problems.join(" | "));
 await b.close();
 const failed = results.filter((r) => !r.ok);
