@@ -19,6 +19,7 @@ await page.addInitScript(() => {
     return {
       name,
       remove: async () => window.__save.removed.push(name),
+      getFile: async () => ({ size: window.__save.existingSize || 0 }),
       createWritable: async () => {
         const parts = [];
         return {
@@ -143,6 +144,22 @@ check("R13  an image sent as uploaded is not called an API copy", r13.apiCopies 
 // R13: while another file is being saved, Export says why it waits.
 const r13s = await page.evaluate(async () => { saveInProgress = true; await exportApproved(); saveInProgress = false; return document.getElementById("statusMessage").textContent; });
 check("R13  Export says why it waits for another save", /Another file is still being saved/.test(r13s), r13s);
+
+// R14: a file picked to be replaced is not deleted when the export fails.
+const r14 = await page.evaluate(async () => {
+  window.__save.answer = "file";
+  window.__save.existingSize = 4096; // last week's file, picked to replace
+  const [a] = [...jobs.values()];
+  const keep = { base64: a.base64, originalBase64: a.originalBase64 };
+  a.state = "done"; a.approved = true; a.base64 = ""; a.originalBase64 = null;
+  renderAll();
+  const removed = window.__save.removed.length;
+  await exportApproved();
+  Object.assign(a, keep);
+  window.__save.existingSize = 0;
+  return { removed: window.__save.removed.length - removed };
+});
+check("R14  a failed export leaves a file picked to be replaced alone", r14.removed === 0, JSON.stringify(r14));
 
 check("Z  no console errors", problems.filter((m) => !/404/.test(m)).length === 0, problems.join(" | "));
 await b.close();

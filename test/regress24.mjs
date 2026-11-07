@@ -566,6 +566,33 @@ check("R13  no file or folder named '..'", !r13d.slice(0, 2).some((x) => /^\.|\.
 const r13f = await page.evaluate(() => validDiscussion([{ role: "assistant", text: "orphan reply" }, { role: "user", text: "hi" }, { role: "assistant", text: "hello" }], (h) => ({ html: h, text: h })).map((m) => m.role).join());
 check("R13  a loaded conversation starts with the person", r13f === "user,assistant", r13f);
 
+// ---------- R14: bug round 14 (the review's second pass)
+// R14: New batch, cancelled, leaves a reply coming alone.
+const r14 = await page.evaluate(() => {
+  const controller = new AbortController();
+  const keepFlight = discussInFlight;
+  discussInFlight = { jobId: [...jobs.keys()][0], controller };
+  const realConfirm = window.confirm;
+  window.confirm = () => false;
+  newBatch();
+  window.confirm = realConfirm;
+  discussInFlight = keepFlight;
+  return { aborted: controller.signal.aborted, slides: jobs.size };
+});
+check("R14  New batch, cancelled, does not stop Claude's reply", !r14.aborted && r14.slides > 0, JSON.stringify(r14));
+// …and going ahead does stop it (it is for a slide about to be gone). Last,
+// as it clears the batch.
+const r14go = await page.evaluate(() => {
+  const controller = new AbortController();
+  discussInFlight = { jobId: [...jobs.keys()][0], controller };
+  const realConfirm = window.confirm;
+  window.confirm = () => true;
+  newBatch();
+  window.confirm = realConfirm;
+  return { aborted: controller.signal.aborted, slides: jobs.size };
+});
+check("R14  New batch, going ahead, stops the reply", r14go.aborted && r14go.slides === 0, JSON.stringify(r14go));
+
 check("Z  no console errors", problems.filter((m) => !/400|503|Bad Request|Service Unavailable/i.test(m)).length === 0, problems.join(" | "));
 await b.close();
 const failed = results.filter((r) => !r.ok);

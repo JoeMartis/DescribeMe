@@ -412,6 +412,53 @@ const u2 = await page.evaluate(() => {
 });
 check("U2  un-approving a slide updates its segment's count", /1 approved/.test(u2.approved) && /0 approved/.test(u2.unapproved), JSON.stringify(u2));
 
+// ---------- R14: bug round 14 (the review's second pass)
+// R14a: a folder picked on its own keeps its name if it would merge with one
+// from an earlier pick.
+const r14a = await page.evaluate(() => {
+  const [first] = [...jobs.values()];
+  const keep = first.folderName;
+  first.folderName = "Slides";
+  const f = new File([new Uint8Array([1])], "a.png", { type: "image/png" });
+  fileFolders.set(f, "/Lecture 3/Slides/a.png");
+  nameFolders([f]);
+  const name = folderOfFile(f);
+  first.folderName = keep;
+  return name;
+});
+check("R14  a second pick's same-named folder stays a segment of its own", r14a === "Lecture 3/Slides", r14a);
+
+// R14b: Sort by position keeps segments together, so it holds.
+const r14b = await page.evaluate(() => {
+  const saved = [...jobs.entries()];
+  const mk = (id, videoName, slidePosition) => [id, { id, name: id, videoName, slidePosition, captureSeconds: null, folderName: null }];
+  jobs.clear();
+  for (const [id, j] of [mk("s3cap", "Lec_S3", null), mk("s3b", "Lec_S3", 2), mk("s3a", "Lec_S3", 1), mk("s2b", "Lec_S2", 2), mk("s2a", "Lec_S2", 1)]) jobs.set(id, j);
+  const order = positionOrder();
+  // what the rail would do with it on the next redraw
+  const regrouped = [];
+  const seen = new Map();
+  for (const id of order) { const k = segmentKey(jobs.get(id)); if (!seen.has(k)) seen.set(k, []); seen.get(k).push(id); }
+  for (const ids of seen.values()) regrouped.push(...ids);
+  jobs.clear();
+  for (const [id, j] of saved) jobs.set(id, j);
+  return { order: order.join(), holds: order.join() === regrouped.join() };
+});
+check("R14  Sort by position keeps each segment together, so it holds", r14b.holds && r14b.order === "s3cap,s3a,s3b,s2a,s2b", JSON.stringify(r14b));
+
+// R14c: a slide dropped on another segment's row stays where it was.
+const r14c = await page.evaluate(() => {
+  const list = [...jobs.values()];
+  const from = list.find((j) => segmentLabel(j) === "Vee_S1");
+  const onto = list.find((j) => segmentLabel(j) === "Tee_S1");
+  const before = [...jobs.keys()].join();
+  draggedJobId = from.id;
+  onto.railEl.closest("li").dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, clientY: 0 }));
+  draggedJobId = null;
+  return { same: [...jobs.keys()].join() === before, status: document.getElementById("statusMessage").textContent };
+});
+check("R14  a slide dropped on another segment stays put, and says why", r14c.same && /moves within its own segment/.test(r14c.status), JSON.stringify(r14c));
+
 check("Z  no console errors", problems.filter((m) => !/404/.test(m)).length === 0, problems.join(" | "));
 fs.rmSync(root, { recursive: true, force: true });
 await b.close();

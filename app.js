@@ -1509,7 +1509,18 @@ function positionOrder() {
     );
   const out = ids.slice();
   slots.forEach((slot, k) => (out[slot] = sorted[k].id));
-  return out;
+  // Each segment kept together, in the order the segments stand: otherwise
+  // the rail groups them again on the next redraw, undoing the sort while
+  // the status says it sorted.
+  const rank = new Map();
+  for (const id of ids) {
+    const key = segmentKey(jobs.get(id));
+    if (!rank.has(key)) rank.set(key, rank.size);
+  }
+  return out
+    .map((id, i) => [id, i])
+    .sort((x, y) => rank.get(segmentKey(jobs.get(x[0]))) - rank.get(segmentKey(jobs.get(y[0]))) || x[1] - y[1])
+    .map(([id]) => id);
 }
 
 function sameOrder(a, b) {
@@ -1593,6 +1604,12 @@ function wireRowDrag(li, jobId) {
   li.addEventListener("drop", (e) => {
     if (!draggedJobId || draggedJobId === jobId) return;
     e.preventDefault();
+    // A slide moves within its own segment; dropped on another, it stays,
+    // rather than jump to the edge of its own.
+    if (segmentKey(jobs.get(draggedJobId)) !== segmentKey(jobs.get(jobId))) {
+      setStatus("A slide moves within its own segment: the slide above it is the one it is described with.");
+      return;
+    }
     // Land before or after this row depending on which half was dropped on.
     const rect = li.getBoundingClientRect();
     const after = e.clientY > rect.top + rect.height / 2;
@@ -2087,7 +2104,15 @@ function folderPathParts(file) {
 function nameFolders(files) {
   const paths = files.map(folderPathParts);
   const root = paths[0]?.[0];
-  const shared = root != null && paths.every((p) => p[0] === root) && paths.some((p) => p.length > 1);
+  let shared = root != null && paths.every((p) => p[0] === root) && paths.some((p) => p.length > 1);
+  // Named below the folder picked, a folder may take the name of one already
+  // in the batch from an earlier pick ("Lecture 2/Slides", then "Lecture
+  // 3/Slides", both "Slides") and the two would be one segment: then the
+  // folder picked stays in the name.
+  if (shared) {
+    const taken = new Set([...jobs.values()].filter((j) => j.folderName).map((j) => stemKey(j.folderName)));
+    if (paths.some((p) => p.length > 1 && taken.has(stemKey(p.slice(1).join("/"))))) shared = false;
+  }
   files.forEach((file, i) => {
     const parts = shared && paths[i].length > 1 ? paths[i].slice(1) : paths[i];
     folderNames.set(file, parts.join("/"));
@@ -2341,7 +2366,6 @@ els.batchName.addEventListener("input", () => {
     As destructive as a reload, so it always confirms first; the message
     is sharper when descriptions (i.e. money and review time) are at stake. */
 function newBatch() {
-  cancelDiscussion();
   if (jobs.size === 0 || batchRunning) return;
   const described = jobList().some((j) => j.state === "done");
   // Three wordings, because the old one said "unless you've saved or
@@ -2354,6 +2378,7 @@ function newBatch() {
       : `Start a new batch? This clears the ${jobs.size} queued slide${jobs.size === 1 ? "" : "s"}.`;
   const ok = window.confirm(message);
   if (!ok) return;
+  cancelDiscussion(); // going ahead: a reply for a slide about to be gone
   leaveFolderLecture();
   jobs.clear();
   // The next batch is a different lecture until proven otherwise — a stale
@@ -6861,6 +6886,10 @@ async function askWhereToSave(fileName, kind) {
 async function discardSaveTarget(target) {
   if (!target || target === "cancelled" || typeof target.remove !== "function") return;
   try {
+    // Only an empty file: one picked to be replaced still holds what it held
+    // before, and nothing was written over it, so it stays.
+    const file = typeof target.getFile === "function" ? await target.getFile() : null;
+    if (!file || file.size > 0) return;
     await target.remove();
   } catch (_err) {
     // Gone already, or not ours to remove: an empty file at worst.
