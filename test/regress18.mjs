@@ -252,7 +252,9 @@ check("P13  each prepared image carries its base64, resized or not", sizes.base6
 // visuals in the batch (the autosave brings this one back on reload).
 // Saved first: this suite can reach here inside the autosave's first 1.5 s,
 // and the save on leaving the page is best effort.
-await page.evaluate(() => writeAutosave());
+// Marked dirty first: a save already in flight makes writeAutosave return at
+// once, and the reload could cut that one off before it was stored.
+await page.evaluate(() => { autosaveDirty = true; return writeAutosave(); });
 await page.goto(APP_URL, { waitUntil: "load" });
 const restored = await page
   .waitForFunction(() => document.querySelectorAll("#railList li").length === 3, null, { timeout: 10000 })

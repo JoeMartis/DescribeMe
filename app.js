@@ -3207,6 +3207,9 @@ function toggleApprove(jobId) {
     return;
   }
   job.approved = !job.approved;
+  // Approved is done with: the chat closes rather than open on the next
+  // slide, as it does after Use this.
+  if (job.approved) discussOpen = false;
   markDirty();
   renderRailRow(job);
   renderDependents(job);
@@ -3552,6 +3555,7 @@ function validDiscussion(raw, sanitizeToStored) {
     if (!m || typeof m !== "object" || (m.role !== "user" && m.role !== "assistant")) return [];
     if (typeof m.text !== "string") return [];
     const kept = { role: m.role, text: m.text.slice(0, 20000) };
+    if (DISCUSS_MODES.has(m.mode)) kept.mode = m.mode;
     if (m.role === "assistant") {
       if (m.revision && typeof m.revision.html === "string") {
         const stored = sanitizeToStored(m.revision.html);
@@ -4224,7 +4228,11 @@ function discussSees(job) {
 function discussionRequest(job) {
   const prev = previousInSegment(job);
   const context = contextFor(job, prev);
-  const system = `${buildSystemPrompt(currentVerbosity(), null, job.textOnly, !!context)}\n\n${DISCUSS_RULES}`;
+  // Under the rules of the mode asked for: Text only is answered by the
+  // transcription rules, More detail by the description's.
+  const asked = [...(job.discussion || [])].reverse().find((m) => m.role === "user");
+  const textOnly = asked?.mode === "textOnly" ? true : asked?.mode === "more" ? false : job.textOnly;
+  const system = `${buildSystemPrompt(currentVerbosity(), null, textOnly, !!context && !textOnly)}\n\n${DISCUSS_RULES}`;
   const who = job.authored ? "a person wrote it" : job.edited ? "a person has edited it" : "you wrote it";
   const opening = [
     ...previousVisualContent(context),
@@ -4284,7 +4292,11 @@ function parseDiscussReply(raw, truncated) {
   return { text: said || "Here is a revision.", revision };
 }
 
-async function sendDiscussion(jobId, words) {
+// What a quick request means for the slide's mode, as the refine buttons
+// do: Text only makes it a transcription, More detail a description.
+const DISCUSS_MODES = new Set(["textOnly", "more"]);
+
+async function sendDiscussion(jobId, words, mode) {
   const job = jobs.get(jobId);
   const text = String(words || "").trim();
   if (!job || !text || discussInFlight || batchRunning) return;
@@ -4294,7 +4306,7 @@ async function sendDiscussion(jobId, words) {
     return;
   }
   commitPendingEdit();
-  job.discussion = [...(job.discussion || []), { role: "user", text }];
+  job.discussion = [...(job.discussion || []), { role: "user", text, ...(DISCUSS_MODES.has(mode) ? { mode } : {}) }];
   discussDrafts.delete(jobId);
   markDirty();
   await requestDiscussionReply(job);
@@ -4361,12 +4373,14 @@ async function requestDiscussionReply(job) {
     }
     const reply = parseDiscussReply(raw, payload.stop_reason === "max_tokens");
     if (!jobs.has(job.id)) return; // removed while Claude was replying
+    const asked = [...(job.discussion || [])].reverse().find((m) => m.role === "user");
     job.discussion = [
       ...(job.discussion || []),
       {
         role: "assistant",
         text: reply.text,
         revision: reply.revision,
+        ...(asked && asked.mode ? { mode: asked.mode } : {}),
         model,
         usage,
         costUsd,
@@ -4426,6 +4440,10 @@ function useRevision(jobId, index) {
     durationMs: null,
     contextFrom: m.contextFrom || null,
   });
+  // A transcription asked for with Text only makes the slide one, so a later
+  // redo transcribes again; More detail makes it a description again.
+  if (m.mode === "textOnly") job.textOnly = true;
+  else if (m.mode === "more") job.textOnly = false;
   // As applied, so "is this one in the description" compares like with like.
   m.revision.html = job.resultHtml;
   showingProposal = null;
@@ -4606,7 +4624,7 @@ function renderDiscussion(job, frag) {
   sendBtn.addEventListener("click", send);
   frag.querySelectorAll(".js-discuss-quick").forEach((b) => {
     b.disabled = blocked;
-    b.addEventListener("click", () => sendDiscussion(job.id, b.dataset.ask));
+    b.addEventListener("click", () => sendDiscussion(job.id, b.dataset.ask, b.dataset.mode));
   });
   q(".js-discuss-close").addEventListener("click", () => {
     discussOpen = false;

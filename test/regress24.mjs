@@ -357,6 +357,35 @@ const r5 = await page.evaluate(() => {
 });
 check("R5  during a run, Use this is disabled, and says why", r5.disabled && r5.unchanged && /Wait for the run to finish/.test(r5.status), JSON.stringify(r5));
 
+// ---------- R6: bug round 6
+// R6a: approving closes the chat, rather than open it on the next slide.
+const r6a = await page.evaluate(() => {
+  const c = [...jobs.values()][1];
+  selectJob(c.id); discussOpen = true; showingProposal = null; c.approved = false; renderDetail();
+  toggleApprove(c.id);
+  const out = { approved: c.approved, open: discussOpen };
+  c.approved = false; renderAll(); selectJob(c.id);
+  return out;
+});
+check("R6  approving closes the chat", r6a.approved && !r6a.open, JSON.stringify(r6a));
+
+// R6b: Text only is asked under the transcription rules, and using what it
+// gives makes the slide a transcription.
+replies.push({ text: "Transcribed.\n<revision><p>NET ZERO</p><p>Emissions, Sinks</p></revision>" });
+await page.evaluate(() => { discussOpen = true; renderDetail(); });
+await page.click("#detailPane .js-discuss-quick[data-mode=\"textOnly\"]");
+await page.waitForFunction(() => [...jobs.values()][1].discussion.some((m) => m.revision && /Emissions, Sinks/.test(m.revision.html)));
+const r6req = sent[sent.length - 1];
+const r6b = await page.evaluate(() => {
+  const c = [...jobs.values()][1];
+  const i = c.discussion.findIndex((m) => m.revision && /Emissions, Sinks/.test(m.revision.html));
+  const before = c.textOnly;
+  useRevision(c.id, i);
+  return { before, after: c.textOnly, mode: c.discussion[i].mode };
+});
+check("R6  Text only is asked under the transcription rules", r6req.system.startsWith((await page.evaluate(() => OCR_SYSTEM_PROMPT)).slice(0, 80)), r6req.system.slice(0, 80));
+check("R6  using its revision makes the slide a transcription", r6b.before === false && r6b.after === true && r6b.mode === "textOnly", JSON.stringify(r6b));
+
 check("Z  no console errors", problems.filter((m) => !/400|503|Bad Request|Service Unavailable/i.test(m)).length === 0, problems.join(" | "));
 await b.close();
 const failed = results.filter((r) => !r.ok);
