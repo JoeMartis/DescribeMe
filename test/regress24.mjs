@@ -338,6 +338,25 @@ const r4b = await page.evaluate(() => {
 });
 check("R4  a revision written without the slide before is flagged once it is described", r4b.missing && r4b.whileFailed === null && r4b.after === "missing", JSON.stringify(r4b));
 
+// ---------- R5: bug round 5
+// R5: during a run, the banner's Use this is disabled and says why if reached.
+const r5 = await page.evaluate(() => {
+  const c = [...jobs.values()][1];
+  const i = c.discussion.findIndex((m) => m.revision && m.revision.html !== c.resultHtml);
+  batchRunning = true;
+  showingProposal = { jobId: c.id, index: i, mode: "preview" };
+  renderDetail();
+  const disabled = els.detailPane.querySelector(".js-proposal-use").disabled;
+  const before = c.resultHtml;
+  useRevision(c.id, i);
+  const out = { disabled, unchanged: c.resultHtml === before, status: document.getElementById("statusMessage").textContent };
+  batchRunning = false;
+  showingProposal = null;
+  renderDetail();
+  return out;
+});
+check("R5  during a run, Use this is disabled, and says why", r5.disabled && r5.unchanged && /Wait for the run to finish/.test(r5.status), JSON.stringify(r5));
+
 check("Z  no console errors", problems.filter((m) => !/400|503|Bad Request|Service Unavailable/i.test(m)).length === 0, problems.join(" | "));
 await b.close();
 const failed = results.filter((r) => !r.ok);

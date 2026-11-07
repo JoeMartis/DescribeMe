@@ -10,7 +10,7 @@ const { b, page, problems } = await launch({ acceptDownloads: true, keepSavePick
 // A Save dialog standing in for the browser's: what it was asked, what was
 // written, and how it answers (a file, a cancel, or a refusal).
 await page.addInitScript(() => {
-  window.__save = { asked: [], written: [], answer: "file" };
+  window.__save = { asked: [], written: [], removed: [], answer: "file" };
   window.showSaveFilePicker = async (opts) => {
     window.__save.asked.push(opts);
     if (window.__save.answer === "cancel") throw new DOMException("The user aborted a request.", "AbortError");
@@ -18,6 +18,7 @@ await page.addInitScript(() => {
     const name = `picked-${opts.suggestedName}`;
     return {
       name,
+      remove: async () => window.__save.removed.push(name),
       createWritable: async () => {
         const parts = [];
         return {
@@ -89,6 +90,20 @@ const r2 = await page.evaluate(async () => {
   return { asked: window.__save.asked.length - asked, error: document.getElementById("learnerError")?.textContent || "" };
 });
 check("R2  nothing approved: no Save dialog, just the reason", r2.asked === 0 && /Approve at least one visual/.test(r2.error), JSON.stringify(r2));
+
+// R5: an export that writes nothing takes back the file the dialog made.
+const r5 = await page.evaluate(async () => {
+  window.__save.answer = "file";
+  const [a] = [...jobs.values()];
+  const keep = { base64: a.base64, originalBase64: a.originalBase64 };
+  a.state = "done"; a.approved = true; a.base64 = ""; a.originalBase64 = null;
+  renderAll();
+  const written = window.__save.written.length;
+  await exportApproved();
+  Object.assign(a, keep);
+  return { removed: window.__save.removed.slice(-1)[0], written: window.__save.written.length - written };
+});
+check("R5  an export with nothing to write removes the empty file", r5.removed === "picked-Cell-Biology-descriptions.zip" && r5.written === 0, JSON.stringify(r5));
 
 check("Z  no console errors", problems.filter((m) => !/404/.test(m)).length === 0, problems.join(" | "));
 await b.close();

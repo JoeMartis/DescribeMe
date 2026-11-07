@@ -2944,6 +2944,7 @@ function renderDetail() {
         renderDetail();
       });
       q(".js-proposal-use").hidden = false;
+      q(".js-proposal-use").disabled = batchRunning;
       q(".js-proposal-use").addEventListener("click", () => useRevision(job.id, showingProposal.index));
 
       q(".js-proposal-hide").addEventListener("click", () => {
@@ -4404,7 +4405,11 @@ async function requestDiscussionReply(job) {
 function useRevision(jobId, index) {
   const job = jobs.get(jobId);
   const m = job?.discussion?.[index];
-  if (!m?.revision || batchRunning) return;
+  if (!m?.revision) return;
+  if (batchRunning) {
+    setStatus("Wait for the run to finish before using a revision.");
+    return;
+  }
   commitPendingEdit();
   job.history.push(snapshotOf(job));
   applyResult(job, m.revision.html);
@@ -6575,8 +6580,9 @@ async function exportApproved() {
   // Nothing in here used to catch: a slide whose bytes would not decode
   // rejected the click handler's promise, and the button just did nothing.
   try {
-    await exportApprovedNow(target);
+    if (!(await exportApprovedNow(target))) await discardSaveTarget(target);
   } catch (err) {
+    await discardSaveTarget(target);
     setError(`Export failed: ${(err && err.message) || err}`);
   }
 }
@@ -6689,6 +6695,17 @@ async function askWhereToSave(fileName, kind) {
     if (err && err.name === "AbortError") return "cancelled";
     // Refused (the click no longer counts, a sandboxed frame): download.
     return null;
+  }
+}
+
+/** The file the Save dialog made, taken away again when nothing was written
+    to it: the browser creates it as soon as a place is picked. */
+async function discardSaveTarget(target) {
+  if (!target || target === "cancelled" || typeof target.remove !== "function") return;
+  try {
+    await target.remove();
+  } catch (_err) {
+    // Gone already, or not ours to remove: an empty file at worst.
   }
 }
 
@@ -6866,6 +6883,7 @@ async function exportApprovedNow(target) {
       (notes.length ? ` ${notes.join(" ")}` : "") +
       (target ? ` Saved as ${savedAs}.` : "")
   );
+  return true;
 }
 
 els.exportBtn.addEventListener("click", exportApproved);
@@ -7057,6 +7075,7 @@ async function runLearnerDownload(kind) {
   try {
     const doc = await learnerDocument();
     if (!doc) {
+      await discardSaveTarget(target);
       setLearnerStatus("");
       setLearnerError("Approve at least one visual first — only approved visuals go into a learner download.");
       return;
@@ -7093,6 +7112,7 @@ async function runLearnerDownload(kind) {
         : "";
     setLearnerStatus(`${target ? "Saved" : "Downloaded"} ${savedAs} — ${doc.total} visual${doc.total === 1 ? "" : "s"}.${broken}${learnerNotes(doc)}`);
   } catch (err) {
+    await discardSaveTarget(target);
     setLearnerStatus("");
     setLearnerError(`${kind === "pdf" ? "The PDF" : "The HTML file"} could not be made: ${(err && err.message) || err}`);
   } finally {
