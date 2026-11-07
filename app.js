@@ -2111,25 +2111,24 @@ function folderPathParts(file) {
 function nameFolders(files) {
   const paths = files.map(folderPathParts);
   const root = paths[0]?.[0];
-  let shared = root != null && paths.every((p) => p[0] === root) && paths.some((p) => p.length > 1);
+  const shared = root != null && paths.every((p) => p[0] === root) && paths.some((p) => p.length > 1);
+  const taken = new Set([...jobs.values()].filter((j) => j.folderName).map((j) => stemKey(j.folderName)));
+  const clashes = (parts) => parts.length > 0 && taken.has(stemKey(parts.join("/")));
+  let names = paths.map((p) => (shared && p.length > 1 ? p.slice(1) : p));
   // Named below the folder picked, a folder may take the name of one already
   // in the batch from an earlier pick ("Lecture 2/Slides", then "Lecture
   // 3/Slides", both "Slides") and the two would be one segment: then the
   // folder picked stays in the name.
-  if (shared) {
-    const earlier = new Set([...jobs.values()].filter((j) => j.folderName).map((j) => stemKey(j.folderName)));
-    if (paths.some((p) => p.length > 1 && earlier.has(stemKey(p.slice(1).join("/"))))) shared = false;
-  }
-  // A folder of slides picked by itself is named for itself, so two picks
-  // of "Slides" (from "Lecture 2" and "Lecture 3") would still be one
-  // segment: the later pick is numbered, "Slides (2)".
-  const taken = new Set([...jobs.values()].filter((j) => j.folderName).map((j) => stemKey(j.folderName)));
-  let names = paths.map((p) => (shared && p.length > 1 ? p.slice(1) : p));
-  const clashes = (list) => list.some((parts) => parts.length > 0 && taken.has(stemKey(parts.join("/"))));
-  if (!shared && clashes(names)) {
+  if (shared && paths.some((p, i) => p.length > 1 && clashes(names[i]))) names = paths;
+  // Whatever still has an earlier pick's name — a folder of slides picked by
+  // itself ("Slides" from two lectures), or the slides straight inside the
+  // folder picked — is numbered, "Slides (2)": that folder only, not the
+  // others brought in with it.
+  const renamed = new Set(names.filter(clashes).map((n) => n[0]));
+  if (renamed.size > 0) {
     let k = 2;
-    const numbered = () => paths.map((p) => (p.length > 0 ? [`${p[0]} (${k})`, ...p.slice(1)] : p));
-    while (clashes(numbered())) k += 1;
+    const numbered = () => names.map((n) => (n.length > 0 && renamed.has(n[0]) ? [`${n[0]} (${k})`, ...n.slice(1)] : n));
+    while (numbered().some(clashes)) k += 1;
     names = numbered();
   }
   files.forEach((file, i) => folderNames.set(file, names[i].join("/")));

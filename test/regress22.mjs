@@ -489,6 +489,27 @@ const r15b = await page.evaluate(() => {
 });
 check("R15  a folder picked by itself that shares a name is numbered", r15b === "Slides (2),Slides (3),Slides", r15b);
 
+// ---------- R16: the review's fourth pass (rounds 14 and 15 rechecked)
+// Only the folder whose name clashes is numbered — the slides straight in a
+// picked folder that also has a subfolder, and not the others in a drop.
+const r16 = await page.evaluate(() => {
+  const [first] = [...jobs.values()];
+  const keep = first.folderName;
+  const pick = (paths) => {
+    const fs = paths.map((p) => { const f = new File([new Uint8Array([1])], "a.png", { type: "image/png" }); fileFolders.set(f, p); return f; });
+    nameFolders(fs);
+    return fs.map(folderOfFile).join("|");
+  };
+  first.folderName = "Lecture 2";
+  const withSub = pick(["Lecture 2/a.png", "Lecture 2/Extra/b.png"]);
+  first.folderName = "Slides";
+  const drop = pick(["S2/a.png", "Slides/b.png"]);
+  first.folderName = keep;
+  return { withSub, drop };
+});
+check("R16  the root's own slides are numbered when they clash, its subfolder is not", r16.withSub === "Lecture 2 (2)|Extra", JSON.stringify(r16));
+check("R16  in a drop of two folders, only the clashing one is numbered", r16.drop === "S2|Slides (2)", JSON.stringify(r16));
+
 // R15c: at 320px wide the rail's menus stay on the screen.
 await page.setViewportSize({ width: 320, height: 700 });
 await page.evaluate(() => document.querySelector("#railAddBtn").scrollIntoView());
