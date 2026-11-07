@@ -6724,7 +6724,15 @@ async function prepareApprovedImages() {
     const base64 = hasOriginal ? job.originalBase64 : job.base64;
     const mediaType = hasOriginal ? job.originalMediaType : job.mediaType;
     let name = exportFileName(job.name);
-    if (!hasOriginal) {
+    // Small enough to be sent as it was uploaded (neither resized nor
+    // re-encoded), a slide keeps no separate original: the copy it has is
+    // the original. Its type has to agree with its name, as a re-encoded
+    // copy's would not, in a file that never recorded how it was prepared.
+    const ext0 = extensionFor(mediaType);
+    const lower = name.toLowerCase();
+    const nameAgrees = !ext0 || lower.endsWith(`.${ext0}`) || (ext0 === "jpg" && lower.endsWith(".jpeg"));
+    const asUploaded = !hasOriginal && !job.resized && !job.recompressed && nameAgrees;
+    if (!hasOriginal && !asUploaded) {
       // The API copy is what there is — a project file from before originals
       // were carried through import, or one edited by hand. It was re-encoded
       // for upload, so the bytes are JPEG whatever the name says; the name

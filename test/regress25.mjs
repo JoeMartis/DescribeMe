@@ -130,6 +130,16 @@ const r8 = await page.evaluate(async () => {
 await page.waitForTimeout(500);
 check("R8  a double click makes one save, not a save and a download", r8.asked === 1 && downloads === 1, JSON.stringify({ ...r8, downloads }));
 
+// R13: a slide sent as it was uploaded is its own original: no note that a
+// re-encoded API copy went out instead.
+const r13 = await page.evaluate(async () => {
+  const [a] = [...jobs.values()];
+  a.state = "done"; a.approved = true; renderAll();
+  const { apiCopies, entries } = await prepareApprovedImages();
+  return { apiCopies, name: entries[0]?.imageName || entries[0]?.name, resized: a.resized, recompressed: !!a.recompressed };
+});
+check("R13  an image sent as uploaded is not called an API copy", r13.apiCopies === 0 && r13.resized === false && /\.png$/.test(r13.name), JSON.stringify(r13));
+
 check("Z  no console errors", problems.filter((m) => !/404/.test(m)).length === 0, problems.join(" | "));
 await b.close();
 const failed = results.filter((r) => !r.ok);
