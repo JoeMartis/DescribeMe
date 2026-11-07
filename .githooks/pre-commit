@@ -1,22 +1,21 @@
 #!/bin/sh
-# Regenerates version.js with a build number derived from the total commit
-# count, so it increases with every commit without a manually-tracked
-# counter that could drift. HEAD at this point is the commit being built
-# on top of, so the commit about to be created is count(HEAD) + 1.
+# Regenerates version.js from the release in VERSION (e.g. 2.0) and the
+# commits made since it: the release commit itself reads "2.0", the commits
+# after it "2.0.1", "2.0.2" and on, so the badge still says exactly which
+# build is loaded. HEAD at this point is the commit being built on top of,
+# so the commit about to be created is count(HEAD) + 1.
 #
-# VERSION_OFFSET subtracts off the commit count as of the reset to v1 (the
-# commit before this one), so the badge restarts at 1 here and keeps
-# incrementing by 1 per commit from there — without touching git history.
-# Bumping it again later means the same thing: set it to the current
-# count(HEAD) at the commit you want to become v1.
+# RELEASE_BASE is that count for the release commit. For a new release,
+# change VERSION (say to 2.1) and set RELEASE_BASE to count(HEAD) + 1 in
+# the same commit: `git rev-list --count HEAD`, plus one.
 #
-# Raised from 82 to 87 when the old default branch was merged in. That merge
-# brought 3 unreachable commits plus the merge commit itself into the count,
-# which would have jumped the badge from v3 straight to v8 without a single
-# change to the app. 87 absorbs those 4 and the offset commit, so the next
-# commit is v4 and the sequence stays continuous.
-VERSION_OFFSET=87
+# Before 2.0 the badge was a plain build number (v1 to v77), counted from
+# an offset of 87 commits.
+RELEASE_BASE=165
+release=$(tr -d ' \r\n' < VERSION 2>/dev/null)
+[ -n "$release" ] || release=0
 count=$(git rev-list --count HEAD 2>/dev/null || echo 0)
-version=$((count + 1 - VERSION_OFFSET))
+since=$((count + 1 - RELEASE_BASE))
+if [ "$since" -le 0 ]; then version="$release"; else version="$release.$since"; fi
 echo "window.APP_VERSION = \"$version\";" > version.js
 git add version.js
