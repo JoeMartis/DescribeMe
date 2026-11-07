@@ -4257,15 +4257,44 @@ function discussionRequest(job) {
   return { system, messages, context };
 }
 
-/** A reply: what Claude said, and the revision in it, if it proposed one. */
+/**
+ * A reply: what Claude said, and the revision in it, if it proposed one.
+ * More than one revision (two versions offered) comes back in `more`, each
+ * with the words before it, to be shown as revisions of their own.
+ */
 function parseDiscussReply(raw, truncated) {
-  const m = /<revision>([\s\S]*?)<\/revision>/i.exec(raw);
-  if (!m) {
-    // An opened revision the reply never closed was cut off: not a proposal.
-    const text = raw.replace(/<revision>[\s\S]*$/i, "").trim();
-    return { text: text || (truncated ? "The reply was cut off before it finished." : "…"), revision: null };
+  // A revision wrapped in a code block: the fence is not part of anything.
+  const body = String(raw)
+    .replace(/```[\w-]*\s*(<revision\b)/gi, "$1")
+    .replace(/(<\/revision>)\s*```/gi, "$1");
+  const tag = /<revision\b[^>]*>([\s\S]*?)<\/revision>/gi;
+  const found = [];
+  let last = 0;
+  let m;
+  while ((m = tag.exec(body))) {
+    found.push({ before: body.slice(last, m.index), inner: m[1] });
+    last = tag.lastIndex;
   }
-  const fragment = sanitizeHtmlFragment(m[1].trim());
+  // An opened revision never closed is one the reply was cut off in; one only
+  // mentioned in passing ("between <revision> tags") is just words.
+  let tail = body.slice(last);
+  if (truncated) tail = tail.replace(/<revision\b[\s\S]*$/i, "");
+  if (found.length === 0) {
+    const text = tail.trim();
+    return { text: text || (truncated ? "The reply was cut off before it finished." : "…"), revision: null, more: [] };
+  }
+  const replies = found.map((f, i) => {
+    const { revision, notes } = readRevision(f.inner);
+    const text = [f.before.trim(), ...notes, i === found.length - 1 ? tail.trim() : ""].filter(Boolean).join("\n\n");
+    return { text: text || (revision ? (i === 0 ? "Here is a revision." : "Or this:") : "…"), revision };
+  });
+  const [first, ...more] = replies;
+  return { ...first, more };
+}
+
+/** One revision's markup, sanitised, and any note Claude wrote inside it. */
+function readRevision(inner) {
+  const fragment = sanitizeHtmlFragment(inner.trim());
   // A description is all headings, paragraphs and lists. Loose text at its
   // start or end, outside any of them, is Claude's note about the change
   // written inside the tags: it goes in the message, not on the course page.
@@ -4283,13 +4312,11 @@ function parseDiscussReply(raw, truncated) {
     if (t) after.unshift(t);
     fragment.lastChild.remove();
   }
-  const notes = [...before, ...after];
   const holder = document.createElement("div");
   holder.appendChild(fragment.cloneNode(true));
   const revision = { html: holder.innerHTML, text: domFragmentToText(fragment) };
-  const said = [raw.replace(m[0], "").trim(), ...notes].filter(Boolean).join("\n\n");
-  if (!revision.text.trim() && !/<(math|img|table)[\s>]/i.test(revision.html)) return { text: said || "…", revision: null };
-  return { text: said || "Here is a revision.", revision };
+  const empty = !revision.text.trim() && !/<(math|img|table)[\s>]/i.test(revision.html);
+  return { revision: empty ? null : revision, notes: [...before, ...after] };
 }
 
 // What a quick request means for the slide's mode, as the refine buttons
@@ -4374,27 +4401,35 @@ async function requestDiscussionReply(job) {
     const reply = parseDiscussReply(raw, payload.stop_reason === "max_tokens");
     if (!jobs.has(job.id)) return; // removed while Claude was replying
     const asked = [...(job.discussion || [])].reverse().find((m) => m.role === "user");
-    job.discussion = [
-      ...(job.discussion || []),
-      {
-        role: "assistant",
-        text: reply.text,
-        revision: reply.revision,
-        ...(asked && asked.mode ? { mode: asked.mode } : {}),
-        model,
-        usage,
-        costUsd,
-        costMeasured,
-        // What a revision was written with in view, for the context flag;
-        // without the slide before, because it had no description yet, said
-        // so, as describeOne says it, to be flagged once it has one.
-        contextFrom: context
-          ? contextRecord(context.prev, context.html)
-          : !job.textOnly && prev && prev.state !== "invalid"
-            ? { image: imageFingerprint(prev), html: null, missing: true }
-            : null,
-      },
-    ];
+    const first = {
+      role: "assistant",
+      text: reply.text,
+      revision: reply.revision,
+      ...(asked && asked.mode ? { mode: asked.mode } : {}),
+      model,
+      usage,
+      costUsd,
+      costMeasured,
+      // What a revision was written with in view, for the context flag;
+      // without the slide before, because it had no description yet, said
+      // so, as describeOne says it, to be flagged once it has one.
+      contextFrom: context
+        ? contextRecord(context.prev, context.html)
+        : !job.textOnly && prev && prev.state !== "invalid"
+          ? { image: imageFingerprint(prev), html: null, missing: true }
+          : null,
+    };
+    // A second version offered in the same reply is a revision of its own,
+    // written from the same view, to be previewed and used like the first.
+    const extra = reply.more.map((r) => ({
+      role: "assistant",
+      text: r.text,
+      revision: r.revision,
+      model,
+      contextFrom: first.contextFrom,
+      ...(first.mode ? { mode: first.mode } : {}),
+    }));
+    job.discussion = [...(job.discussion || []), first, ...extra];
     markDirty();
     // The panel is drawn afresh, so its log never announces what arrives:
     // the status line says it, the start of it at least.
@@ -4403,7 +4438,7 @@ async function requestDiscussionReply(job) {
     const about = job.id === selectedJobId ? "" : ` (about ${job.name})`;
     setStatus(
       reply.revision
-        ? `Claude proposed revision ${revisionNumber(job, job.discussion.length - 1)}${about}: ${said} Nothing changes until you use it.`
+        ? `Claude proposed ${extra.length ? `${extra.length + 1} revisions, from` : "revision"} ${revisionNumber(job, job.discussion.length - 1 - extra.length)}${about}: ${said} Nothing changes until you use it.`
         : `Claude${about}: ${said}`
     );
   } catch (err) {

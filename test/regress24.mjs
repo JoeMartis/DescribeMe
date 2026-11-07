@@ -386,6 +386,34 @@ const r6b = await page.evaluate(() => {
 check("R6  Text only is asked under the transcription rules", r6req.system.startsWith((await page.evaluate(() => OCR_SYSTEM_PROMPT)).slice(0, 80)), r6req.system.slice(0, 80));
 check("R6  using its revision makes the slide a transcription", r6b.before === false && r6b.after === true && r6b.mode === "textOnly", JSON.stringify(r6b));
 
+// ---------- R7: bug round 7
+// R7a: the shapes a reply comes back in.
+const r7 = await page.evaluate(() => ({
+  fenced: parseDiscussReply("Here you go:\n```html\n<revision>\n<h2>T</h2><p>Body.</p>\n</revision>\n```", false),
+  two: parseDiscussReply("Two options.\n<revision><h2>A</h2><p>One.</p></revision>\nOr:\n<revision><h2>B</h2><p>Two.</p></revision>", false),
+  attrs: parseDiscussReply("Done.\n<revision type=\"html\"><h2>T</h2><p>Attr.</p></revision>", false),
+  mentions: parseDiscussReply("I can put a new version between <revision> tags if you like.", false),
+  cut: parseDiscussReply("Here it is.\n<revision><h2>T</h2><p>Cut off mid", true),
+}));
+check("R7  a revision in a code block leaves no fence in the message", r7.fenced.text === "Here you go:" && r7.fenced.revision.html === "<h2>T</h2><p>Body.</p>", JSON.stringify(r7.fenced));
+check("R7  a second version is a revision of its own", r7.two.revision.html === "<h2>A</h2><p>One.</p>" && r7.two.text === "Two options." && r7.two.more.length === 1 && r7.two.more[0].text === "Or:" && r7.two.more[0].revision.html === "<h2>B</h2><p>Two.</p>", JSON.stringify(r7.two));
+check("R7  a revision tag with attributes is read", r7.attrs.revision?.html === "<h2>T</h2><p>Attr.</p>" && r7.attrs.text === "Done.", JSON.stringify(r7.attrs));
+check("R7  a tag only mentioned is just words", r7.mentions.revision === null && /tags if you like\.$/.test(r7.mentions.text), JSON.stringify(r7.mentions));
+check("R7  a reply cut off inside a revision offers none", r7.cut.revision === null && r7.cut.text === "Here it is.", JSON.stringify(r7.cut));
+
+// R7b: two versions in one reply become two usable revisions.
+replies.push({ text: "Two ways.\n<revision><h2>Net Zero</h2><p>Way one.</p></revision>\nOr:\n<revision><h2>Net Zero</h2><p>Way two.</p></revision>" });
+await page.evaluate(() => { discussOpen = true; renderDetail(); });
+await page.fill("#detailPane .js-discuss-input", "Give me two.");
+await page.keyboard.press("Enter");
+await page.waitForFunction(() => [...jobs.values()][1].discussion.some((m) => m.revision && /Way two/.test(m.revision.html)));
+const r7b = await page.evaluate(() => {
+  const c = [...jobs.values()][1];
+  const ones = c.discussion.filter((m) => m.revision && /Way (one|two)/.test(m.revision.html));
+  return { n: ones.length, sameView: JSON.stringify(ones[0].contextFrom) === JSON.stringify(ones[1].contextFrom), uses: els.detailPane.querySelectorAll(".js-discuss-use").length >= 2 };
+});
+check("R7  both versions can be previewed and used", r7b.n === 2 && r7b.sameView && r7b.uses, JSON.stringify(r7b));
+
 check("Z  no console errors", problems.filter((m) => !/400|503|Bad Request|Service Unavailable/i.test(m)).length === 0, problems.join(" | "));
 await b.close();
 const failed = results.filter((r) => !r.ok);
