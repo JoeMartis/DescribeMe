@@ -510,6 +510,18 @@ const r16 = await page.evaluate(() => {
 check("R16  the root's own slides are numbered when they clash, its subfolder is not", r16.withSub === "Lecture 2 (2)|Extra", JSON.stringify(r16));
 check("R16  in a drop of two folders, only the clashing one is numbered", r16.drop === "S2|Slides (2)", JSON.stringify(r16));
 
+// R17c: opening a project does not keep the last batch's folded segments.
+const r17c = await page.evaluate(() => {
+  const keys = [...new Set([...jobs.values()].map(segmentKey))];
+  collapsedSegments.add(keys[0]);
+  renderRail();
+  loadProjectRecord(serializeProject());
+  renderAll();
+  const hidden = [...document.querySelectorAll("#railList li")].filter((li) => li.hidden).length;
+  return { folded: collapsedSegments.size, hidden, segments: keys.length };
+});
+check("R17  opening a project opens with no segment folded", r17c.segments > 1 && r17c.folded === 0 && r17c.hidden === 0, JSON.stringify(r17c));
+
 // R15c: at 320px wide the rail's menus stay on the screen.
 await page.setViewportSize({ width: 320, height: 700 });
 await page.evaluate(() => document.querySelector("#railAddBtn").scrollIntoView());

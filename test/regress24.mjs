@@ -24,7 +24,7 @@ await page.route(API, async (route) => {
   return route.fulfill({
     status: 200,
     headers: { ...cors, "content-type": "application/json" },
-    body: JSON.stringify({ id: "m", type: "message", role: "assistant", model: body.model, content: [{ type: "text", text: next.text }], stop_reason: "end_turn", usage: { input_tokens: 1000, output_tokens: 100 } }),
+    body: JSON.stringify({ id: "m", type: "message", role: "assistant", model: body.model, content: [{ type: "text", text: next.text }], stop_reason: "end_turn", usage: next.noUsage ? undefined : { input_tokens: 1000, output_tokens: 100 } }),
   });
 });
 
@@ -672,6 +672,42 @@ const r16d = await page.evaluate(() => {
 });
 check("R16  a reply's mode and a history entry's are kept in a project file", r16d.history === true && r16d.reply === true, JSON.stringify(r16d));
 check("R16  Shorter is not offered for a transcription", r16c.transcription.every(Boolean) && r16c.description.every((x) => !x), JSON.stringify(r16c));
+
+// ---------- R17: fields that go together
+// R17a: a revision from a file keeps its usage with its cost; one from an
+// older file, cost alone, puts no cost on the slide when used.
+const r17a = await page.evaluate(() => {
+  const job = [...jobs.values()][0];
+  const keep = { discussion: job.discussion, html: job.resultHtml, text: job.resultText, history: job.history.length, approved: job.approved, usage: job.usage, cost: job.costUsd, measured: job.costMeasured, textOnly: job.textOnly };
+  const usage = { inputTokens: 1000, outputTokens: 100, cacheReadTokens: 0, cacheWriteTokens: 0, cacheWrite5mTokens: 0, cacheWrite1hTokens: 0 };
+  const chat = validDiscussion([{ role: "user", text: "hi" }, { role: "assistant", text: "a", revision: { html: "<p>A.</p>" }, usage, costUsd: 0.012 }, { role: "user", text: "again" }, { role: "assistant", text: "b", revision: { html: "<p>B.</p>" }, costUsd: 0.02 }], (h) => ({ html: h, text: h }));
+  job.discussion = chat;
+  useRevision(job.id, 1);
+  const withUsage = { cost: job.costUsd, usage: !!job.usage };
+  useRevision(job.id, 3);
+  const without = { cost: job.costUsd, usage: !!job.usage, chatCost: chat[3].costUsd };
+  Object.assign(job, { discussion: keep.discussion, resultHtml: keep.html, resultText: keep.text, approved: keep.approved, usage: keep.usage, costUsd: keep.cost, costMeasured: keep.measured, textOnly: keep.textOnly });
+  job.history.length = keep.history;
+  renderAll();
+  return { withUsage, without };
+});
+check("R17  a revision's usage is kept with its cost, and a cost alone is not put on the slide", r17a.withUsage.cost === 0.012 && r17a.withUsage.usage && r17a.without.cost === null && !r17a.without.usage && r17a.without.chatCost === 0.02, JSON.stringify(r17a));
+
+// R17b: a description that comes back with no usage does not keep the cost
+// of the one it replaced.
+replies.push({ text: "<h2>Net Zero</h2><p>Again.</p>", noUsage: true });
+const r17b = await page.evaluate(async () => {
+  const job = [...jobs.values()][0];
+  const keep = { html: job.resultHtml, text: job.resultText, history: job.history.length, approved: job.approved, usage: job.usage, cost: job.costUsd, measured: job.costMeasured, textOnly: job.textOnly, model: job.usedModel };
+  job.costUsd = 0.01; job.costMeasured = true;
+  await refineJob(job.id, null);
+  const out = { state: job.state, cost: job.costUsd, measured: job.costMeasured, text: job.resultText };
+  Object.assign(job, { resultHtml: keep.html, resultText: keep.text, approved: keep.approved, usage: keep.usage, costUsd: keep.cost, costMeasured: keep.measured, textOnly: keep.textOnly, usedModel: keep.model });
+  job.history.length = keep.history;
+  renderAll();
+  return out;
+});
+check("R17  a reply with no usage shows no cost, not the old one's", r17b.state === "done" && /Again/.test(r17b.text) && r17b.cost === null && r17b.measured === false, JSON.stringify(r17b));
 
 // ---------- R14: bug round 14 (the review's second pass)
 // R14: New batch, cancelled, leaves a reply coming alone.

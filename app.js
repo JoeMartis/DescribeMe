@@ -3636,9 +3636,13 @@ function validDiscussion(raw, sanitizeToStored) {
         kept.revision = null;
       }
       kept.model = MODEL_LADDER.includes(m.model) ? m.model : null;
-      kept.costUsd = Number.isFinite(m.costUsd) && m.costUsd >= 0 ? m.costUsd : null;
-      kept.costMeasured = !!m.costMeasured;
-      kept.usage = null;
+      // The usage goes with the cost, as on a slide: used, a revision's cost
+      // is shown with what it was for, and is kept on the next save. Files
+      // from before kept the cost alone; that still counts in the chat.
+      const saved = sanitizeSavedUsage(m);
+      kept.usage = saved.usage;
+      kept.costUsd = saved.usage ? saved.costUsd : Number.isFinite(m.costUsd) && m.costUsd >= 0 ? m.costUsd : null;
+      kept.costMeasured = saved.usage ? saved.costMeasured : !!m.costMeasured;
       kept.contextFrom = validContextRecord(m.contextFrom);
       if (typeof m.textOnly === "boolean") kept.textOnly = m.textOnly;
     }
@@ -4198,6 +4202,10 @@ async function describeOne(job, { apiKey, model, verbosity, revision, forceReque
         job.costUsd = headerCost != null ? headerCost : usageCostUsd(job.usage, model);
         job.costMeasured = headerCost != null;
         recordSpend(job.usage, model, headerCost);
+      } else {
+        // Not the cost of the description this replaces.
+        job.costUsd = null;
+        job.costMeasured = false;
       }
       // A 200 can still be an unfinished answer. stop_reason "max_tokens"
       // means the model ran out of room and the HTML simply stops — often
@@ -4567,8 +4575,10 @@ function useRevision(jobId, index) {
     sameAsPrevious: false,
     usedModel: m.model || job.usedModel,
     usage: m.usage || null,
-    costUsd: Number.isFinite(m.costUsd) ? m.costUsd : null,
-    costMeasured: !!m.costMeasured,
+    // A cost without its usage is not kept on a slide (sanitizeSavedUsage),
+    // so it is not put there either: it would show, then go on the next save.
+    costUsd: m.usage && Number.isFinite(m.costUsd) ? m.costUsd : null,
+    costMeasured: !!m.usage && !!m.costMeasured,
     durationMs: null,
     contextFrom: m.contextFrom || null,
   });
@@ -7783,6 +7793,9 @@ function loadProjectRecord(record) {
   // excerpts; the session transcript belonged to whatever came before.
   workspaceTranscripts.clear();
   els.railList.replaceChildren();
+  // Folded segments were the last batch's: one of the same name here would
+  // open folded, with the slide shown in the pane hidden in the rail.
+  collapsedSegments.clear();
   selectedJobId = null;
   editMode = null;
 
