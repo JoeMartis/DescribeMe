@@ -138,6 +138,7 @@ const preview = await page.textContent("#systemPromptPreview");
 check("P9  settings shows the describing prompt", /DESCRIBING A VISUAL/.test(preview));
 check("P9  settings shows the text & math prompt", /TEXT & MATH ONLY/.test(preview));
 check("P9  and says verbosity does not apply to it", /verbosity does not apply/.test(preview));
+check("P9  and the previous-visual rules most slides are sent", /PREVIOUS VISUAL: The visual shown just before/.test(preview) && /first slide is sent this without/.test(preview));
 
 check("Z  no console errors or CSP violations", problems.length === 0, problems.join(" | "));
 

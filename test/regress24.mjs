@@ -604,6 +604,75 @@ const r15c = await page.evaluate(() => {
 });
 check("R15  Text only in Discuss is asked with the transcription instruction and transcript", r15c.textOnly && r15c.more, JSON.stringify(r15c));
 
+// ---------- R16: settings applied to one part and not another
+// R16a: a revision asked for in words records the mode it was written in;
+// used after the slide changed mode, it puts that mode back.
+replies.push({ text: "Fixed.\n<revision><p>Line one. Line two.</p></revision>" });
+const r16a = await page.evaluate(async () => {
+  const job = [...jobs.values()][0];
+  const keep = { discussion: job.discussion, textOnly: job.textOnly, html: job.resultHtml, text: job.resultText, history: job.history.length, approved: job.approved };
+  job.approved = false;
+  job.textOnly = true;
+  job.discussion = [{ role: "user", text: "fix the second line" }];
+  await requestDiscussionReply(job);
+  const reply = job.discussion[job.discussion.length - 1];
+  job.textOnly = false; // More detail, say, in between
+  useRevision(job.id, job.discussion.length - 1);
+  const after = job.textOnly;
+  undoRevision(job.id);
+  const undone = job.textOnly;
+  Object.assign(job, { discussion: keep.discussion, textOnly: keep.textOnly, resultHtml: keep.html, resultText: keep.text, approved: keep.approved });
+  job.history.length = keep.history;
+  renderAll();
+  return { recorded: reply.textOnly, after, undone };
+});
+check("R16  a revision asked in words is used in the mode it was written in", r16a.recorded === true && r16a.after === true && r16a.undone === false, JSON.stringify(r16a));
+
+// R16b: Text only that fails leaves the slide a description, as its text is.
+replies.push({ status: 400, message: "Something was wrong with the request" });
+const r16b = await page.evaluate(async () => {
+  const job = [...jobs.values()][0];
+  const keep = { textOnly: job.textOnly, approved: job.approved };
+  job.textOnly = false;
+  await refineJob(job.id, "textOnly");
+  const failed = job.textOnly;
+  Object.assign(job, keep);
+  setError("");
+  renderAll();
+  return { failed };
+});
+check("R16  a Text only that fails leaves the slide a description", r16b.failed === false, JSON.stringify(r16b));
+
+// R16c: no Shorter for a transcription, in the refine row or in Discuss.
+const r16c = await page.evaluate(() => {
+  const job = [...jobs.values()][0];
+  const keep = { textOnly: job.textOnly, approved: job.approved };
+  job.approved = false;
+  const look = (textOnly) => {
+    job.textOnly = textOnly;
+    selectJob(job.id); discussOpen = true; renderDetail();
+    const d = els.detailPane;
+    return [d.querySelector(".js-refine-short").hidden, d.querySelector(".js-discuss-shorter").hidden, d.querySelector(".js-discuss-shorter").offsetParent === null];
+  };
+  const transcription = look(true);
+  const description = look(false);
+  Object.assign(job, keep);
+  discussOpen = false; renderAll();
+  return { transcription, description };
+});
+// R16d: both survive a project file: a reply's mode, and a history entry's.
+const r16d = await page.evaluate(() => {
+  const job = [...jobs.values()][0];
+  const keep = job.history;
+  job.history = [{ ...snapshotOf(job), textOnly: true }];
+  const record = importedProjectRecord({ format: PROJECT_FILE_FORMAT, version: 1, ...serializeProject() });
+  job.history = keep;
+  const chat = validDiscussion([{ role: "user", text: "hi" }, { role: "assistant", text: "ok", textOnly: true, revision: { html: "<p>x</p>" } }], (h) => ({ html: h, text: h }));
+  return { history: record.jobs[0].history[0].textOnly, reply: chat[1].textOnly };
+});
+check("R16  a reply's mode and a history entry's are kept in a project file", r16d.history === true && r16d.reply === true, JSON.stringify(r16d));
+check("R16  Shorter is not offered for a transcription", r16c.transcription.every(Boolean) && r16c.description.every((x) => !x), JSON.stringify(r16c));
+
 // ---------- R14: bug round 14 (the review's second pass)
 // R14: New batch, cancelled, leaves a reply coming alone.
 const r14 = await page.evaluate(() => {

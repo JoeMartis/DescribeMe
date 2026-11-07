@@ -2883,6 +2883,9 @@ function renderDetail() {
     }
     q(".js-refine-detail").addEventListener("click", () => refineJob(job.id, "more"));
     q(".js-refine-short").addEventListener("click", () => refineJob(job.id, "less"));
+    // A transcription is as long as what is printed: its rules forbid
+    // merging or summarising, and Shorter would ask for exactly that.
+    q(".js-refine-short").hidden = !!job.textOnly;
     q(".js-refine-textonly").addEventListener("click", () => refineJob(job.id, "textOnly"));
     const strongerBtn = q(".js-refine-model");
     const stronger = strongerModel(job.usedModel || els.model.value);
@@ -3581,6 +3584,9 @@ function snapshotOf(job) {
     // What this text was written with in view, so undo puts that back too.
     contextFrom: job.contextFrom || null,
     sameAsPrevious: !!job.sameAsPrevious,
+    // A transcription or a description: the text is one or the other, so a
+    // failed Text only, or an Undo, puts the mode back with it.
+    textOnly: !!job.textOnly,
   };
 }
 
@@ -3602,6 +3608,7 @@ function restoreSnapshot(job, snap) {
   }
   if ("contextFrom" in snap) job.contextFrom = validContextRecord(snap.contextFrom);
   if ("sameAsPrevious" in snap) job.sameAsPrevious = !!snap.sameAsPrevious;
+  if ("textOnly" in snap) job.textOnly = !!snap.textOnly;
 }
 
 /**
@@ -3633,6 +3640,7 @@ function validDiscussion(raw, sanitizeToStored) {
       kept.costMeasured = !!m.costMeasured;
       kept.usage = null;
       kept.contextFrom = validContextRecord(m.contextFrom);
+      if (typeof m.textOnly === "boolean") kept.textOnly = m.textOnly;
     }
     return [kept];
   });
@@ -4489,6 +4497,10 @@ async function requestDiscussionReply(job) {
       text: reply.text,
       revision: reply.revision,
       ...(asked && asked.mode ? { mode: asked.mode } : {}),
+      // Whichever mode it was written in, asked for or the slide's own at the
+      // time, so using it later makes the slide that mode, whatever it is by
+      // then.
+      textOnly,
       model,
       usage,
       costUsd,
@@ -4511,6 +4523,7 @@ async function requestDiscussionReply(job) {
       model,
       contextFrom: first.contextFrom,
       ...(first.mode ? { mode: first.mode } : {}),
+      textOnly,
     }));
     job.discussion = [...(job.discussion || []), first, ...extra];
     markDirty();
@@ -4561,7 +4574,8 @@ function useRevision(jobId, index) {
   });
   // A transcription asked for with Text only makes the slide one, so a later
   // redo transcribes again; More detail makes it a description again.
-  if (m.mode === "textOnly") job.textOnly = true;
+  if (typeof m.textOnly === "boolean") job.textOnly = m.textOnly;
+  else if (m.mode === "textOnly") job.textOnly = true;
   else if (m.mode === "more") job.textOnly = false;
   // As applied, so "is this one in the description" compares like with like.
   m.revision.html = job.resultHtml;
@@ -4765,6 +4779,8 @@ function renderDiscussion(job, frag) {
   sendBtn.addEventListener("click", send);
   frag.querySelectorAll(".js-discuss-quick").forEach((b) => {
     b.disabled = blocked;
+    // As the refine row: no Shorter for a transcription.
+    if (b.classList.contains("js-discuss-shorter")) b.hidden = !!job.textOnly;
     b.addEventListener("click", () => sendDiscussion(job.id, b.dataset.ask, b.dataset.mode));
   });
   q(".js-discuss-close").addEventListener("click", () => {
@@ -7377,8 +7393,11 @@ function updateVerbosityDisplay() {
   // something entirely different — showing only the description prompt would
   // send them looking for a cause that is not in the text they are reading.
   els.systemPromptPreview.textContent =
-    `── DESCRIBING A VISUAL (verbosity: ${verbosity.label}) ──\n\n` +
-    buildSystemPrompt(verbosity) +
+    // As most slides are sent it: with the slide before them, and the rules
+    // for that, which are where "Same as the previous visual" comes from.
+    `── DESCRIBING A VISUAL (verbosity: ${verbosity.label}) ──\n` +
+    `A segment's first slide is sent this without the PREVIOUS VISUAL part.\n\n` +
+    buildSystemPrompt(verbosity, "", false, true) +
     `\n\n\n── TEXT & MATH ONLY (verbosity does not apply) ──\n\n` +
     buildSystemPrompt(verbosity, "", true);
 }
@@ -8123,6 +8142,7 @@ function importedProjectRecord(raw) {
     if ("usage" in e) Object.assign(kept, sanitizeSavedUsage(e));
     if ("contextFrom" in e) kept.contextFrom = validContextRecord(e.contextFrom);
     if ("sameAsPrevious" in e) kept.sameAsPrevious = !!e.sameAsPrevious;
+    if ("textOnly" in e) kept.textOnly = !!e.textOnly;
     return kept;
   };
 
