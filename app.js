@@ -1509,13 +1509,20 @@ function positionOrder() {
     );
   const out = ids.slice();
   slots.forEach((slot, k) => (out[slot] = sorted[k].id));
-  // Each segment kept together, in the order the segments stand: otherwise
-  // the rail groups them again on the next redraw, undoing the sort while
-  // the status says it sorted.
+  // Each segment kept together, otherwise the rail groups them again on the
+  // next redraw, undoing the sort while the status says it sorted. Segments
+  // go in the sorted order too (S2 before S3, whichever was added first):
+  // the move arrows and drag keep a slide inside its segment, so this is
+  // the one way segments are put in order.
+  // A segment stands where its first slide with a position now does; one
+  // with none, where its first slide is.
   const rank = new Map();
-  for (const id of ids) {
-    const key = segmentKey(jobs.get(id));
-    if (!rank.has(key)) rank.set(key, rank.size);
+  const positioned = new Set(slots.map((i) => ids[i]));
+  for (const pass of [true, false]) {
+    out.forEach((id, i) => {
+      const key = segmentKey(jobs.get(id));
+      if (!rank.has(key) && (!pass || positioned.has(id))) rank.set(key, i);
+    });
   }
   return out
     .map((id, i) => [id, i])
@@ -2110,13 +2117,22 @@ function nameFolders(files) {
   // 3/Slides", both "Slides") and the two would be one segment: then the
   // folder picked stays in the name.
   if (shared) {
-    const taken = new Set([...jobs.values()].filter((j) => j.folderName).map((j) => stemKey(j.folderName)));
-    if (paths.some((p) => p.length > 1 && taken.has(stemKey(p.slice(1).join("/"))))) shared = false;
+    const earlier = new Set([...jobs.values()].filter((j) => j.folderName).map((j) => stemKey(j.folderName)));
+    if (paths.some((p) => p.length > 1 && earlier.has(stemKey(p.slice(1).join("/"))))) shared = false;
   }
-  files.forEach((file, i) => {
-    const parts = shared && paths[i].length > 1 ? paths[i].slice(1) : paths[i];
-    folderNames.set(file, parts.join("/"));
-  });
+  // A folder of slides picked by itself is named for itself, so two picks
+  // of "Slides" (from "Lecture 2" and "Lecture 3") would still be one
+  // segment: the later pick is numbered, "Slides (2)".
+  const taken = new Set([...jobs.values()].filter((j) => j.folderName).map((j) => stemKey(j.folderName)));
+  let names = paths.map((p) => (shared && p.length > 1 ? p.slice(1) : p));
+  const clashes = (list) => list.some((parts) => parts.length > 0 && taken.has(stemKey(parts.join("/"))));
+  if (!shared && clashes(names)) {
+    let k = 2;
+    const numbered = () => paths.map((p) => (p.length > 0 ? [`${p[0]} (${k})`, ...p.slice(1)] : p));
+    while (clashes(numbered())) k += 1;
+    names = numbered();
+  }
+  files.forEach((file, i) => folderNames.set(file, names[i].join("/")));
 }
 
 /** A folder's images in the order they were shown: by segment, then time.
@@ -4697,13 +4713,18 @@ function renderDiscussion(job, frag) {
     li.append(stop);
     log.append(li);
   }
-  const error = discussErrors.get(job.id);
+  const last = messages[messages.length - 1];
+  // Kept in memory only: after a reload, or opened from the shared folder,
+  // a message still waiting has no reason recorded, but it can still be
+  // asked again, or the next message would be sent merged into it.
+  const error =
+    discussErrors.get(job.id) ||
+    (last && last.role === "user" && !busy ? "the page was closed or reloaded before it came." : null);
   if (error && !busy) {
     const li = document.createElement("li");
     li.className = "discuss-error";
-    li.setAttribute("role", "alert");
+    if (discussErrors.has(job.id)) li.setAttribute("role", "alert");
     li.textContent = `No reply: ${error} `;
-    const last = messages[messages.length - 1];
     if (last && last.role === "user") {
       const retry = document.createElement("button");
       retry.type = "button";
@@ -6473,9 +6494,10 @@ function escapeHtml(text) {
     .replace(/"/g, "&quot;");
 }
 
-function safeFileStem(name, taken) {
-  let stem = name
-    .replace(/\.[^.]+$/, "")
+/** A file name made safe; `name` is taken as a file's name, its extension
+    dropped, unless keepDots (a batch name: "Week 3.1" is not "Week 3"). */
+function safeFileStem(name, taken, { keepDots = false } = {}) {
+  let stem = (keepDots ? name : name.replace(/\.[^.]+$/, ""))
     .replace(/[^a-zA-Z0-9._-]+/g, "-")
     // Nor dots at either end: ".." from a hand-made project file would make
     // an export folder write above the zip's own folder.
@@ -6740,7 +6762,7 @@ async function exportApproved() {
   saveInProgress = true;
   try {
     const batch = els.batchName.value.trim() || "Untitled batch";
-    const target = await askWhereToSave(`${safeFileStem(batch, new Set())}-descriptions.zip`, "zip");
+    const target = await askWhereToSave(`${safeFileStem(batch, new Set(), { keepDots: true })}-descriptions.zip`, "zip");
     if (target === "cancelled") {
       setStatus("Not exported: the save was cancelled.");
       return;
@@ -7041,7 +7063,7 @@ async function exportApprovedNow(target) {
     }
   }
 
-  const savedAs = await saveBlob(buildZipBlob(files), `${safeFileStem(batch, new Set())}-descriptions.zip`, target);
+  const savedAs = await saveBlob(buildZipBlob(files), `${safeFileStem(batch, new Set(), { keepDots: true })}-descriptions.zip`, target);
   const notes = [];
   if (segments.size > 1) notes.push(`One folder for each of the ${segments.size} segments.`);
   const dependents = dependentsNote(dependentsWithoutPrevious(entries));
@@ -7133,7 +7155,7 @@ function bytesToBase64(bytes) {
  */
 /** The learner download's file name, without its extension. */
 function learnerStem(batch) {
-  return `${safeFileStem(batch, new Set())}-visual-descriptions`;
+  return `${safeFileStem(batch, new Set(), { keepDots: true })}-visual-descriptions`;
 }
 
 async function learnerDocument() {
@@ -8042,7 +8064,7 @@ async function exportProjectRecord(record) {
 }
 
 async function exportProjectRecordNow(record) {
-  const fileName = `${safeFileStem(record.name, new Set())}.describeme.json`;
+  const fileName = `${safeFileStem(record.name, new Set(), { keepDots: true })}.describeme.json`;
   const target = await askWhereToSave(fileName, "json");
   if (target === "cancelled") {
     announceProjects("Not exported: the save was cancelled.");

@@ -566,6 +566,28 @@ check("R13  no file or folder named '..'", !r13d.slice(0, 2).some((x) => /^\.|\.
 const r13f = await page.evaluate(() => validDiscussion([{ role: "assistant", text: "orphan reply" }, { role: "user", text: "hi" }, { role: "assistant", text: "hello" }], (h) => ({ html: h, text: h })).map((m) => m.role).join());
 check("R13  a loaded conversation starts with the person", r13f === "user,assistant", r13f);
 
+// ---------- R15: bug round 15 (the review's third pass)
+// R15a: a message whose reply never came — the page reloaded first — can be
+// asked again; the reason is not kept, but the chat says what happened.
+const r15a = await page.evaluate(() => {
+  const job = [...jobs.values()].find((j) => !j.approved) || [...jobs.values()][0];
+  const keep = job.discussion;
+  job.approved = false;
+  job.discussion = [...(job.discussion || []), { role: "user", text: "Still there?" }];
+  discussErrors.clear();
+  selectJob(job.id); discussOpen = true; renderDetail();
+  const err = els.detailPane.querySelector(".discuss-error");
+  const out = { text: err?.textContent || "", retry: !!els.detailPane.querySelector(".js-discuss-retry"), alert: err?.getAttribute("role") };
+  job.discussion = keep;
+  renderDetail();
+  return out;
+});
+check("R15  an unanswered message after a reload can be asked again", r15a.retry && /reloaded/.test(r15a.text) && r15a.alert === null, JSON.stringify(r15a));
+
+// R15b: a batch name keeps its dots in the file names made from it.
+const r15b = await page.evaluate(() => [safeFileStem("Week 3.1", new Set(), { keepDots: true }), safeFileStem("UCE.3_L2", new Set(), { keepDots: true }), safeFileStem("photo.png", new Set())]);
+check("R15  a batch name's dots are not taken for an extension", r15b.join() === "Week-3.1,UCE.3_L2,photo", JSON.stringify(r15b));
+
 // ---------- R14: bug round 14 (the review's second pass)
 // R14: New batch, cancelled, leaves a reply coming alone.
 const r14 = await page.evaluate(() => {

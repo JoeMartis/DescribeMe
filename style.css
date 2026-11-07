@@ -1515,6 +1515,12 @@ dialog.sheet::backdrop { background: rgba(36, 26, 18, 0.55); }
 #learnerCount { margin-bottom: 12px; }
 @media (max-width: 560px) {
   .learner-option { flex-direction: column; }
+  /* The rail's menus hang from the rail's own right edge, not their button's:
+     at 320px the buttons wrap to a line of their own at the left, and a
+     menu as wide as the screen hung from Add ran 90px off its left side. */
+  .rail-head { position: relative; }
+  .rail-head .rail-menu-wrap { position: static; }
+  .rail-head .rail-menu { right: 12px; max-width: calc(100% - 24px); }
 }
 
 /* ---------- projects dialog: shared folder ---------- */

@@ -444,7 +444,7 @@ const r14b = await page.evaluate(() => {
   for (const [id, j] of saved) jobs.set(id, j);
   return { order: order.join(), holds: order.join() === regrouped.join() };
 });
-check("R14  Sort by position keeps each segment together, so it holds", r14b.holds && r14b.order === "s3cap,s3a,s3b,s2a,s2b", JSON.stringify(r14b));
+check("R14  Sort by position keeps each segment together, so it holds", r14b.holds && r14b.order === "s2a,s2b,s3cap,s3a,s3b", JSON.stringify(r14b));
 
 // R14c: a slide dropped on another segment's row stays where it was.
 const r14c = await page.evaluate(() => {
@@ -453,11 +453,54 @@ const r14c = await page.evaluate(() => {
   const onto = list.find((j) => segmentLabel(j) === "Tee_S1");
   const before = [...jobs.keys()].join();
   draggedJobId = from.id;
-  onto.railEl.closest("li").dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, clientY: 0 }));
+  onto.railEl.closest("li").dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, clientY: 0, dataTransfer: new DataTransfer() }));
   draggedJobId = null;
   return { same: [...jobs.keys()].join() === before, status: document.getElementById("statusMessage").textContent };
 });
 check("R14  a slide dropped on another segment stays put, and says why", r14c.same && /moves within its own segment/.test(r14c.status), JSON.stringify(r14c));
+
+// ---------- R15: bug round 15 (the review's third pass)
+// R15a: segments go in order by Sort by position too: S3 added before S2.
+const r15a = await page.evaluate(() => {
+  const saved = [...jobs.entries()];
+  const mk = (id, videoName, slidePosition) => [id, { id, name: id, videoName, slidePosition, captureSeconds: null, folderName: null }];
+  jobs.clear();
+  for (const [id, j] of [mk("s3a", "Lec_S3", 1), mk("s3b", "Lec_S3", 2), mk("s2a", "Lec_S2", 1), mk("s2b", "Lec_S2", 2)]) jobs.set(id, j);
+  const order = positionOrder();
+  jobs.clear();
+  for (const [id, j] of saved) jobs.set(id, j);
+  return order && order.join();
+});
+check("R15  Sort by position puts S2's segment before S3's", r15a === "s2a,s2b,s3a,s3b", r15a);
+
+// R15b: two folders of slides, each picked by itself, both named "Slides".
+const r15b = await page.evaluate(() => {
+  const [first, second] = [...jobs.values()];
+  const keep = [first.folderName, second.folderName];
+  const pick = () => { const f = new File([new Uint8Array([1])], "a.png", { type: "image/png" }); fileFolders.set(f, "Slides/a.png"); nameFolders([f]); return folderOfFile(f); };
+  first.folderName = "Slides"; second.folderName = null;
+  const once = pick();
+  second.folderName = "Slides (2)";
+  const twice = pick();
+  first.folderName = null; second.folderName = null;
+  const fresh = pick();
+  [first.folderName, second.folderName] = keep;
+  return [once, twice, fresh].join();
+});
+check("R15  a folder picked by itself that shares a name is numbered", r15b === "Slides (2),Slides (3),Slides", r15b);
+
+// R15c: at 320px wide the rail's menus stay on the screen.
+await page.setViewportSize({ width: 320, height: 700 });
+await page.evaluate(() => document.querySelector("#railAddBtn").scrollIntoView());
+await page.click("#railAddBtn");
+const r15c = await page.evaluate(() => {
+  const m = [...document.querySelectorAll(".rail-menu")].find((x) => !x.hidden && x.offsetParent);
+  const r = m.getBoundingClientRect();
+  return { left: Math.round(r.left), right: Math.round(r.right), width: Math.round(r.width), vw: innerWidth };
+});
+await page.keyboard.press("Escape");
+await page.setViewportSize({ width: 1280, height: 800 });
+check("R15  at 320px the Add menu stays on the screen", r15c.left >= 0 && r15c.right <= r15c.vw && r15c.width >= 260, JSON.stringify(r15c));
 
 check("Z  no console errors", problems.filter((m) => !/404/.test(m)).length === 0, problems.join(" | "));
 fs.rmSync(root, { recursive: true, force: true });
