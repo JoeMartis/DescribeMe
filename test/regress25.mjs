@@ -140,6 +140,10 @@ const r13 = await page.evaluate(async () => {
 });
 check("R13  an image sent as uploaded is not called an API copy", r13.apiCopies === 0 && r13.resized === false && /\.png$/.test(r13.name), JSON.stringify(r13));
 
+// R13: while another file is being saved, Export says why it waits.
+const r13s = await page.evaluate(async () => { saveInProgress = true; await exportApproved(); saveInProgress = false; return document.getElementById("statusMessage").textContent; });
+check("R13  Export says why it waits for another save", /Another file is still being saved/.test(r13s), r13s);
+
 check("Z  no console errors", problems.filter((m) => !/404/.test(m)).length === 0, problems.join(" | "));
 await b.close();
 const failed = results.filter((r) => !r.ok);

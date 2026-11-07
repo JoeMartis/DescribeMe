@@ -164,12 +164,13 @@ check("D7  the conversation comes back after a reload", kept.n === 6 && kept.rev
 
 // D8: a conversation from a file is checked like everything else in one.
 const d8 = await page.evaluate(() => validDiscussion([
+  { role: "user", text: "first" },
   { role: "assistant", text: "x", revision: { html: "<p>ok</p><script>alert(1)</script><img src=x onerror=alert(1)>" } },
   { role: "system", text: "nope" },
   { role: "user", text: 5 },
   { role: "user", text: "fine" },
 ], (html) => { const f = sanitizeHtmlFragment(html); const h = document.createElement("div"); h.appendChild(f.cloneNode(true)); return { html: h.innerHTML, text: domFragmentToText(f) }; }));
-check("D8  a saved conversation is sanitised", d8.length === 2 && !/script|onerror/.test(d8[0].revision.html) && d8[1].text === "fine", JSON.stringify(d8));
+check("D8  a saved conversation is sanitised", d8.length === 3 && !/script|onerror/.test(d8[1].revision.html) && d8[2].text === "fine", JSON.stringify(d8));
 
 // D10: a note Claude writes inside the revision tags goes in the chat, not
 // on the course page.
@@ -493,6 +494,77 @@ await page.keyboard.press("Enter");
 await page.waitForFunction(() => [...jobs.values()][1].discussion.some((m) => m.text === "Opus here."));
 check("R11  and the next reply comes from the model picked", sent[sent.length - 1].model === "claude-opus-5", sent[sent.length - 1].model);
 check("R11  the pick stays for that slide", await page.evaluate(() => els.detailPane.querySelector(".js-discuss-model").value === "claude-opus-5"));
+
+// ---------- R13: bug round 13 (an independent review)
+// R13a: a menu stays open when a click sends focus nowhere (Safari and
+// Firefox on macOS give a clicked button no focus); a click elsewhere closes it.
+const r13a = await page.evaluate(() => {
+  const c = [...jobs.values()][1];
+  selectJob(c.id); renderDetail();
+  els.detailPane.querySelector(".js-more").click();
+  document.activeElement.blur(); // focus to nowhere, as such a click does
+  const stillOpen = !els.detailPane.querySelector(".js-more-menu").hidden;
+  document.body.click();
+  const closedByClick = els.detailPane.querySelector(".js-more-menu").hidden;
+  els.railAddBtn.click();
+  document.activeElement.blur();
+  const railOpen = !els.railAddMenu.hidden;
+  document.body.click();
+  return { stillOpen, closedByClick, railOpen, railClosed: els.railAddMenu.hidden };
+});
+check("R13  a menu survives a click that sends focus nowhere, and closes on one elsewhere", r13a.stillOpen && r13a.closedByClick && r13a.railOpen && r13a.railClosed, JSON.stringify(r13a));
+
+// R13b: Discuss works with the description open for editing.
+const r13b = await page.evaluate(() => {
+  const c = [...jobs.values()][1];
+  discussOpen = false; renderDetail();
+  toggleEdit(c.id);
+  els.detailPane.querySelector(".js-discuss-toggle").click();
+  return { open: discussOpen, shown: !els.detailPane.querySelector(".js-discuss").hidden, editing: editMode };
+});
+check("R13  Discuss opens even mid-edit", r13b.open && r13b.shown && !r13b.editing, JSON.stringify(r13b));
+
+// R13e: the mode asked for decides whether the slide before is sent.
+const r13e = await page.evaluate(() => {
+  const c = [...jobs.values()][1]; // the slide before it is described
+  const keep = { textOnly: c.textOnly, discussion: c.discussion };
+  c.textOnly = false;
+  c.discussion = [{ role: "user", text: "Text only.", mode: "textOnly" }];
+  const asText = discussionRequest(c);
+  c.textOnly = true;
+  c.discussion = [{ role: "user", text: "More detail.", mode: "more" }];
+  const asMore = discussionRequest(c);
+  Object.assign(c, keep);
+  const images = (r) => r.messages[0].content.filter((x) => x.type === "image").length;
+  return { textImages: images(asText), textCtx: !!asText.context, textMode: asText.textOnly, moreMode: asMore.textOnly };
+});
+check("R13  Text only is asked without the slide before; More detail as a description", r13e.textImages === 1 && !r13e.textCtx && r13e.textMode === true && r13e.moreMode === false, JSON.stringify(r13e));
+
+// R13c: removing a slide whose reply is coming cancels it; the rest can send.
+replies.push({ status: 503, message: "Overloaded" });
+const r13c = await page.evaluate(async () => {
+  const [a, c] = [...jobs.values()];
+  a.discussion = [...(a.discussion || []), { role: "user", text: "Busy?" }];
+  const pending = requestDiscussionReply(a);
+  await new Promise((r) => setTimeout(r, 200));
+  const during = !!discussInFlight;
+  removeJob(a.id);
+  // Straight away: waited out, the retry's backoff would end it anyway.
+  await new Promise((r) => setTimeout(r, 150));
+  const cancelled = !discussInFlight;
+  await pending;
+  selectJob(c.id); discussOpen = true; renderDetail();
+  return { during, cancelled, after: !!discussInFlight, send: els.detailPane.querySelector(".js-discuss-send").disabled };
+});
+check("R13  removing the slide cancels its reply, and Send is free again", r13c.during && r13c.cancelled && !r13c.after && !r13c.send, JSON.stringify(r13c));
+
+// R13d: no "..": a folder of that name cannot climb out of the zip.
+const r13d = await page.evaluate(() => [safeFileStem("..folder", new Set()), safeFileStem("..", new Set()), safeFileStem("UCE.3_L2.folder", new Set())]);
+check("R13  no file or folder named '..'", !r13d.slice(0, 2).some((x) => /^\.|\.$/.test(x)) && r13d[2] === "UCE.3_L2", JSON.stringify(r13d));
+
+// R13f: a conversation cut short on loading starts with a person's message.
+const r13f = await page.evaluate(() => validDiscussion([{ role: "assistant", text: "orphan reply" }, { role: "user", text: "hi" }, { role: "assistant", text: "hello" }], (h) => ({ html: h, text: h })).map((m) => m.role).join());
+check("R13  a loaded conversation starts with the person", r13f === "user,assistant", r13f);
 
 check("Z  no console errors", problems.filter((m) => !/400|503|Bad Request|Service Unavailable/i.test(m)).length === 0, problems.join(" | "));
 await b.close();

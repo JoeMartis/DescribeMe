@@ -2341,6 +2341,7 @@ els.batchName.addEventListener("input", () => {
     As destructive as a reload, so it always confirms first; the message
     is sharper when descriptions (i.e. money and review time) are at stake. */
 function newBatch() {
+  cancelDiscussion();
   if (jobs.size === 0 || batchRunning) return;
   const described = jobList().some((j) => j.state === "done");
   // Three wordings, because the old one said "unless you've saved or
@@ -2381,6 +2382,7 @@ function removeJob(jobId) {
   const job = jobs.get(jobId);
   if (!job) return;
   if (job.state === "describing") return; // don't remove mid-flight
+  cancelDiscussion(jobId);
   // Removing the slide being edited discards the edit with it — otherwise
   // editMode stays set and blocks renderDetail from ever updating again.
   if (jobId === selectedJobId) editMode = null;
@@ -2959,6 +2961,7 @@ function renderDetail() {
     discussBtn.setAttribute("aria-pressed", String(discussOpen));
     discussBtn.disabled = !job.base64;
     discussBtn.addEventListener("click", () => {
+      commitPendingEdit(); // or the redraw is blocked and nothing happens
       discussOpen = !discussOpen;
       showingProposal = null;
       renderDetail();
@@ -3317,10 +3320,20 @@ function wireMoreMenu(button, menu) {
       close(true);
     }
   });
+  // As the rail's menus: closed when focus goes to something else, and by a
+  // click elsewhere (below), not when a click sends focus nowhere.
   wrap.addEventListener("focusout", (e) => {
-    if (!wrap.contains(e.relatedTarget)) close(false);
+    if (e.relatedTarget && !wrap.contains(e.relatedTarget)) close(false);
   });
 }
+
+// The slide's ⋯ menu closes on a click anywhere but in it.
+document.addEventListener("click", (e) => {
+  const menu = els.detailPane.querySelector(".js-more-menu:not([hidden])");
+  if (!menu || menu.parentElement.contains(e.target)) return;
+  menu.hidden = true;
+  menu.parentElement.querySelector(".js-more")?.setAttribute("aria-expanded", "false");
+});
 
 /** Undo startWriting: the box was left empty, so the slide was never really
     described. Puts it back where it came from rather than leaving an empty
@@ -3559,7 +3572,11 @@ function restoreSnapshot(job, snap) {
  */
 function validDiscussion(raw, sanitizeToStored) {
   if (!Array.isArray(raw)) return [];
-  return raw.slice(-200).flatMap((m) => {
+  const kept = raw.slice(-200);
+  // Cut short, it may start on a reply: the API takes a conversation that
+  // starts with the person, so it starts at their first message.
+  const start = kept.findIndex((m) => m && m.role === "user");
+  return (start === -1 ? [] : kept.slice(start)).flatMap((m) => {
     if (!m || typeof m !== "object" || (m.role !== "user" && m.role !== "assistant")) return [];
     if (typeof m.text !== "string") return [];
     const kept = { role: m.role, text: m.text.slice(0, 20000) };
@@ -3688,8 +3705,12 @@ function closeRailMenus(except) {
   // Tabbing on past the last item closes it, so it is not left drawn over the
   // rows the focus has moved to. (A file picker opening takes focus to no
   // element, and closes it too, as choosing the item would.)
+  // Only when focus goes to something else: Safari and Firefox on macOS give
+  // a clicked button no focus, so pressing on an item sends focus nowhere,
+  // and closing then left the click to land on nothing. A click elsewhere
+  // closes it below.
   wrap.addEventListener("focusout", (e) => {
-    if (!menu.hidden && !wrap.contains(e.relatedTarget)) closeRailMenus();
+    if (!menu.hidden && e.relatedTarget && !wrap.contains(e.relatedTarget)) closeRailMenus();
   });
 });
 document.addEventListener("click", (e) => {
@@ -4225,6 +4246,12 @@ function discussModel(job) {
   return discussModelChoice.get(job.id) || job.usedModel || els.model.value.trim() || "claude-sonnet-5";
 }
 
+/** Stops a reply coming for this slide (or for any, with no id): the slide
+    is going, and every other slide's Send would wait on it. */
+function cancelDiscussion(jobId) {
+  if (discussInFlight && (jobId == null || discussInFlight.jobId === jobId)) discussInFlight.controller.abort();
+}
+
 /** What Claude is given, in words, for the top of the panel. */
 function discussSees(job) {
   const prev = previousInSegment(job);
@@ -4239,12 +4266,14 @@ function discussSees(job) {
 /** The request: the description's own context first, then the conversation. */
 function discussionRequest(job) {
   const prev = previousInSegment(job);
-  const context = contextFor(job, prev);
   // Under the rules of the mode asked for: Text only is answered by the
   // transcription rules, More detail by the description's.
   const asked = [...(job.discussion || [])].reverse().find((m) => m.role === "user");
   const textOnly = asked?.mode === "textOnly" ? true : asked?.mode === "more" ? false : job.textOnly;
-  const system = `${buildSystemPrompt(currentVerbosity(), null, textOnly, !!context && !textOnly)}\n\n${DISCUSS_RULES}`;
+  // The slide before goes with a description, never a transcription: by
+  // the mode asked for, not the one the slide is in.
+  const context = textOnly ? null : contextFor({ ...job, textOnly: false }, prev);
+  const system = `${buildSystemPrompt(currentVerbosity(), null, textOnly, !!context)}\n\n${DISCUSS_RULES}`;
   const who = job.authored ? "a person wrote it" : job.edited ? "a person has edited it" : "you wrote it";
   const opening = [
     ...previousVisualContent(context),
@@ -4266,7 +4295,7 @@ function discussionRequest(job) {
     role: t.role,
     content: i === 0 ? [...opening, { type: "text", text: `THE REVIEWER:\n\n${t.text}` }] : t.text,
   }));
-  return { system, messages, context };
+  return { system, messages, context, textOnly };
 }
 
 /**
@@ -4362,7 +4391,7 @@ async function requestDiscussionReply(job) {
     return;
   }
   const model = discussModel(job);
-  const { system, messages, context } = discussionRequest(job);
+  const { system, messages, context, textOnly } = discussionRequest(job);
   const prev = previousInSegment(job);
   const controller = new AbortController();
   discussInFlight = { jobId: job.id, controller };
@@ -4427,7 +4456,7 @@ async function requestDiscussionReply(job) {
       // so, as describeOne says it, to be flagged once it has one.
       contextFrom: context
         ? contextRecord(context.prev, context.html)
-        : !job.textOnly && prev && prev.state !== "invalid"
+        : !textOnly && prev && prev.state !== "invalid"
           ? { image: imageFingerprint(prev), html: null, missing: true }
           : null,
     };
@@ -4692,6 +4721,7 @@ function renderDiscussion(job, frag) {
     b.addEventListener("click", () => sendDiscussion(job.id, b.dataset.ask, b.dataset.mode));
   });
   q(".js-discuss-close").addEventListener("click", () => {
+    commitPendingEdit();
     discussOpen = false;
     showingProposal = null;
     renderDetail();
@@ -6422,7 +6452,9 @@ function safeFileStem(name, taken) {
   let stem = name
     .replace(/\.[^.]+$/, "")
     .replace(/[^a-zA-Z0-9._-]+/g, "-")
-    .replace(/^-+|-+$/g, "");
+    // Nor dots at either end: ".." from a hand-made project file would make
+    // an export folder write above the zip's own folder.
+    .replace(/^[.-]+|[.-]+$/g, "");
   if (!stem) stem = "slide";
   let candidate = stem;
   let n = 2;
@@ -6676,7 +6708,10 @@ async function resizeImageForExport(base64, mediaType) {
 }
 
 async function exportApproved() {
-  if (saveInProgress) return;
+  if (saveInProgress) {
+    setStatus("Another file is still being saved. Export once it is done.");
+    return;
+  }
   saveInProgress = true;
   try {
     const batch = els.batchName.value.trim() || "Untitled batch";
@@ -7173,7 +7208,11 @@ function setLearnerBusy(busy) {
 }
 
 async function runLearnerDownload(kind) {
-  if (learnerBusy || saveInProgress) return;
+  if (learnerBusy) return;
+  if (saveInProgress) {
+    setLearnerError("Another file is still being saved. Try again once it is done.");
+    return;
+  }
   saveInProgress = true;
   try {
     await runLearnerDownloadNow(kind);
@@ -7667,6 +7706,7 @@ function storedWithoutReadings(html) {
 }
 
 function loadProjectRecord(record) {
+  cancelDiscussion();
   jobs.clear();
   // Same reasoning as newBatch: the opened project's slides carry their own
   // excerpts; the session transcript belonged to whatever came before.
@@ -7960,7 +8000,10 @@ async function refreshProjectList() {
 const PROJECT_FILE_FORMAT = "describeme-project";
 
 async function exportProjectRecord(record) {
-  if (saveInProgress) return;
+  if (saveInProgress) {
+    announceProjects("Another file is still being saved. Export once it is done.");
+    return;
+  }
   saveInProgress = true;
   try {
     await exportProjectRecordNow(record);
