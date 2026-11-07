@@ -3025,7 +3025,9 @@ function renderDetail() {
       approveBtn.querySelector("svg")?.remove();
       q(".js-status-actions").append(approveBtn);
     } else {
-      bar.hidden = false;
+      // Not while a revision stands in the description's place: the banner
+      // over it has Use this and Back instead.
+      bar.hidden = !!(showingProposal && showingProposal.jobId === job.id);
     }
     approveBtn.addEventListener("click", () => toggleApprove(job.id));
   } else {
@@ -3176,6 +3178,12 @@ function toggleApprove(jobId) {
   // Either way there is nothing to put in the export.
   if (job.state !== "done" || isBlankDescription(job)) {
     setStatus(`Nothing to approve for ${job.name} yet — write a description first.`);
+    return;
+  }
+  // What is on screen is a revision, not the description: approving would
+  // approve words the reviewer is not looking at.
+  if (!job.approved && showingProposal && showingProposal.jobId === job.id) {
+    setStatus("That's a revision you're looking at, not the description. Use it, or go back to the description, before approving.");
     return;
   }
   job.approved = !job.approved;
@@ -4273,7 +4281,15 @@ async function sendDiscussion(jobId, words) {
 }
 
 async function requestDiscussionReply(job) {
+  // One reply at a time, never during a batch run: a second request would
+  // take over discussInFlight, and the first one's end would clear it.
+  if (discussInFlight || batchRunning || !jobs.has(job.id)) return;
   const apiKey = els.apiKey.value.trim();
+  if (!apiKey) {
+    setError(NO_KEY_ERROR);
+    openSettings();
+    return;
+  }
   const model = discussModel(job);
   const { system, messages, context } = discussionRequest(job);
   const controller = new AbortController();
@@ -4296,7 +4312,14 @@ async function requestDiscussionReply(job) {
       const body = await readResponseBody(response);
       payload = body.json;
       if ((response.status === 429 || response.status >= 500) && attempt < MAX_ATTEMPTS) {
-        await sleep(retryDelay(attempt, parseFloat(response.headers.get("retry-after"))));
+        // Stop has to end the wait too, not only a request in flight.
+        await new Promise((resolve, reject) => {
+          const timer = setTimeout(resolve, retryDelay(attempt, parseFloat(response.headers.get("retry-after"))));
+          controller.signal.addEventListener("abort", () => {
+            clearTimeout(timer);
+            reject(new DOMException("Stopped", "AbortError"));
+          }, { once: true });
+        });
         continue;
       }
       if (!response.ok) throw new Error(payload ? apiErrorMessage(payload, response.status) : nonJsonDiagnostic(response, body.raw));
@@ -4512,6 +4535,7 @@ function renderDiscussion(job, frag) {
       retry.type = "button";
       retry.className = "btn btn-outline btn-chip js-discuss-retry";
       retry.textContent = "Try again";
+      retry.disabled = !!discussInFlight || batchRunning;
       retry.addEventListener("click", () => requestDiscussionReply(job));
       li.append(retry);
     }
@@ -7226,10 +7250,20 @@ function batchSignature() {
         job.captureSeconds,
         hashString(job.resultHtml || ""),
         hashString(job.transcriptContext || ""),
+        // A conversation is work too: without it a chat that changed no
+        // description read as saved, and the shared folder skipped it.
+        discussionMark(job),
       ].join("\u0001")
     );
   }
   return parts.join("\u0002");
+}
+
+/** How far a slide's conversation has got: messages are only ever added. */
+function discussionMark(job) {
+  const messages = job.discussion || [];
+  const last = messages[messages.length - 1];
+  return last ? `${messages.length}:${hashString(`${last.text}\u0003${last.revision ? last.revision.html : ""}`)}` : "0";
 }
 
 /** FNV-1a, 32-bit. Fast, and good enough to tell two descriptions apart. */

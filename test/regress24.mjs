@@ -196,7 +196,55 @@ check("D9  removed words are struck, added ones underlined", d9a === "<p>A <del>
 const d9 = await page.evaluate(() => diffHtml("<p><math><mi>x</mi></math></p>", "<p><math><mi>y</mi></math></p>"));
 check("D9  no marks inside equations", d9 === null);
 
-check("Z  no console errors", problems.filter((m) => !/400|Bad Request/i.test(m)).length === 0, problems.join(" | "));
+// ---------- R1: bug round 1
+// R1a: a conversation counts as a change to save.
+const r1a = await page.evaluate(() => {
+  const c = [...jobs.values()][1];
+  const before = batchSignature();
+  c.discussion = [...c.discussion, { role: "user", text: "One more thing." }];
+  const after = batchSignature();
+  c.discussion = c.discussion.slice(0, -1);
+  return before !== after;
+});
+check("R1  a new message counts as a change to save", r1a);
+
+// The reload above dropped the key (it is kept only if asked to be).
+await page.evaluate(() => { els.apiKey.value = "sk-ant-test-key"; document.querySelectorAll("dialog[open]").forEach((d) => d.close()); });
+// R1b: no approving a revision that is only being previewed.
+replies.push({ text: "Try this.\n<revision><h2>Net Zero</h2><p>Previewed only.</p></revision>" });
+await page.evaluate(() => { const c = [...jobs.values()][1]; c.approved = false; selectJob(c.id); discussOpen = true; renderDetail(); });
+await page.fill("#detailPane .js-discuss-input", "Another go.");
+await page.keyboard.press("Enter");
+await page.waitForFunction(() => [...jobs.values()][1].discussion.some((m) => m.revision && /Previewed only/.test(m.revision.html)));
+await page.evaluate(() => { const c = [...jobs.values()][1]; showingProposal = { jobId: c.id, index: c.discussion.length - 1, mode: "preview" }; renderDetail(); });
+const barHidden = await page.evaluate(() => !!els.detailPane.querySelector(".js-approve-bar").hidden);
+await page.evaluate(() => document.activeElement?.blur());
+await page.keyboard.press("a");
+const r1b = await page.evaluate(() => ({ approved: [...jobs.values()][1].approved, status: document.getElementById("statusMessage").textContent }));
+check("R1  while previewing, Approve is put away and A approves nothing", barHidden && !r1b.approved && /revision you're looking at/.test(r1b.status), JSON.stringify({ barHidden, ...r1b }));
+await page.evaluate(() => { showingProposal = null; renderDetail(); });
+
+// R1c: Try again waits its turn like Send.
+const before1c = sent.length;
+await page.evaluate(() => {
+  discussInFlight = { jobId: "elsewhere", controller: new AbortController() };
+  const c = [...jobs.values()][1];
+  return requestDiscussionReply(c).then(() => { discussInFlight = null; });
+});
+check("R1  Try again sends nothing while another reply is coming", sent.length === before1c);
+
+// R1d: Stop ends a reply that is waiting to retry.
+replies.push({ status: 503, message: "Overloaded" });
+await page.fill("#detailPane .js-discuss-input", "Are you there?");
+await page.keyboard.press("Enter");
+await page.waitForFunction(() => document.querySelector("#detailPane .js-discuss-stop"));
+await page.waitForTimeout(150);
+const t0 = Date.now();
+await page.click("#detailPane .js-discuss-stop");
+const stopped = await page.waitForFunction(() => /Stopped/.test(document.querySelector("#detailPane .discuss-error")?.textContent || ""), null, { timeout: 3000 }).then(() => true, () => false);
+check("R1  Stop ends a reply waiting to retry, at once", stopped && Date.now() - t0 < 800, `${Date.now() - t0} ms`);
+
+check("Z  no console errors", problems.filter((m) => !/400|503|Bad Request|Service Unavailable/i.test(m)).length === 0, problems.join(" | "));
 await b.close();
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed`);

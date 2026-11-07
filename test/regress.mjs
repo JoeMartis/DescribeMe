@@ -38,7 +38,9 @@ async function addImages(page, names) {
 async function loadVideoAndSeek(page, vid, seconds) {
   await page.setInputFiles("#videoInput", [{ name: "Lecture_3.webm", mimeType: "video/webm", buffer: vid }]);
   await page.waitForFunction(() => !document.getElementById("videoStage").hidden);
-  await page.evaluate((s) => new Promise((r) => { const v = document.getElementById("videoEl"); v.addEventListener("seeked", () => r(), { once: true }); v.currentTime = s; }), seconds);
+  // A seek to where the video already is may fire no "seeked": waiting for
+  // one with no limit hung this suite now and then. Two seconds is plenty.
+  await page.evaluate((s) => new Promise((r) => { const v = document.getElementById("videoEl"); v.addEventListener("seeked", () => r(), { once: true }); setTimeout(r, 2000); v.currentTime = s; }), seconds);
 }
 function unzipStore(buf) {
   const files = {}; let off = 0;
