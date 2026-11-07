@@ -4318,7 +4318,9 @@ function discussionRequest(job) {
   const opening = [
     ...previousVisualContent(context),
     { type: "image", source: { type: "base64", media_type: job.mediaType, data: job.base64 } },
-    { type: "text", text: `THE REQUEST THE DESCRIPTION ANSWERS:\n\n${buildUserText(job)}` },
+    // The instruction and the transcript's framing by the mode asked for
+    // too, or Text only would come with the description's instruction.
+    { type: "text", text: `THE REQUEST THE DESCRIPTION ANSWERS:\n\n${buildUserText({ ...job, textOnly })}` },
     { type: "text", text: `THE DESCRIPTION AS IT STANDS NOW (${who}):\n\n${job.resultHtml}` },
   ];
   // Turns alternate; two of a kind in a row (a message sent again after a

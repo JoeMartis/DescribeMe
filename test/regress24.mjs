@@ -588,6 +588,22 @@ check("R15  an unanswered message after a reload can be asked again", r15a.retry
 const r15b = await page.evaluate(() => [safeFileStem("Week 3.1", new Set(), { keepDots: true }), safeFileStem("UCE.3_L2", new Set(), { keepDots: true }), safeFileStem("photo.png", new Set())]);
 check("R15  a batch name's dots are not taken for an extension", r15b.join() === "Week-3.1,UCE.3_L2,photo", JSON.stringify(r15b));
 
+// R15c: Text only asked in Discuss gets the transcription instruction and
+// the transcript framed for a transcription, not the description's.
+const r15c = await page.evaluate(() => {
+  const job = [...jobs.values()][0];
+  const keep = [job.discussion, job.textOnly, job.transcriptContext];
+  job.textOnly = false;
+  job.transcriptContext = "[00:01] the lecturer says hello";
+  job.discussion = [{ role: "user", text: "Just the text", mode: "textOnly" }];
+  const asked = discussionRequest(job).messages[0].content.map((c) => c.text || "").join("\n");
+  job.discussion = [{ role: "user", text: "More", mode: "more" }];
+  const more = discussionRequest(job).messages[0].content.map((c) => c.text || "").join("\n");
+  [job.discussion, job.textOnly, job.transcriptContext] = keep;
+  return { textOnly: asked.includes(OCR_USER_INSTRUCTION_TEXT) && /resolving what a word/.test(asked) && asked.includes("the lecturer says hello"), more: more.includes(USER_INSTRUCTION_TEXT) && !/resolving what a word/.test(more) };
+});
+check("R15  Text only in Discuss is asked with the transcription instruction and transcript", r15c.textOnly && r15c.more, JSON.stringify(r15c));
+
 // ---------- R14: bug round 14 (the review's second pass)
 // R14: New batch, cancelled, leaves a reply coming alone.
 const r14 = await page.evaluate(() => {
