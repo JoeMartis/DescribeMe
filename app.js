@@ -3164,6 +3164,11 @@ function renderDetail() {
     // is found again by its own key, not as the first of its kind.
     if (active.dataset.focusKey) focusSel = `[data-focus-key="${active.dataset.focusKey}"]`;
   }
+  // Typing in the message box: the cursor stays where it was, not at the end.
+  const caret =
+    active && els.detailPane.contains(active) && typeof active.selectionStart === "number" && active.tagName === "TEXTAREA"
+      ? { start: active.selectionStart, end: active.selectionEnd }
+      : null;
   // Where the conversation was scrolled to, and how long it was: it moves to
   // the newest message only when there is a new one, not on every redraw.
   const oldLog = els.detailPane.querySelector(".js-discuss-log");
@@ -3181,6 +3186,7 @@ function renderDetail() {
     const target = els.detailPane.querySelector(focusSel);
     if (target && !target.hidden && !target.disabled && !target.closest("[hidden]")) {
       target.focus();
+      if (caret && target.tagName === "TEXTAREA" && !target.readOnly) target.setSelectionRange(caret.start, caret.end);
     } else {
       els.detail.focus();
     }

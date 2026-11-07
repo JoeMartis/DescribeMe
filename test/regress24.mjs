@@ -431,6 +431,29 @@ const r8 = await page.evaluate(async () => {
 check("R8  Send says it waits for a reply about another slide", r8.during.send && /Claude is replying about Talk_S1_00-00-01\.png/.test(r8.during.foot), JSON.stringify(r8.during));
 check("R8  and is back once that reply is in", !r8.after.send && !/replying about/.test(r8.after.foot), JSON.stringify(r8.after));
 
+// ---------- R9: bug round 9
+// R9a: a redraw while typing leaves the cursor where it was.
+await page.evaluate(() => { discussOpen = true; renderDetail(); });
+await page.click("#detailPane .js-discuss-input");
+await page.keyboard.type("first second");
+const r9a = await page.evaluate(() => {
+  const box = els.detailPane.querySelector(".js-discuss-input");
+  box.setSelectionRange(5, 5);
+  renderDetail();
+  const again = els.detailPane.querySelector(".js-discuss-input");
+  return { focused: document.activeElement === again, start: again.selectionStart, end: again.selectionEnd };
+});
+check("R9  a redraw while typing keeps the cursor in place", r9a.focused && r9a.start === 5 && r9a.end === 5, JSON.stringify(r9a));
+await page.evaluate(() => { const box = els.detailPane.querySelector(".js-discuss-input"); box.value = ""; box.dispatchEvent(new Event("input")); });
+
+// R9b: the message box carries what is said under it.
+const r9b = await page.evaluate(() => {
+  const box = els.detailPane.querySelector(".js-discuss-input");
+  const foot = document.getElementById(box.getAttribute("aria-describedby"));
+  return foot ? foot.textContent : null;
+});
+check("R9  the message box is described by the line under it", /Enter sends/.test(r9b || ""), r9b);
+
 check("Z  no console errors", problems.filter((m) => !/400|503|Bad Request|Service Unavailable/i.test(m)).length === 0, problems.join(" | "));
 await b.close();
 const failed = results.filter((r) => !r.ok);
