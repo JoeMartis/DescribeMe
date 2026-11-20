@@ -189,6 +189,8 @@ check("P7  prose characters Typst treats as markup arrive as plain text",
 }
 
 // ---------- A: the PDF with the descriptions as alt text
+const fits = await page.evaluate(() => [...document.querySelectorAll("#learnerDialog .learner-option .btn")].map((x) => x.scrollWidth <= x.clientWidth));
+check("A0  every download button's label fits inside its button", fits.length === 3 && fits.every(Boolean), JSON.stringify(fits));
 const altPdf = await download("learnerPdfAltBtn", "alt.pdf", 60000);
 check("A1  the alt-text PDF downloads, named as such", !!altPdf.file && altPdf.name === "Cell-Biology-visual-descriptions-alt-text.pdf", altPdf.name || "");
 const altRaw = altPdf.file ? fs.readFileSync(altPdf.file).toString("latin1") : "";

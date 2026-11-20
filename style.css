@@ -1513,7 +1513,9 @@ dialog.sheet::backdrop { background: rgba(36, 26, 18, 0.55); }
   border-radius: var(--radius-md);
 }
 /* One width for both buttons, so the two descriptions start on one line. */
-.learner-option .btn { flex: none; width: 12em; justify-content: center; }
+/* Wide enough for the longest label on one line, and a label that still
+   does not fit wraps inside its button rather than spilling out of it. */
+.learner-option .btn { flex: none; width: 14em; justify-content: center; white-space: normal; text-align: center; height: auto; min-height: 44px; }
 .learner-option .hint { margin: 0; }
 #learnerCount { margin-bottom: 12px; }
 @media (max-width: 560px) {
