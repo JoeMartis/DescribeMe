@@ -1286,6 +1286,9 @@ code, kbd {
 }
 .edit-tool:hover { background: var(--mustard); }
 .edit-tool:active { background: var(--swamp-parchment); }
+/* On where the cursor is: bold, italic, in a quotation. Filled, not just
+   tinted, so it reads as on without relying on a shade of colour. */
+.edit-tool[aria-pressed="true"] { background: var(--fg); color: var(--raised); }
 .edit-toolbar-sep {
   width: 3px;
   height: 20px;
