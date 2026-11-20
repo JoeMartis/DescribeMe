@@ -115,7 +115,12 @@ selected slide's image plus its description on the right.
    it.
 5. **Edit** turns the description directly editable in place, with a
    formatting toolbar (bold, italic, heading level, lists) that applies to
-   the selected text. For structural fixes beyond what the toolbar covers —
+   the selected text. **Indent** and **Outdent**, or <kbd>Tab</kbd> and
+   <kbd>Shift</kbd>+<kbd>Tab</kbd> in a list item, make nested lists, with
+   the nested list inside the item above it as valid HTML wants (the
+   browser's own indent puts it straight inside the outer list). Tab does
+   this only where an item can move, so everywhere else it leaves the
+   editor as usual. For structural fixes beyond what the toolbar covers —
    a list that should be a table, a paragraph that should be a heading —
    open **HTML source** and use **Edit source** to change the markup
    directly. Either way, saving runs the result back through the
@@ -344,7 +349,9 @@ paragraph-based diagram descriptions (`<figure>`
 is reserved for the slide image in the export, and any figure markup in a
 description — model-written or hand-edited — is unwrapped to paragraphs on
 the way out), real
-`<table>` markup with `<th>` for data, and color/emphasis described by what
+`<table>` markup with `<th>` for data, a quotation the visual sets apart
+(in quotation marks, in italics, or boxed) in a `<blockquote>`, with any
+attribution after it, and color/emphasis described by what
 it means rather than how it looks — see `app.js`'s `SYSTEM_PROMPT` for the
 exact instructions. Rendering relies on the browser's native MathML support
 (shipped in current Chrome, Firefox, and Safari).

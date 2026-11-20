@@ -55,6 +55,14 @@ Color, emphasis, callouts
 - Describe these by function, not appearance: what a highlighted term signifies,
   not that it is red or boxed.
 
+Quotations
+- A passage the visual sets apart as a quotation — in quotation marks, in
+  italics, or in a box or callout of its own — goes in a <blockquote>, its words
+  exactly as printed, in <p> inside it, without the quotation marks around
+  them. An attribution printed with it goes in a <p> straight after the
+  </blockquote>. This is for a passage of a sentence or more, not a word or
+  phrase emphasized within a line.
+
 Wording — this text is read aloud, so these matter
 - Use US spelling throughout: color, center, meter, liter, analyze, catalyze,
   ionization, sulfur, aluminum, fiber, behavior, gray, esophagus, hemoglobin,
@@ -244,6 +252,11 @@ What to transcribe
 - Use the markup that matches what each piece of text IS: <h2>/<h3> for a title
   or a section heading, <p> for a line of prose, <ul>/<ol> for a bulleted or
   numbered list, <table> with <th> headers for a table.
+- A passage set apart as a quotation — in quotation marks, in italics, or in a
+  box or callout of its own — goes in a <blockquote>, its words in <p> inside
+  it, without the quotation marks around them. An attribution printed with it
+  goes in a <p> straight after the </blockquote>. A word or phrase emphasized
+  within a line stays in its line.
 - Transcribe words exactly as printed, keeping their spelling and
   capitalization. The words on the image are quoted content, not your prose.
 
@@ -3062,9 +3075,31 @@ function renderDetail() {
     // editable preview — the command needs that selection to apply.
     const toolbar = q(".js-edit-toolbar");
     toolbar.addEventListener("mousedown", (e) => e.preventDefault());
+    // Tab indents a list item and Shift+Tab outdents it, as in any editor —
+    // only where that can be done, so Tab still leaves the editor everywhere
+    // else (and from a first item, or a top-level one).
+    q(".js-preview").addEventListener("keydown", (e) => {
+      if (e.key !== "Tab" || editMode !== "preview" || e.altKey || e.ctrlKey || e.metaKey) return;
+      const preview = e.currentTarget;
+      if (selectedListItems(preview).length === 0) return;
+      if (e.shiftKey ? outdentListItems(preview) : indentListItems(preview)) e.preventDefault();
+    });
     toolbar.addEventListener("click", (e) => {
-      const tool = e.target.closest("[data-cmd], [data-block]");
+      const tool = e.target.closest("[data-cmd], [data-block], [data-list]");
       if (!tool || editMode !== "preview") return;
+      if (tool.dataset.list) {
+        const preview = els.detailPane.querySelector(".js-preview");
+        const moved = tool.dataset.list === "indent" ? indentListItems(preview) : outdentListItems(preview);
+        if (!moved) {
+          setStatus(
+            tool.dataset.list === "indent"
+              ? "Indent works on a list item after the first in its list: it goes under the item above."
+              : "Outdent works on an item in a list inside another list."
+          );
+        }
+        preview?.focus();
+        return;
+      }
       if (tool.dataset.block) {
         document.execCommand("formatBlock", false, `<${tool.dataset.block}>`);
       } else {
@@ -3327,6 +3362,96 @@ function toggleApprove(jobId) {
     renderDetail();
     setStatus(`${job.name} un-approved.`);
   }
+}
+
+// ---------- Nested lists in the editor ----------
+//
+// The browser's own indent command nests a list as <ul> straight inside <ul>,
+// which is not valid HTML and which screen readers read as a list with no
+// item it belongs to. These put the nested list inside the item above,
+// where it belongs: <li>Parent<ul><li>Child</li></ul></li>.
+
+/** The list items the selection covers, all in one list: from the item it
+    starts in to the item, at that same level, that it ends in. */
+function selectedListItems(root) {
+  const sel = window.getSelection();
+  if (!root || !sel || sel.rangeCount === 0) return [];
+  const range = sel.getRangeAt(0);
+  const itemOf = (node) => {
+    const el = node && (node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement);
+    const li = el && el.closest("li");
+    return li && root.contains(li) ? li : null;
+  };
+  const first = itemOf(range.startContainer);
+  if (!first) return [];
+  let last = itemOf(range.endContainer);
+  while (last && last.parentElement !== first.parentElement) last = itemOf(last.parentElement);
+  const items = [first];
+  if (!last || last === first) return items;
+  for (let n = first.nextElementSibling; n; n = n.nextElementSibling) {
+    if (n.tagName === "LI") items.push(n);
+    if (n === last) return items;
+  }
+  return [first]; // the end was above the start
+}
+
+/** Moves nodes keeping the selection where it was in their text. */
+function keepingSelection(move) {
+  const sel = window.getSelection();
+  const range = sel && sel.rangeCount ? sel.getRangeAt(0) : null;
+  const at = range && [range.startContainer, range.startOffset, range.endContainer, range.endOffset];
+  move();
+  if (at && at[0].isConnected && at[2].isConnected) sel.setBaseAndExtent(...at);
+}
+
+/** The editor's content changed: what listens for typing hears it too. */
+function editorChanged(root) {
+  root.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+/** Indents the selected items under the item above them. */
+function indentListItems(root) {
+  const items = selectedListItems(root);
+  const above = items[0]?.previousElementSibling;
+  if (!above || above.tagName !== "LI") return false;
+  const kind = items[0].parentElement.tagName; // UL or OL, kept for the nested list
+  keepingSelection(() => {
+    let nested = above.lastElementChild;
+    if (!nested || nested.tagName !== kind) {
+      nested = document.createElement(kind.toLowerCase());
+      above.append(nested);
+    }
+    nested.append(...items);
+  });
+  editorChanged(root);
+  return true;
+}
+
+/** Outdents the selected items to the level of the item they are under; the
+    items after them in their list go under the last of them, so the order
+    reads as it did. */
+function outdentListItems(root) {
+  const items = selectedListItems(root);
+  const list = items[0]?.parentElement;
+  const parentItem = list?.parentElement;
+  if (!parentItem || parentItem.tagName !== "LI" || !root.contains(parentItem)) return false;
+  keepingSelection(() => {
+    const last = items[items.length - 1];
+    const after = [];
+    for (let n = last.nextElementSibling; n; n = n.nextElementSibling) after.push(n);
+    if (after.length > 0) {
+      let nested = last.lastElementChild;
+      if (!nested || nested.tagName !== list.tagName) {
+        nested = document.createElement(list.tagName.toLowerCase());
+        last.append(nested);
+      }
+      nested.append(...after);
+    }
+    parentItem.after(...items);
+    if (list.children.length === 0) list.remove();
+  });
+  editorChanged(root);
+  return true;
 }
 
 /** Reflect whether the current selection is bold/italic on the toggle
@@ -5197,6 +5322,9 @@ function domFragmentToText(fragment) {
     if (node.nodeType !== Node.ELEMENT_NODE) return;
 
     const isBlock = BLOCK_TAGS.has(node.tagName);
+    // A block starts a line of its own: a list nested in an item, after the
+    // item's own words, read "TwoThree" run together.
+    if (isBlock && out && !out.endsWith("\n")) out += "\n";
     node.childNodes.forEach(visit);
     if (isBlock) out += "\n";
     else if (node.tagName === "SPAN" || node.tagName === "TH" || node.tagName === "TD") out += " ";
