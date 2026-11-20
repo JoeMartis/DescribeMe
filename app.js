@@ -59,9 +59,11 @@ Quotations
 - A passage the visual sets apart as a quotation — in quotation marks, in
   italics, or in a box or callout of its own — goes in a <blockquote>, its words
   exactly as printed, in <p> inside it, without the quotation marks around
-  them. An attribution printed with it goes in a <p> straight after the
-  </blockquote>. This is for a passage of a sentence or more, not a word or
-  phrase emphasized within a line.
+  them. A citation printed with it goes in a <p> straight after the
+  </blockquote>, not inside it, with the title of any work it names (a book,
+  a paper, a speech) in <cite>; a person's name is not put in <cite>. This is
+  for a passage of a sentence or more, not a word or phrase emphasized within
+  a line.
 
 Wording — this text is read aloud, so these matter
 - Use US spelling throughout: color, center, meter, liter, analyze, catalyze,
@@ -254,9 +256,10 @@ What to transcribe
   numbered list, <table> with <th> headers for a table.
 - A passage set apart as a quotation — in quotation marks, in italics, or in a
   box or callout of its own — goes in a <blockquote>, its words in <p> inside
-  it, without the quotation marks around them. An attribution printed with it
-  goes in a <p> straight after the </blockquote>. A word or phrase emphasized
-  within a line stays in its line.
+  it, without the quotation marks around them. A citation printed with it goes
+  in a <p> straight after the </blockquote>, not inside it, with the title of
+  any work it names in <cite>. A word or phrase emphasized within a line stays
+  in its line.
 - Transcribe words exactly as printed, keeping their spelling and
   capitalization. The words on the image are quoted content, not your prose.
 
@@ -3085,8 +3088,16 @@ function renderDetail() {
       if (e.shiftKey ? outdentListItems(preview) : indentListItems(preview)) e.preventDefault();
     });
     toolbar.addEventListener("click", (e) => {
-      const tool = e.target.closest("[data-cmd], [data-block], [data-list]");
+      const tool = e.target.closest("[data-cmd], [data-block], [data-list], [data-quote]");
       if (!tool || editMode !== "preview") return;
+      if (tool.dataset.quote != null) {
+        const preview = els.detailPane.querySelector(".js-preview");
+        const done = toggleQuote(preview);
+        if (!done) setStatus("Quote works on the paragraph the cursor is in, or the paragraphs selected.");
+        preview?.focus();
+        updateToolbarPressed();
+        return;
+      }
       if (tool.dataset.list) {
         const preview = els.detailPane.querySelector(".js-preview");
         const moved = tool.dataset.list === "indent" ? indentListItems(preview) : outdentListItems(preview);
@@ -3454,6 +3465,54 @@ function outdentListItems(root) {
   return true;
 }
 
+// ---------- Quotations in the editor ----------
+
+/** The blockquote the selection starts in, if any. */
+function quoteAtSelection(root) {
+  const sel = window.getSelection();
+  if (!root || !sel || sel.rangeCount === 0) return null;
+  const node = sel.getRangeAt(0).startContainer;
+  const el = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
+  const quote = el && el.closest("blockquote");
+  return quote && root.contains(quote) ? quote : null;
+}
+
+/** Quote: the paragraphs the selection is in become one <blockquote>; in a
+    quotation already, it is a quotation no more. Its paragraphs stay
+    paragraphs inside it, as the prompt asks for. */
+function toggleQuote(root) {
+  const quote = quoteAtSelection(root);
+  if (quote) {
+    keepingSelection(() => quote.replaceWith(...quote.childNodes));
+    editorChanged(root);
+    return "unquoted";
+  }
+  const sel = window.getSelection();
+  if (!root || !sel || sel.rangeCount === 0 || !root.contains(sel.getRangeAt(0).commonAncestorContainer)) return false;
+  const range = sel.getRangeAt(0);
+  // The whole blocks the selection touches, at the top of the description:
+  // a quotation is a passage, not part of a line.
+  const blocks = [...root.childNodes].filter((n) => range.intersectsNode(n) && !(n.nodeType === Node.TEXT_NODE && !n.textContent.trim()));
+  if (blocks.length === 0) return false;
+  keepingSelection(() => {
+    const q = document.createElement("blockquote");
+    blocks[0].before(q);
+    for (const n of blocks) {
+      // Words typed straight into the editor go in a paragraph of their own.
+      if (n.nodeType === Node.TEXT_NODE || (n.nodeType === Node.ELEMENT_NODE && !/^(P|UL|OL|TABLE|H[1-6]|DIV)$/.test(n.tagName))) {
+        const p = document.createElement("p");
+        n.before(p);
+        p.append(n);
+        q.append(p);
+      } else {
+        q.append(n);
+      }
+    }
+  });
+  editorChanged(root);
+  return "quoted";
+}
+
 /** Reflect whether the current selection is bold/italic on the toggle
     buttons — without this a screen-reader user can't tell the state. */
 function updateToolbarPressed() {
@@ -3466,6 +3525,9 @@ function updateToolbarPressed() {
   toolbar
     .querySelector('[data-cmd="italic"]')
     ?.setAttribute("aria-pressed", String(document.queryCommandState("italic")));
+  toolbar
+    .querySelector("[data-quote]")
+    ?.setAttribute("aria-pressed", String(!!quoteAtSelection(els.detailPane.querySelector(".js-preview"))));
 }
 document.addEventListener("selectionchange", updateToolbarPressed);
 

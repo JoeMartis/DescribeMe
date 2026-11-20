@@ -84,12 +84,36 @@ check("N5  and the text reads in order", n5.text === "One|Two|Three|Four", n5.te
 // Q1: both prompts put a quotation set apart on the visual in a blockquote.
 const q1 = await page.evaluate(() => ({ desc: buildSystemPrompt(currentVerbosity()), ocr: buildSystemPrompt(currentVerbosity(), "", true) }));
 for (const [name, prompt] of Object.entries(q1)) {
-  check(`Q1  the ${name} prompt puts a set-apart quotation in a <blockquote>`, /in quotation marks, in\s+italics, or in a\s+box or callout of its own — goes in a <blockquote>/.test(prompt) && /attribution printed with it/.test(prompt));
+  check(`Q1  the ${name} prompt puts a set-apart quotation in a <blockquote>`, /in quotation marks, in\s+italics, or in a\s+box or callout of its own — goes in a <blockquote>/.test(prompt));
+  check(`Q1  and its citation after it, not inside, a work's title in <cite>`, /citation printed with it goes\s+in a <p> straight after the\s+<\/blockquote>, not inside it, with the title of\s+any work it names/.test(prompt) && /in <cite>/.test(prompt));
 }
 check("Q1  a blockquote reads as its own block in the text", await page.evaluate(() => {
   const f = sanitizeHtmlFragment("<p>Before</p><blockquote><p>Said.</p></blockquote><p>— Someone</p>");
   return domFragmentToText(f);
 }) === "Before\nSaid.\n— Someone", await page.evaluate(() => JSON.stringify(domFragmentToText(sanitizeHtmlFragment("<p>Before</p><blockquote><p>Said.</p></blockquote><p>— Someone</p>")))));
+
+// Q2: the editor's Quote makes the paragraphs selected one blockquote, and
+// takes it off again.
+await start("<p>Intro.</p><p>To be or not to be.</p><p>That is the question.</p><p>— Hamlet</p>");
+const quoteCaret = (from, to) => page.evaluate(([from, to]) => {
+  const preview = els.detailPane.querySelector(".js-preview");
+  const textOf = (l) => [...preview.querySelectorAll("p")].map((p) => p.firstChild).find((n) => n && n.nodeType === 3 && n.textContent.startsWith(l));
+  preview.focus();
+  window.getSelection().setBaseAndExtent(textOf(from), 1, textOf(to || from), 1);
+}, [from, to]);
+const pressed = () => page.evaluate(() => els.detailPane.querySelector(".js-edit-toolbar [data-quote]").getAttribute("aria-pressed"));
+await quoteCaret("To be", "That is");
+await page.click("#detailPane .js-edit-toolbar [data-quote]");
+check("Q2  Quote puts the paragraphs selected in one blockquote", (await html()) === "<p>Intro.</p><blockquote><p>Tobeornottobe.</p><p>Thatisthequestion.</p></blockquote><p>—Hamlet</p>", await html());
+check("Q2  and shows as pressed there", (await pressed()) === "true");
+await quoteCaret("That is");
+await page.click("#detailPane .js-edit-toolbar [data-quote]");
+check("Q2  Quote again, inside it, takes it off", (await html()) === "<p>Intro.</p><p>Tobeornottobe.</p><p>Thatisthequestion.</p><p>—Hamlet</p>", await html());
+check("Q2  and is no longer pressed", (await pressed()) === "false");
+await quoteCaret("To be");
+await page.click("#detailPane .js-edit-toolbar [data-quote]");
+const q2 = await page.evaluate(() => { commitPendingEdit(); return [...jobs.values()][0].resultHtml.replace(/\s+/g, ""); });
+check("Q2  saved, the blockquote is kept", q2 === "<p>Intro.</p><blockquote><p>Tobeornottobe.</p></blockquote><p>Thatisthequestion.</p><p>—Hamlet</p>", q2);
 
 check("Z  no console errors", problems.length === 0, problems.join(" | "));
 await b.close();
