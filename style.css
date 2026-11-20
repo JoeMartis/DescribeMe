@@ -1567,6 +1567,7 @@ dialog.sheet::backdrop { background: rgba(36, 26, 18, 0.55); }
 /* Slightly separated from the preview it warns about. */
 .math-warning { margin: 10px 0 2px; }
 .context-warning p { margin: 0 0 8px; }
+.context-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
 
 .project-rename-input {
   font-family: var(--font-heading); font-weight: 700;

@@ -1310,6 +1310,36 @@ function previousChanged(job) {
  * null: neither.
  */
 function previousStatus(job) {
+  const status = previousStatusUnchecked(job);
+  // Looked at and kept, with the slide before as it is now: no longer a
+  // question, until that slide changes again.
+  const checked = job.contextFrom && job.contextFrom.checked;
+  if (status && checked) {
+    const now = previousMark(previousInSegment(job));
+    if (now.image === checked.image && now.html === checked.html) return null;
+  }
+  return status;
+}
+
+/** The slide before as it stands: its image, and the description it would
+    be sent with. A description kept against it is kept against this. */
+function previousMark(prev) {
+  return {
+    image: prev ? imageFingerprint(prev) : null,
+    html: prev && prev.state === "done" ? textFingerprint(contextHtml(prev) || "") : null,
+  };
+}
+
+/** The question set aside for this description, as it is: the person read
+    it with the slide before as that is now, and it stands. */
+function keepAgainstPrevious(job) {
+  if (!job.contextFrom || !previousStatusUnchecked(job)) return false;
+  // A new record, not this one changed: history entries hold the old one.
+  job.contextFrom = { ...job.contextFrom, checked: previousMark(previousInSegment(job)) };
+  return true;
+}
+
+function previousStatusUnchecked(job) {
   const from = job.contextFrom;
   if (!from || job.state !== "done") return null;
   const prev = previousInSegment(job);
@@ -2954,6 +2984,7 @@ function renderDetail() {
           ? "This description was written without the visual before this one, which had not been described yet. It has been since: describe this one again to describe it alongside the visual before it."
           : "The visual before this one has changed since this description was written with it in view. Check that it still fits, or describe it again.";
       q(".js-context-redo").addEventListener("click", () => refineJob(job.id, null));
+      q(".js-context-keep").addEventListener("click", () => keepDescription(job.id));
     }
 
     const desc = q(".js-desc");
@@ -3243,6 +3274,23 @@ function renderDetail() {
 
 // ---------- Approve & edit ----------
 
+/** "Keep this description": the warning that the slide before changed, or
+    that this was written without it, is answered without describing again. */
+function keepDescription(jobId) {
+  const job = jobs.get(jobId);
+  if (!job) return;
+  commitPendingEdit();
+  if (!keepAgainstPrevious(job)) return;
+  markDirty();
+  renderRailRow(job);
+  renderDetail();
+  updateControls();
+  updateOverallStatus();
+  // The button has gone with the warning: on to what comes next, approving.
+  (els.detailPane.querySelector(".js-approve") || els.detail).focus();
+  setStatus(`Kept the description of ${job.name} as it is.`);
+}
+
 function toggleApprove(jobId) {
   const job = jobs.get(jobId);
   if (!job || job.state !== "done") return;
@@ -3261,6 +3309,9 @@ function toggleApprove(jobId) {
     return;
   }
   job.approved = !job.approved;
+  // Approving with the question in front of you answers it: the person has
+  // looked at it, with the slide before as it is now, and it stands.
+  if (job.approved) keepAgainstPrevious(job);
   // Approved is done with: the chat closes rather than open on the next
   // slide, as it does after Use this.
   if (job.approved) discussOpen = false;
@@ -3653,7 +3704,14 @@ function validDiscussion(raw, sanitizeToStored) {
 /** A contextFrom read back from a save or a project file, or null. */
 function validContextRecord(raw) {
   if (!raw || typeof raw !== "object" || typeof raw.image !== "string") return null;
-  return { image: raw.image, html: typeof raw.html === "string" ? raw.html : null, ...(raw.missing === true ? { missing: true } : {}) };
+  const mark = (v) => (typeof v === "string" ? v : null);
+  const c = raw.checked;
+  return {
+    image: raw.image,
+    html: typeof raw.html === "string" ? raw.html : null,
+    ...(raw.missing === true ? { missing: true } : {}),
+    ...(c && typeof c === "object" ? { checked: { image: mark(c.image), html: mark(c.html) } } : {}),
+  };
 }
 
 function undoRevision(jobId) {
@@ -7578,6 +7636,7 @@ function batchSignature() {
         // A conversation is work too: without it a chat that changed no
         // description read as saved, and the shared folder skipped it.
         discussionMark(job),
+        job.contextFrom && job.contextFrom.checked ? `${job.contextFrom.checked.image}|${job.contextFrom.checked.html}` : "",
       ].join("\u0001")
     );
   }

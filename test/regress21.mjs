@@ -115,6 +115,30 @@ const redo = sent[before];
 check("S2  describing it again sends the edited description as the previous one", !!redo && redo.images === 2 && /Edited by hand/.test(redo.texts));
 check("S2  and the flag clears", !(await flagged())[2]);
 
+// ---------- K: the question can be answered without describing again
+const editTwo = (words) => page.evaluate((words) => { const j = [...jobs.values()][1]; j.resultHtml = `<h2>Feedbacks Across Models</h2><p>${words}</p>`; renderAll(); selectJob([...jobs.values()][2].id); }, words);
+await editTwo("Edited again.");
+check("K1  a second edit flags slide 3 again", (await flagged())[2] === true);
+await page.click(".js-context-keep");
+const k1 = await page.evaluate(() => ({
+  flag: previousChanged([...jobs.values()][2]),
+  shown: !document.querySelector("#detailPane .js-context-warning").hidden,
+  rail: [...jobs.values()][2].railEl.textContent.replace(/\s+/g, " "),
+  focus: document.activeElement?.classList.contains("js-approve"),
+  status: document.getElementById("statusMessage").textContent,
+}));
+check("K1  Keep this description clears the warning and the rail's Check", !k1.flag && !k1.shown && !/Check:/.test(k1.rail) && k1.focus && /Kept the description/.test(k1.status), JSON.stringify(k1));
+const k2 = await page.evaluate(() => {
+  const record = importedProjectRecord({ format: PROJECT_FILE_FORMAT, version: 1, ...serializeProject() });
+  return !!record.jobs[2].contextFrom?.checked;
+});
+check("K2  kept, it stays kept in a saved project", k2);
+await editTwo("Edited a third time.");
+check("K3  a further change to slide 2 asks again", (await flagged())[2] === true);
+await page.evaluate(() => toggleApprove([...jobs.values()][2].id));
+const k4 = await page.evaluate(() => ({ flag: previousChanged([...jobs.values()][2]), rail: [...jobs.values()][2].railEl.textContent.replace(/\s+/g, " ") }));
+check("K4  approving it answers it too", !k4.flag && /Approved/.test(k4.rail) && !/check:/i.test(k4.rail), JSON.stringify(k4));
+
 // ---------- S3: the identical slide is flagged when a different slide comes before it
 await page.evaluate(() => removeJob([...jobs.values()][2].id));
 const s3 = await page.evaluate(() => { const j = [...jobs.values()].find((x) => x.name === "Cronin_S4_00-08-30.png"); return previousChanged(j); });
