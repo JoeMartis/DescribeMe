@@ -103,7 +103,9 @@ check("R4  and the export carries none", !/sr-note|read as/i.test(opened.exporte
 
 // ---------- R5: a description without readings comes through untouched
 const untouched = await page.evaluate(() => {
-  const html = "<h2>T</h2><p><math><mi>x</mi></math></p><p></p><p>Note.</p>";
+  // The equation in a sentence: one alone in its paragraph is made a
+  // displayed one now (regress26 M1), which is a change of its own.
+  const html = "<h2>T</h2><p>So <math><mi>x</mi></math> is it.</p><p></p><p>Note.</p>";
   const holder = document.createElement("div");
   holder.appendChild(sanitizeHtmlFragment(html));
   return holder.innerHTML === html;
