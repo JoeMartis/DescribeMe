@@ -214,6 +214,14 @@ selected slide's image plus its description on the right.
      are `alt=""` in the HTML: the description after each is its text
      alternative. The typesetter, fonts and speech rules (`vendor/`, about
      14 MB over the network) load only when someone asks for a PDF.
+   - **PDF, descriptions as alt text** — the same PDF with each visual's
+     title and image only. The image is a Figure whose alt text is the
+     description, read by a screen reader and not shown: one run of plain
+     text, as alt text is, so headings, paragraphs and list items become
+     sentences, a table is read row by row with each cell's column header,
+     and equations are their spoken reading. Also PDF/UA-1 (`regress18`
+     A4). For where a PDF of the slides is wanted with the descriptions
+     carried in it; the other PDF keeps their structure and shows them.
 
    Numbering and resizing follow Settings, as for the zip. The heading-level
    and batch-heading settings do not apply: a page of its own always starts

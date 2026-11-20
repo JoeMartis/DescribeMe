@@ -554,6 +554,10 @@
       <button type="button" class="btn" id="learnerPdfBtn" aria-describedby="learnerPdfHint">Download PDF</button>
       <p class="hint" id="learnerPdfHint">A tagged, accessible PDF (PDF/UA). A screen reader reads each equation as a whole from a spoken version, rather than letting a learner explore it. The first PDF loads the typesetter, about 14&nbsp;MB; later ones are quick.</p>
     </div>
+    <div class="learner-option">
+      <button type="button" class="btn" id="learnerPdfAltBtn" aria-describedby="learnerPdfAltHint">Download PDF, descriptions as alt text</button>
+      <p class="hint" id="learnerPdfAltHint">The same PDF with each visual's title and image only: its description is the image's alt text, read by a screen reader but not shown. In alt text the description's headings, lists and tables become plain sentences, and equations are spoken.</p>
+    </div>
 
     <p class="error" id="learnerError" role="alert" hidden></p>
     <!-- In-dialog live region, as in Projects: showModal() makes the page's

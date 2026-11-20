@@ -447,6 +447,10 @@ function block(node, ctx) {
     case "STYLE":
     case "TEMPLATE":
       return "";
+    case "DIV":
+      // A description that is its image's alt text (the PDF with the
+      // descriptions as alt text): read into the image, not set on the page.
+      return node.hasAttribute("data-alt-for") ? "" : blocks(node, ctx);
     default:
       return blocks(node, ctx);
   }
@@ -489,6 +493,58 @@ function tableBlock(tableEl, ctx) {
 }
 
 /**
+ * A description as alt text: one run of plain text, as alt text is. Each
+ * heading, paragraph, list item and table cell ends as a sentence does, so a
+ * screen reader pauses between them; each equation is its spoken reading.
+ */
+export function altTextOf(el) {
+  const parts = [];
+  let line = "";
+  const flush = () => {
+    // No space left before a full stop or comma after a spoken equation.
+    const text = line.replace(/\s+/g, " ").replace(/ ([.,;:!?])/g, "$1").trim();
+    line = "";
+    if (text) parts.push(/[.!?:;,]$/.test(text) ? text : `${text}.`);
+  };
+  const said = (el) => {
+    const saved = line;
+    line = "";
+    el.childNodes.forEach(walk);
+    const text = line.replace(/\s+/g, " ").replace(/ ([.,;:!?])/g, "$1").trim();
+    line = saved;
+    return text;
+  };
+  const walk = (node) => {
+    if (node.nodeType === Node.TEXT_NODE) { line += node.data; return; }
+    if (node.nodeType !== Node.ELEMENT_NODE) return;
+    if (node.namespaceURI === MATHML_NS) {
+      if (node.localName === "math") line += ` ${speak(node)} `;
+      return;
+    }
+    // A table, row by row, each cell with its column's header: "Sign of
+    // ΔH: −, Sign of ΔS: +." A cell on its own says nothing.
+    if (node.nodeName === "TABLE") {
+      flush();
+      const rows = [...node.querySelectorAll("tr")];
+      const head = rows[0] && [...rows[0].children].every((c) => c.nodeName === "TH") ? [...rows[0].children].map(said) : null;
+      if (node.querySelector("caption")) { line = said(node.querySelector("caption")); flush(); }
+      for (const row of head ? rows.slice(1) : rows) {
+        line = [...row.children].map((c, i) => (head && head[i] ? `${head[i]}: ${said(c)}` : said(c))).join(", ");
+        flush();
+      }
+      return;
+    }
+    if (isInline(node) || node.nodeName === "BR") { node.childNodes.forEach(walk); if (node.nodeName === "BR") line += " "; return; }
+    flush();
+    node.childNodes.forEach(walk);
+    flush();
+  };
+  el.childNodes.forEach(walk);
+  flush();
+  return parts.join(" ");
+}
+
+/**
  * The slide image. In the HTML it has alt="" — the description that follows
  * it is the text alternative — and the PDF says the same thing the PDF way:
  * an artifact, which a screen reader passes over. A Figure with no alt text
@@ -506,9 +562,15 @@ function image(img, ctx) {
   // 96 px to the inch, rather than being blown up into a blur.
   const px = Number(img.getAttribute("width")) || 0;
   const width = px && px < 624 ? `${Math.round(px * 0.75)}pt` : "100%";
+  // With the descriptions as alt text, the image is a figure carrying its
+  // description, which is not on the page.
+  const key = img.getAttribute("data-alt-from");
+  const described = key && [...img.ownerDocument.querySelectorAll("[data-alt-for]")].find((d) => d.getAttribute("data-alt-for") === key);
+  const alt = described ? altTextOf(described) : "";
   // The hairline matches the HTML's border: a slide with a white background
   // otherwise has no edge on a white page.
-  return `#pdf.artifact(block(above: 1em, below: 1em, stroke: 0.5pt + luma(75%), image(${typstString(path)}, width: ${width})))`;
+  const picture = `block(above: 1em, below: 1em, stroke: 0.5pt + luma(75%), image(${typstString(path)}, width: ${width}${alt ? `, alt: ${typstString(alt)}` : ""}))`;
+  return alt ? `#${picture}` : `#pdf.artifact(${picture})`;
 }
 
 function base64ToBytes(base64) {

@@ -188,6 +188,41 @@ check("P7  prose characters Typst treats as markup arrive as plain text",
   check("P8  a second PDF comes from the loaded typesetter", !!again.file && Date.now() - t1 < firstMs, `${Date.now() - t1} ms vs ${firstMs} ms`);
 }
 
+// ---------- A: the PDF with the descriptions as alt text
+const altPdf = await download("learnerPdfAltBtn", "alt.pdf", 60000);
+check("A1  the alt-text PDF downloads, named as such", !!altPdf.file && altPdf.name === "Cell-Biology-visual-descriptions-alt-text.pdf", altPdf.name || "");
+const altRaw = altPdf.file ? fs.readFileSync(altPdf.file).toString("latin1") : "";
+const altObjects = new Map();
+for (const m of altRaw.matchAll(/(?:^|\n)(\d+) 0 obj([\s\S]*?)endobj/g)) altObjects.set(Number(m[1]), m[2]);
+const altStructs = [...altObjects.values()].filter((o) => /\/S \/\w+/.test(o));
+const altOfType = (t) => altStructs.filter((o) => new RegExp(`/S /${t}\\b`).test(o));
+// In object order, which need not be page order: found by what they say.
+const figures = altOfType("Figure").map((o) => pdfString(o, "Alt") || "");
+const gibbsAlt = figures.find((a) => a.startsWith("The change")) || "";
+const trickyAlt = figures.find((a) => a.startsWith("Roots")) || "";
+check("A2  each image is a figure with alt text", figures.length === 2 && figures.every((a) => a.trim()), JSON.stringify(figures).slice(0, 200));
+check("A2  the alt text is the description, equations spoken",
+  /^The change in free energy decides whether a reaction is spontaneous\. Delta G equals Delta H minus T Delta S\. When Delta G is less than 0 the reaction is spontaneous\./.test(gibbsAlt) &&
+  /Water is H sub 2 O\. Sign of .H: −, Sign of .S: \+\.$/.test(gibbsAlt), gibbsAlt.slice(0, 300));
+check("A2  a description's subheading is in its alt text, not the page", /Tricky characters\./.test(trickyAlt) && altOfType("H3").length === 0, `H3=${altOfType("H3").length}`);
+check("A3  the page keeps the batch title and each visual's title",
+  altOfType("H1").length === 1 && altOfType("H2").length === 2, `H1=${altOfType("H1").length} H2=${altOfType("H2").length}`);
+check("A3  and nothing of the descriptions: no lists, tables or equations",
+  altOfType("L").length === 0 && altOfType("Table").length === 0 && altOfType("Formula").length === 0 && altOfType("P").length <= 2,
+  `L=${altOfType("L").length} Table=${altOfType("Table").length} Formula=${altOfType("Formula").length} P=${altOfType("P").length}`);
+const altDoc = await page.evaluate(async () => {
+  const withAlt = (await learnerDocument({ altText: true })).html;
+  const plain = (await learnerDocument()).html;
+  return {
+    lead: /<p>2 visuals\. Each visual's description is its image's alt text, which a screen reader reads\.<\/p>/.test(withAlt),
+    held: (withAlt.match(/data-alt-for=/g) || []).length,
+    plainUntouched: !/data-alt-for|data-alt-from/.test(plain) && /described in order/.test(plain),
+  };
+});
+check("A3  the page says where the descriptions are", altDoc.lead, JSON.stringify(altDoc));
+check("A3  the HTML download and the other PDF are as they were", altDoc.held === 2 && altDoc.plainUntouched, JSON.stringify(altDoc));
+check("A3  claims PDF/UA-1 like the other", /<pdfuaid:part>1<\/pdfuaid:part>/.test(altRaw));
+
 // veraPDF, when it is available.
 if (process.env.VERAPDF_LIB && pdf.file) {
   let report = "";
@@ -197,6 +232,15 @@ if (process.env.VERAPDF_LIB && pdf.file) {
     report = String(err.stdout || err.message);
   }
   check("P9  veraPDF: PDF/UA-1 compliant", /^PASS /m.test(report), report.trim().split("\n").slice(0, 6).join(" | "));
+  if (altPdf.file) {
+    let altReport = "";
+    try {
+      altReport = execFileSync("java", ["-cp", `${process.env.VERAPDF_LIB}/*`, "org.verapdf.apps.GreenfieldCliWrapper", "-f", "ua1", "--format", "text", altPdf.file], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+    } catch (err) {
+      altReport = String(err.stdout || err.message);
+    }
+    check("A4  veraPDF: the alt-text PDF is PDF/UA-1 compliant too", /^PASS /m.test(altReport), altReport.trim().split("\n").slice(0, 6).join(" | "));
+  }
 } else {
   console.log("SKIP  P9  veraPDF — set VERAPDF_LIB to a folder of its jars to run it");
 }

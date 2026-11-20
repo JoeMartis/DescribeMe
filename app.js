@@ -687,6 +687,7 @@ const els = {
   learnerCount: document.getElementById("learnerCount"),
   learnerHtmlBtn: document.getElementById("learnerHtmlBtn"),
   learnerPdfBtn: document.getElementById("learnerPdfBtn"),
+  learnerPdfAltBtn: document.getElementById("learnerPdfAltBtn"),
   learnerStatus: document.getElementById("learnerStatus"),
   learnerError: document.getElementById("learnerError"),
   exportResize: document.getElementById("exportResize"),
@@ -6908,7 +6909,7 @@ function shiftHeadings(container, titleLevel) {
 // tabindex, which exists for Studio and is only a stray tab stop in a page of
 // its own; and the gap above each visual comes from that page's stylesheet
 // (inlineGap: false), since there is no editor there to strip it.
-function exportBlockFor({ job, imageName, titleLevel, position, total, imageSrc, imageSize, focusableTitles = true, inlineGap = true }) {
+function exportBlockFor({ job, imageName, titleLevel, position, total, imageSrc, imageSize, focusableTitles = true, inlineGap = true, altText = false }) {
   const container = document.createElement("div");
   container.innerHTML = job.resultHtml;
   // "Same as the previous visual." has no heading, so it had no place in a
@@ -6973,6 +6974,20 @@ function exportBlockFor({ job, imageName, titleLevel, position, total, imageSrc,
   // running unbroken from the summary onward.
   const first = container.children[0];
   const anchor = first && /^H[1-6]$/.test(first.tagName) ? first : null;
+
+  // The learner PDF with the descriptions as alt text: the title stays on the
+  // page, and the rest of the description goes with the image, for
+  // learner-pdf.mjs to read into its alt text. It is never shown.
+  if (altText) {
+    const key = `alt-${job.id}`;
+    const described = document.createElement("div");
+    described.setAttribute("data-alt-for", key);
+    described.hidden = true;
+    for (const node of [...container.childNodes]) if (node !== anchor) described.append(node);
+    holder.querySelector("img").setAttribute("data-alt-from", key);
+    container.append(...holder.childNodes, described);
+    return { html: container.innerHTML, clamped };
+  }
 
   const imageNodes = [document.createTextNode("\n"), ...holder.childNodes, document.createTextNode("\n")];
   if (anchor) imageNodes.reverse().forEach((node) => anchor.after(node));
@@ -7433,7 +7448,7 @@ function learnerStem(batch) {
   return `${safeFileStem(batch, new Set(), { keepDots: true })}-visual-descriptions`;
 }
 
-async function learnerDocument() {
+async function learnerDocument({ altText = false } = {}) {
   const prep = await prepareApprovedImages();
   if (prep.approved.length === 0) return null;
   if (prep.entries.length === 0) throw new Error(nothingExportedMessage(prep.skipped));
@@ -7481,12 +7496,19 @@ async function learnerDocument() {
           imageSize,
           focusableTitles: false,
           inlineGap: false,
+          altText,
         })
       );
     }
   }
   const title = `${batch}: visual descriptions`;
-  const lead = counted ? `<p>${total} visual${total === 1 ? "" : "s"}, described in order.</p>\n` : "";
+  // With the descriptions as alt text, the page says where they are: nobody
+  // looking at it can see them.
+  const lead = altText
+    ? `<p>${counted ? `${total} visual${total === 1 ? "" : "s"}. ` : ""}Each visual's description is its image's alt text, which a screen reader reads.</p>\n`
+    : counted
+      ? `<p>${total} visual${total === 1 ? "" : "s"}, described in order.</p>\n`
+      : "";
   const html =
     `<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n` +
     `<meta name="viewport" content="width=device-width, initial-scale=1">\n` +
@@ -7530,10 +7552,11 @@ function setLearnerBusy(busy) {
   learnerBusy = busy;
   els.learnerHtmlBtn.disabled = busy;
   els.learnerPdfBtn.disabled = busy;
+  els.learnerPdfAltBtn.disabled = busy;
   els.learnerDialog.querySelector(".sheet-body").setAttribute("aria-busy", busy ? "true" : "false");
 }
 
-async function runLearnerDownload(kind) {
+async function runLearnerDownload(kind, options = {}) {
   if (learnerBusy) return;
   if (saveInProgress) {
     setLearnerError("Another file is still being saved. Try again once it is done.");
@@ -7541,13 +7564,13 @@ async function runLearnerDownload(kind) {
   }
   saveInProgress = true;
   try {
-    await runLearnerDownloadNow(kind);
+    await runLearnerDownloadNow(kind, options);
   } finally {
     saveInProgress = false;
   }
 }
 
-async function runLearnerDownloadNow(kind) {
+async function runLearnerDownloadNow(kind, { altText = false } = {}) {
   // Said before the Save dialog, not after a folder has been picked for it.
   if (!jobList().some((j) => j.state === "done" && j.approved)) {
     setLearnerError("Approve at least one visual first — only approved visuals go into a learner download.");
@@ -7561,7 +7584,8 @@ async function runLearnerDownloadNow(kind) {
     return;
   }
   const batch = els.batchName.value.trim() || "Untitled batch";
-  const target = await askWhereToSave(`${learnerStem(batch)}.${kind}`, kind);
+  const fileStem = (stem) => (altText ? `${stem}-alt-text` : stem);
+  const target = await askWhereToSave(`${fileStem(learnerStem(batch))}.${kind}`, kind);
   if (target === "cancelled") {
     setLearnerStatus("Not saved: the save was cancelled.");
     return;
@@ -7570,7 +7594,7 @@ async function runLearnerDownloadNow(kind) {
   setLearnerError("");
   setLearnerStatus(kind === "pdf" ? "Preparing the PDF…" : "Preparing the HTML file…");
   try {
-    const doc = await learnerDocument();
+    const doc = await learnerDocument({ altText });
     if (!doc) {
       await discardSaveTarget(target);
       setLearnerStatus("");
@@ -7602,7 +7626,7 @@ async function runLearnerDownloadNow(kind) {
     // even though nothing is ever applied.
     const parsed = new DOMParser().parseFromString(doc.html.replace(/<style>[\s\S]*?<\/style>/, ""), "text/html");
     const { bytes, brokenEquations } = await learnerPdf(parsed, { onProgress: setLearnerStatus });
-    const savedAs = await saveBlob(new Blob([bytes], { type: "application/pdf" }), `${doc.stem}.pdf`, target);
+    const savedAs = await saveBlob(new Blob([bytes], { type: "application/pdf" }), `${fileStem(doc.stem)}.pdf`, target);
     const broken =
       brokenEquations > 0
         ? ` ${brokenEquations} equation${brokenEquations === 1 ? "" : "s"} could not be typeset and ${brokenEquations === 1 ? "appears" : "appear"} as ${brokenEquations === 1 ? "its" : "their"} spoken reading in italics — the HTML download has ${brokenEquations === 1 ? "it" : "them"} in full.`
@@ -7637,6 +7661,7 @@ els.learnerBtn.addEventListener("click", openLearnerDialog);
 els.learnerClose.addEventListener("click", () => els.learnerDialog.close());
 els.learnerHtmlBtn.addEventListener("click", () => runLearnerDownload("html"));
 els.learnerPdfBtn.addEventListener("click", () => runLearnerDownload("pdf"));
+els.learnerPdfAltBtn.addEventListener("click", () => runLearnerDownload("pdf", { altText: true }));
 
 // ---------- Verbosity display & version badge ----------
 
