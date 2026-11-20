@@ -115,6 +115,26 @@ await page.click("#detailPane .js-edit-toolbar [data-quote]");
 const q2 = await page.evaluate(() => { commitPendingEdit(); return [...jobs.values()][0].resultHtml.replace(/\s+/g, ""); });
 check("Q2  saved, the blockquote is kept", q2 === "<p>Intro.</p><blockquote><p>Tobeornottobe.</p></blockquote><p>Thatisthequestion.</p><p>—Hamlet</p>", q2);
 
+// M1: an equation is centred or in its sentence by where it stands, however
+// the model marked it.
+const m1 = await page.evaluate(() => {
+  const E = "<mi>x</mi>";
+  const out = (html) => { const d = document.createElement("div"); d.append(sanitizeHtmlFragment(html)); return d.innerHTML; };
+  return {
+    alone: out(`<p><math>${E}</math></p>`),
+    sentence: out(`<p>Where <math display="block">${E}</math> is the root.</p>`),
+    item: out(`<ul><li><math display="block">${E}</math></li></ul>`),
+    two: out(`<p><math>${E}</math><br><math>${E}</math></p>`),
+    top: out(`<math>${E}</math>`),
+    kept: out(`<p><math display="block">${E}</math></p>`),
+  };
+});
+const blockCount = (s) => (s.match(/display="block"/g) || []).length;
+check("M1  an equation alone in its paragraph is a displayed one", blockCount(m1.alone) === 1 && blockCount(m1.kept) === 1 && blockCount(m1.top) === 1 && blockCount(m1.two) === 2, JSON.stringify(m1));
+check("M1  one in a sentence, or a list item, is inline", blockCount(m1.sentence) === 0 && blockCount(m1.item) === 0, JSON.stringify(m1));
+const m2 = await page.evaluate(() => [buildSystemPrompt(currentVerbosity()), buildSystemPrompt(currentVerbosity(), "", true)].map((p) => /line of its own goes in a <p> of its own,\s+as\s+<math display="block">/.test(p) && /with no display attribute/.test(p)));
+check("M2  both prompts say which equations are displayed", m2.every(Boolean), JSON.stringify(m2));
+
 check("Z  no console errors", problems.length === 0, problems.join(" | "));
 await b.close();
 const failed = results.filter((r) => !r.ok);

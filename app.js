@@ -37,6 +37,9 @@ Equations and symbols
 - Render every equation in MathML so screen readers can parse it. Do not
   follow it with a spoken or plain-language reading: screen readers read the
   MathML itself.
+- An equation the visual sets on a line of its own goes in a <p> of its own,
+  as <math display="block">. An equation or symbol within a sentence stays in
+  that sentence, as <math> with no display attribute.
 - Spell out each symbol and abbreviation the first time it appears.
 
 Figures, diagrams, processes
@@ -270,6 +273,9 @@ Equations
   <mrow>.
 - Do not follow an equation with a spoken or plain-language reading: screen
   readers read the MathML itself.
+- An equation set on a line of its own goes in a <p> of its own, as
+  <math display="block">. An expression within a line of text stays in that
+  line, as <math> with no display attribute.
 
 What not to do — this is the substance of the task
 - Do not open with a summary, a topic sentence, or any framing. Begin with the
@@ -5364,7 +5370,36 @@ function sanitizeHtmlFragment(html) {
 
   walk(template.content);
   dropReadings(template.content);
+  settleMathDisplay(template.content);
   return template.content;
+}
+
+/**
+ * Whether an equation is set on a line of its own, centred, or in its
+ * sentence, by where it stands rather than by whether the model wrote
+ * display="block": it wrote it for some equations and not for others of the
+ * same kind, so the same slide came back centred one time and not the next.
+ * An equation that is all its paragraph holds is a displayed one; one with
+ * words beside it, or in a list item, a table cell or a heading, is inline.
+ */
+function settleMathDisplay(root) {
+  const MATHML = "http://www.w3.org/1998/Math/MathML";
+  for (const math of root.querySelectorAll("math")) {
+    if (math.namespaceURI !== MATHML || math.parentElement?.closest("math")) continue;
+    const parent = math.parentNode;
+    const paragraph = parent === root || (parent.nodeType === Node.ELEMENT_NODE && /^(P|DIV)$/.test(parent.tagName));
+    const alone =
+      paragraph &&
+      [...parent.childNodes].every(
+        (n) =>
+          (n.nodeType === Node.TEXT_NODE && !n.textContent.trim()) ||
+          (n.nodeType === Node.ELEMENT_NODE && (n.tagName === "BR" || (n.localName === "math" && n.namespaceURI === MATHML))) ||
+          n.nodeType === Node.COMMENT_NODE
+      );
+    // At the top of the description, loose text beside it is its sentence.
+    if (alone) math.setAttribute("display", "block");
+    else math.removeAttribute("display");
+  }
 }
 
 function domFragmentToText(fragment) {

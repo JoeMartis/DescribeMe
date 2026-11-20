@@ -354,6 +354,9 @@ not just to produce accessible output:
 The **generated descriptions** are the other half of this: the prompt asks
 for semantic headings, list grouping, MathML for every equation (with no
 spoken reading added beside it: screen readers read the MathML),
+an equation on a line of its own as `display="block"` and one in a
+sentence inline (settled again on the way in by where the equation stands:
+alone in its paragraph or not, whatever the model marked),
 paragraph-based diagram descriptions (`<figure>`
 is reserved for the slide image in the export, and any figure markup in a
 description — model-written or hand-edited — is unwrapped to paragraphs on
